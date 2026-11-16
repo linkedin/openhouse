@@ -42,8 +42,8 @@ Recognized service rejections map to the Iceberg exceptions callers already use:
 | Insufficient permission | `ForbiddenException` |
 | Other transport or service failure | `RESTException` |
 
-The client uses the service's structured error type to distinguish these outcomes. Malformed,
-unrecognized, or operation-inappropriate error responses remain `RESTException` failures.
+The client maps each operation's HTTP status to these outcomes. Other statuses remain
+`RESTException` failures.
 
 ## Operational behavior
 
@@ -63,4 +63,4 @@ This surface is available in the packaged Iceberg 1.5 Java catalog. Iceberg 1.2 
 unchanged.
 
 Deploy the matching HouseTables API and Tables Service namespace API before this client. The
-service must return the structured error types required for the mapped Iceberg exceptions.
+service must return the HTTP statuses required for the mapped Iceberg exceptions.
