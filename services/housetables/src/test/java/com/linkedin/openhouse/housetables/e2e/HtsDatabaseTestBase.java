@@ -34,7 +34,7 @@ import org.testcontainers.tidb.TiDBContainer;
  * The reset is raw SQL through the real service datasource, so it never hydrates a corrupt
  * discriminator and works unchanged in the mock-application contexts, whose datasource is real.
  */
-public abstract class HtsMysqlTestBase {
+public abstract class HtsDatabaseTestBase {
 
   public static final String DATABASE = "hts_test";
 

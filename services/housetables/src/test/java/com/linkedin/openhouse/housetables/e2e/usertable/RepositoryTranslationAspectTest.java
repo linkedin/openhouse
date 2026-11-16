@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
@@ -31,7 +31,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * a generic 500 with no diagnostic, and the suite would otherwise still pass.
  */
 @SpringBootTest(classes = SpringHtsTestApplication.class)
-public class RepositoryTranslationAspectTest extends HtsMysqlTestBase {
+public class RepositoryTranslationAspectTest extends HtsDatabaseTestBase {
 
   private static final String ASPECT_DB = "aspect_db";
 

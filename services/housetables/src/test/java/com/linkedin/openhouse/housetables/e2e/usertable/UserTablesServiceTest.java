@@ -15,7 +15,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
@@ -58,7 +58,7 @@ import org.springframework.data.util.Pair;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 @SpringBootTest(classes = SpringHtsTestApplication.class)
-public class UserTablesServiceTest extends HtsMysqlTestBase {
+public class UserTablesServiceTest extends HtsDatabaseTestBase {
 
   private static final String CASE_DB_1 = "deleteDb1";
   private static final String CASE_DB_2 = "deleteDb2";

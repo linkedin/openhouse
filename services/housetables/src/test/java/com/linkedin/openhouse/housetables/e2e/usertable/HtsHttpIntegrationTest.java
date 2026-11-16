@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.e2e.fixture.HtsHttpTestClient;
 import com.linkedin.openhouse.housetables.e2e.fixture.HtsHttpTestClient.Response;
@@ -54,7 +54,7 @@ import org.springframework.test.context.ContextConfiguration;
     classes = SpringHtsTestApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class HtsHttpIntegrationTest extends HtsMysqlTestBase {
+public class HtsHttpIntegrationTest extends HtsDatabaseTestBase {
 
   private static final String RUN_ID =
       Long.toString(System.currentTimeMillis(), 36)

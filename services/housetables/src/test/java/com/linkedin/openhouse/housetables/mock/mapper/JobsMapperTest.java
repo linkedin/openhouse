@@ -3,7 +3,7 @@ package com.linkedin.openhouse.housetables.mock.mapper;
 import com.linkedin.openhouse.housetables.api.spec.model.Job;
 import com.linkedin.openhouse.housetables.dto.mapper.JobMapper;
 import com.linkedin.openhouse.housetables.dto.model.JobDto;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.JobRow;
 import com.linkedin.openhouse.housetables.model.JobRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRow;
@@ -14,7 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-public class JobsMapperTest extends HtsMysqlTestBase {
+public class JobsMapperTest extends HtsDatabaseTestBase {
 
   private static final Job TEST_JOB =
       Job.builder().jobId("id1").state("QUEUED").version("1").build();

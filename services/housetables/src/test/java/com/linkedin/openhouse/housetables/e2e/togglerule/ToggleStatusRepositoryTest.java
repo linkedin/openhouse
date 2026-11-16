@@ -4,7 +4,7 @@ import static com.linkedin.openhouse.housetables.e2e.togglerule.ToggleStatusesTe
 
 import com.google.common.collect.ImmutableList;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.TableToggleRule;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.ToggleStatusHtsJdbcRepository;
 import java.util.List;
@@ -16,7 +16,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class ToggleStatusRepositoryTest extends HtsMysqlTestBase {
+public class ToggleStatusRepositoryTest extends HtsDatabaseTestBase {
   @Autowired ToggleStatusHtsJdbcRepository htsRepository;
 
   @Test

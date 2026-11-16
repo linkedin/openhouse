@@ -8,7 +8,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.Job;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.JobMapper;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.JobRow;
 import com.linkedin.openhouse.housetables.model.JobRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
@@ -34,7 +34,7 @@ import org.springframework.util.MultiValueMapAdapter;
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @AutoConfigureMockMvc
-public class JobControllerTest extends HtsMysqlTestBase {
+public class JobControllerTest extends HtsDatabaseTestBase {
 
   private final JobRow testJobRow =
       JobRow.builder()

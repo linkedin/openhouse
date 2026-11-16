@@ -2,7 +2,7 @@ package com.linkedin.openhouse.housetables.e2e.togglerule;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.api.spec.model.ToggleStatusEnum;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.services.ToggleStatusesService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -12,7 +12,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class ToggleStatusesServiceTest extends HtsMysqlTestBase {
+public class ToggleStatusesServiceTest extends HtsDatabaseTestBase {
   @Autowired ToggleStatusesService toggleStatusesService;
 
   @Test

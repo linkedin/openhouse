@@ -4,7 +4,7 @@ import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.housetables.api.spec.model.Job;
 import com.linkedin.openhouse.housetables.dto.mapper.JobMapper;
 import com.linkedin.openhouse.housetables.dto.model.JobDto;
-import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.model.JobRow;
 import com.linkedin.openhouse.housetables.model.JobRowPrimaryKey;
@@ -24,7 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.util.Pair;
 
 @SpringBootTest(classes = SpringHtsTestApplication.class)
-public class JobServiceTest extends HtsMysqlTestBase {
+public class JobServiceTest extends HtsDatabaseTestBase {
 
   private final JobRow testJobRow =
       JobRow.builder()
