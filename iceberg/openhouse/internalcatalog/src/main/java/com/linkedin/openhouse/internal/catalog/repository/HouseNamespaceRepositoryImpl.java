@@ -1,11 +1,11 @@
 package com.linkedin.openhouse.internal.catalog.repository;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
+import com.linkedin.openhouse.housetables.client.model.NamespaceErrorResponse;
 import com.linkedin.openhouse.housetables.client.model.NamespaceMetadataResponse;
 import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesResponseBody;
@@ -44,8 +44,9 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
                           .namespaceName(namespaceName)
                           .properties(properties)),
               WRITE_TIMEOUT);
-    } catch (WebClientResponseException exception) {
-      if (exception.getRawStatusCode() == 409 && isError(exception, "AlreadyExistsException")) {
+    } catch (WebClientResponseException.Conflict exception) {
+      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
+      if ("AlreadyExistsException".equals(errorResponse.getType())) {
         throw new DuplicateCreationException("Namespace already exists", exception);
       }
       throw exception;
@@ -56,56 +57,71 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
 
   @Override
   public NamespaceMetadata getByName(String namespaceName) throws NotFoundException {
-    NamespaceMetadataResponse result =
-        executeExisting(() -> namespaceApi.getNamespace(namespaceName), READ_TIMEOUT);
+    NamespaceMetadataResponse result;
+    try {
+      result = execute(() -> namespaceApi.getNamespace(namespaceName), READ_TIMEOUT);
+    } catch (WebClientResponseException.NotFound exception) {
+      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
+      if ("NotFoundException".equals(errorResponse.getType())) {
+        throw new NotFoundException("Namespace does not exist", exception);
+      }
+      throw exception;
+    }
     return new NamespaceMetadata(
         result.getNamespaceUuid(), result.getNamespaceName(), Map.copyOf(result.getProperties()));
   }
 
   @Override
   public void delete(String namespaceName) throws NotFoundException {
-    executeExisting(() -> namespaceApi.deleteNamespace(namespaceName), WRITE_TIMEOUT);
-  }
-
-  @Override
-  public NamespacePropertyUpdate updateProperties(
-      String namespaceName, Map<String, String> updates, Set<String> removals)
-      throws NotFoundException {
-    UpdateNamespacePropertiesResponseBody result =
-        executeExisting(
-            () ->
-                namespaceApi.updateNamespaceProperties(
-                    namespaceName,
-                    new UpdateNamespacePropertiesRequestBody().updates(updates).removals(removals)),
-            WRITE_TIMEOUT);
-    return new NamespacePropertyUpdate(
-        List.copyOf(result.getUpdated()),
-        List.copyOf(result.getRemoved()),
-        List.copyOf(result.getMissing()));
-  }
-
-  private <T> T executeExisting(Supplier<Mono<T>> request, Duration timeout)
-      throws NotFoundException {
     try {
-      return execute(request, timeout);
-    } catch (WebClientResponseException exception) {
-      if (exception.getRawStatusCode() == 404 && isError(exception, "NotFoundException")) {
+      execute(() -> namespaceApi.deleteNamespace(namespaceName), WRITE_TIMEOUT);
+    } catch (WebClientResponseException.NotFound exception) {
+      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
+      if ("NotFoundException".equals(errorResponse.getType())) {
         throw new NotFoundException("Namespace does not exist", exception);
       }
       throw exception;
     }
   }
 
-  private boolean isError(WebClientResponseException exception, String expectedType) {
+  @Override
+  public NamespacePropertyUpdate updateProperties(
+      String namespaceName, Map<String, String> updates, Set<String> removals)
+      throws NotFoundException {
+    UpdateNamespacePropertiesResponseBody result;
     try {
-      return expectedType.equals(
-          new ObjectMapper()
-              .readTree(exception.getResponseBodyAsString())
-              .path("type")
-              .textValue());
+      result =
+          execute(
+              () ->
+                  namespaceApi.updateNamespaceProperties(
+                      namespaceName,
+                      new UpdateNamespacePropertiesRequestBody()
+                          .updates(updates)
+                          .removals(removals)),
+              WRITE_TIMEOUT);
+    } catch (WebClientResponseException.NotFound exception) {
+      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
+      if ("NotFoundException".equals(errorResponse.getType())) {
+        throw new NotFoundException("Namespace does not exist", exception);
+      }
+      throw exception;
+    }
+    return new NamespacePropertyUpdate(
+        List.copyOf(result.getUpdated()),
+        List.copyOf(result.getRemoved()),
+        List.copyOf(result.getMissing()));
+  }
+
+  private NamespaceErrorResponse decodeNamespaceErrorResponse(
+      WebClientResponseException exception) {
+    try {
+      return namespaceApi
+          .getApiClient()
+          .getObjectMapper()
+          .readValue(exception.getResponseBodyAsString(), NamespaceErrorResponse.class);
     } catch (JsonProcessingException decodingFailure) {
       exception.addSuppressed(decodingFailure);
-      return false;
+      throw exception;
     }
   }
 
