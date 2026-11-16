@@ -11,7 +11,9 @@ import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -140,6 +142,26 @@ class HouseNamespaceRepositoryImplTest {
     assertInstanceOf(
         TimeoutException.class,
         assertThrows(RuntimeException.class, () -> timedRepository.delete("foo")).getCause());
+    verify(namespaceApi).deleteNamespace("foo");
+  }
+
+  @Test
+  void interruptedWaitRestoresInterruptAndReportsCancellation() {
+    NamespaceApi namespaceApi = mock(NamespaceApi.class);
+    AtomicBoolean requestCancelled = new AtomicBoolean();
+    when(namespaceApi.deleteNamespace("foo"))
+        .thenReturn(Mono.<Void>never().doOnCancel(() -> requestCancelled.set(true)));
+    HouseNamespaceRepository interruptedRepository = new HouseNamespaceRepositoryImpl(namespaceApi);
+    Thread.currentThread().interrupt();
+    try {
+      CancellationException exception =
+          assertThrows(CancellationException.class, () -> interruptedRepository.delete("foo"));
+      assertInstanceOf(InterruptedException.class, exception.getCause());
+      assertTrue(Thread.currentThread().isInterrupted());
+      assertTrue(requestCancelled.get());
+    } finally {
+      Thread.interrupted();
+    }
     verify(namespaceApi).deleteNamespace("foo");
   }
 

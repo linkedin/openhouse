@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
@@ -101,7 +102,10 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
     } catch (InterruptedException exception) {
       pending.cancel(true);
       Thread.currentThread().interrupt();
-      throw new IllegalStateException("HouseTables namespace operation interrupted", exception);
+      CancellationException cancellation =
+          new CancellationException("HouseTables namespace operation interrupted");
+      cancellation.initCause(exception);
+      throw cancellation;
     } catch (ExecutionException exception) {
       throw Exceptions.propagate(exception.getCause());
     }
