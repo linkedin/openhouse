@@ -93,9 +93,9 @@ public class TableOperationsRow {
   /**
    * Earliest time this operation's {@code (table_uuid, operation_type)} may be (re)scheduled, set
    * when an attempt reaches a terminal outcome (reported success/failure, or expiry). {@code null}
-   * means available now. Gating on this makes a reported failure retry after its backoff instead of
+   * means eligible now. Gating on this makes a reported failure retry after its backoff instead of
    * waiting out the stale-timeout, and a dead job back off instead of rescheduling immediately.
    */
-  @Column(name = "available_at")
-  private Instant availableAt;
+  @Column(name = "next_eligible_at")
+  private Instant nextEligibleAt;
 }

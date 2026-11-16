@@ -107,14 +107,14 @@ public class AnalyzerRunner {
   /**
    * Earliest retry time for {@code operationType} after an outcome observed at {@code from}, using
    * that analyzer's cadence policy. Empty if no registered analyzer handles the type. Used by the
-   * completion callback to write {@code available_at} on the operation row.
+   * completion callback to write {@code next_eligible_at} on the operation row.
    */
-  public Optional<Instant> nextAvailableAt(
+  public Optional<Instant> nextEligibleAt(
       OperationTypeDto operationType, Instant from, boolean succeeded, int attempts) {
     return analyzers.stream()
         .filter(a -> a.getOperationType() == operationType)
         .findFirst()
-        .map(a -> a.nextAvailableAt(from, succeeded, attempts));
+        .map(a -> a.nextEligibleAt(from, succeeded, attempts));
   }
 
   /**
@@ -282,7 +282,7 @@ public class AnalyzerRunner {
     }
     if (recordExpiryBackoff(analyzer, currentOp)) {
       // The active op just timed out with no reported outcome; we wrote its retry backoff on this
-      // pass and defer. The gate picks it up once available_at elapses.
+      // pass and defer. The gate picks it up once next_eligible_at elapses.
       return false;
     }
     int consecutiveFailures = countConsecutiveNonSuccess(table, analyzer, currentOp, latestHistory);
@@ -294,11 +294,11 @@ public class AnalyzerRunner {
 
   /**
    * Writes the retry backoff for a dead/missed job: a submitted op that crossed the stale-timeout
-   * without ever reporting a terminal outcome never got an {@code available_at} written by the
+   * without ever reporting a terminal outcome never got an {@code next_eligible_at} written by the
    * completion callback, so its retry would fire immediately on timeout. Write the failure backoff
    * here — the same interval a reported failure would get — so the dead job backs off like any
-   * other failure. No-op unless the op is timed out and has no {@code available_at} yet. Returns
-   * whether a backoff was written.
+   * other failure. No-op unless the op is timed out and has no {@code next_eligible_at} yet.
+   * Returns whether a backoff was written.
    */
   private boolean recordExpiryBackoff(
       OperationAnalyzer analyzer, Optional<TableOperationDto> currentOp) {
@@ -306,17 +306,17 @@ public class AnalyzerRunner {
       return false;
     }
     TableOperationDto op = currentOp.get();
-    if (op.getAvailableAt() != null || !analyzer.isActiveOpTimedOut(op)) {
+    if (op.getNextEligibleAt() != null || !analyzer.isActiveOpTimedOut(op)) {
       return false;
     }
-    Instant availableAt = analyzer.nextAvailableAt(Instant.now(), false, op.getAttempts());
-    operationsRepo.save(op.toRow().toBuilder().availableAt(availableAt).build());
+    Instant nextEligibleAt = analyzer.nextEligibleAt(Instant.now(), false, op.getAttempts());
+    operationsRepo.save(op.toRow().toBuilder().nextEligibleAt(nextEligibleAt).build());
     log.info(
         "Operation {} for table {}.{} timed out without reporting; backing off retry until {}",
         op.getId(),
         op.getDatabaseName(),
         op.getTableName(),
-        availableAt);
+        nextEligibleAt);
     return true;
   }
 

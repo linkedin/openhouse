@@ -58,10 +58,11 @@ public interface OperationAnalyzer {
 
   /**
    * Earliest time to retry after an outcome observed at {@code from}: the success cadence on
-   * success, otherwise the failure backoff for {@code attempts}. Persisted to {@code available_at}
-   * on completion or expiry so retry timing no longer depends on the stale-timeout.
+   * success, otherwise the failure backoff for {@code attempts}. Persisted to {@code
+   * next_eligible_at} on completion or expiry so retry timing no longer depends on the
+   * stale-timeout.
    */
-  Instant nextAvailableAt(Instant from, boolean succeeded, int attempts);
+  Instant nextEligibleAt(Instant from, boolean succeeded, int attempts);
 
   /**
    * Returns {@code true} if a new or refreshed operation record should be upserted.

@@ -147,12 +147,12 @@ class AnalyzerRunnerTest {
   }
 
   @Test
-  void analyze_timedOutCurrentOpWithoutAvailableAt_recordsBackoff_andDefers() {
+  void analyze_timedOutCurrentOpWithoutNextEligibleAt_recordsBackoff_andDefers() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
     TableDto expectedTable = TableDto.fromRow(statsEntity);
     // A submitted op that crossed the stale timeout with no reported outcome (dead/missed job) and
-    // no available_at yet — the completion callback never ran to write its retry time.
+    // no next_eligible_at yet — the completion callback never ran to write its retry time.
     TableOperationsRow staleOp = submittedOpRow("op-dead", Instant.now().minusSeconds(20_000));
     Instant backoffUntil = Instant.now().plusSeconds(3_600);
 
@@ -170,8 +170,7 @@ class AnalyzerRunnerTest {
         .thenReturn(List.of(staleOp));
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
-    when(analyzer.nextAvailableAt(any(Instant.class), eq(false), anyInt()))
-        .thenReturn(backoffUntil);
+    when(analyzer.nextEligibleAt(any(Instant.class), eq(false), anyInt())).thenReturn(backoffUntil);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
@@ -181,21 +180,22 @@ class AnalyzerRunnerTest {
     verify(operationsRepo).save(captor.capture());
     TableOperationsRow savedOp = captor.getValue();
     assertThat(savedOp.getId()).isEqualTo("op-dead");
-    assertThat(savedOp.getAvailableAt()).isEqualTo(backoffUntil);
+    assertThat(savedOp.getNextEligibleAt()).isEqualTo(backoffUntil);
     verify(analyzer, never()).shouldSchedule(any(), any(), any(), anyInt());
   }
 
   @Test
-  void analyze_timedOutCurrentOpAlreadyHasAvailableAt_doesNotRewrite() {
+  void analyze_timedOutCurrentOpAlreadyHasNextEligibleAt_doesNotRewrite() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
     TableDto expectedTable = TableDto.fromRow(statsEntity);
-    // Same dead job, but available_at is already set (written on an earlier pass). The gate — not a
+    // Same dead job, but next_eligible_at is already set (written on an earlier pass). The gate —
+    // not a
     // rewrite — now governs it, so the expiry-write must be a no-op.
     TableOperationsRow staleBackedOffOp =
         submittedOpRow("op-dead", Instant.now().minusSeconds(20_000))
             .toBuilder()
-            .availableAt(Instant.now().plusSeconds(3_600))
+            .nextEligibleAt(Instant.now().plusSeconds(3_600))
             .build();
 
     when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
@@ -221,7 +221,7 @@ class AnalyzerRunnerTest {
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
-    // No rewrite (available_at already set); the pass proceeds to the normal gate decision. The
+    // No rewrite (next_eligible_at already set); the pass proceeds to the normal gate decision. The
     // timed-out submission still counts as one non-success in the streak passed to shouldSchedule.
     verify(operationsRepo, never()).save(any());
     verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(1));

@@ -54,8 +54,8 @@ public class TableOperationDto {
    */
   private int attempts;
 
-  /** Earliest time this (table, op) may be (re)scheduled; {@code null} means available now. */
-  private Instant availableAt;
+  /** Earliest time this (table, op) may be (re)scheduled; {@code null} means eligible now. */
+  private Instant nextEligibleAt;
 
   /** Create a new PENDING operation for the given table and operation type. */
   public static TableOperationDto pending(
@@ -92,7 +92,7 @@ public class TableOperationDto {
         .scheduledAt(scheduledAt)
         .jobId(jobId)
         .attempts(attempts)
-        .availableAt(availableAt)
+        .nextEligibleAt(nextEligibleAt)
         .build();
   }
 
@@ -112,7 +112,7 @@ public class TableOperationDto {
         .scheduledAt(row.getScheduledAt())
         .jobId(row.getJobId())
         .attempts(row.getAttempts())
-        .availableAt(row.getAvailableAt())
+        .nextEligibleAt(row.getNextEligibleAt())
         .build();
   }
 }

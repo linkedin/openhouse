@@ -99,15 +99,15 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
               // Write the next retry time on the operation row from this outcome, so a reported
               // failure retries after its backoff instead of waiting out the stale-timeout.
               analyzerRunner
-                  .nextAvailableAt(
+                  .nextEligibleAt(
                       OperationTypeDto.fromDb(row.getOperationType()),
                       Instant.now(),
                       succeeded,
                       row.getAttempts())
                   .ifPresent(
-                      availableAt ->
+                      nextEligibleAt ->
                           operationsRepository.save(
-                              row.toBuilder().availableAt(availableAt).build()));
+                              row.toBuilder().nextEligibleAt(nextEligibleAt).build()));
               return saved;
             });
   }

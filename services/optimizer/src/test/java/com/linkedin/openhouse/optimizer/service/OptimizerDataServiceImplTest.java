@@ -166,7 +166,7 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
-  void completeOperation_success_writesAvailableAtFromAnalyzerSuccessCadence() {
+  void completeOperation_success_writesNextEligibleAtFromAnalyzerSuccessCadence() {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
@@ -180,21 +180,21 @@ class OptimizerDataServiceImplTest {
             .scheduledAt(Instant.now())
             .attempts(4)
             .build());
-    Instant nextAvailable = Instant.now().plus(24, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+    Instant nextEligible = Instant.now().plus(24, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
     // succeeded=true and the op's attempt count are forwarded so the analyzer applies the success
     // cadence; the resulting instant is written on the operation row.
-    when(analyzerRunner.nextAvailableAt(
+    when(analyzerRunner.nextEligibleAt(
             eq(OperationTypeDto.ORPHAN_FILES_DELETION), any(Instant.class), eq(true), eq(4)))
-        .thenReturn(Optional.of(nextAvailable));
+        .thenReturn(Optional.of(nextEligible));
 
     service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
 
     TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
-    assertThat(updated.getAvailableAt()).isEqualTo(nextAvailable);
+    assertThat(updated.getNextEligibleAt()).isEqualTo(nextEligible);
   }
 
   @Test
-  void completeOperation_failed_writesAvailableAtFromAnalyzerFailureBackoff() {
+  void completeOperation_failed_writesNextEligibleAtFromAnalyzerFailureBackoff() {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
@@ -208,21 +208,21 @@ class OptimizerDataServiceImplTest {
             .scheduledAt(Instant.now())
             .attempts(3)
             .build());
-    Instant nextAvailable = Instant.now().plus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+    Instant nextEligible = Instant.now().plus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
     // succeeded=false routes through the failure backoff; the reported failure now retries at the
     // written time rather than waiting out the stale-timeout.
-    when(analyzerRunner.nextAvailableAt(
+    when(analyzerRunner.nextEligibleAt(
             eq(OperationTypeDto.TABLE_STATS_COLLECTION), any(Instant.class), eq(false), eq(3)))
-        .thenReturn(Optional.of(nextAvailable));
+        .thenReturn(Optional.of(nextEligible));
 
     service.updateOperation(operationId, HistoryStatusDto.FAILED, "boom");
 
     TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
-    assertThat(updated.getAvailableAt()).isEqualTo(nextAvailable);
+    assertThat(updated.getNextEligibleAt()).isEqualTo(nextEligible);
   }
 
   @Test
-  void completeOperation_analyzerReturnsEmpty_leavesAvailableAtUnset() {
+  void completeOperation_analyzerReturnsEmpty_leavesNextEligibleAtUnset() {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
@@ -235,14 +235,15 @@ class OptimizerDataServiceImplTest {
             .createdAt(Instant.now())
             .scheduledAt(Instant.now())
             .build());
-    // No analyzer handles the type (empty) → nothing is written; the row's available_at stays null.
-    when(analyzerRunner.nextAvailableAt(any(), any(Instant.class), eq(true), eq(0)))
+    // No analyzer handles the type (empty) → nothing is written; the row's next_eligible_at stays
+    // null.
+    when(analyzerRunner.nextEligibleAt(any(), any(Instant.class), eq(true), eq(0)))
         .thenReturn(Optional.empty());
 
     service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
 
     TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
-    assertThat(updated.getAvailableAt()).isNull();
+    assertThat(updated.getNextEligibleAt()).isNull();
   }
 
   // --- upsertTableStats ---

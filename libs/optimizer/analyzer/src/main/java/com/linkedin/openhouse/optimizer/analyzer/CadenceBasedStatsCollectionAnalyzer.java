@@ -102,8 +102,8 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
   }
 
   @Override
-  public Instant nextAvailableAt(Instant from, boolean succeeded, int attempts) {
-    return cadencePolicy.nextAvailableAt(from, succeeded, attempts);
+  public Instant nextEligibleAt(Instant from, boolean succeeded, int attempts) {
+    return cadencePolicy.nextEligibleAt(from, succeeded, attempts);
   }
 
   @Override

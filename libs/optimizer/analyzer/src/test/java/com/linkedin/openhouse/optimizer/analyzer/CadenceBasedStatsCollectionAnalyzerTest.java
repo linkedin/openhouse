@@ -247,17 +247,18 @@ class CadenceBasedStatsCollectionAnalyzerTest {
         .isFalse();
   }
 
-  // --- shouldSchedule: available_at gate is authoritative when set ---
+  // --- shouldSchedule: next_eligible_at gate is authoritative when set ---
 
   @Test
-  void shouldSchedule_availableAtInFuture_returnsFalse() {
+  void shouldSchedule_nextEligibleAtInFuture_returnsFalse() {
     Instant future = Instant.now().plus(Duration.ofHours(5));
-    // A future available_at blocks even a dead (past-stale-timeout) op that history would release.
+    // A future next_eligible_at blocks even a dead (past-stale-timeout) op that history would
+    // release.
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(
-                    opScheduledAtAvailableAt(
+                    opScheduledAtNextEligibleAt(
                         OperationStatusDto.SCHEDULED,
                         Instant.now().minus(Duration.ofHours(10)),
                         future)),
@@ -269,30 +270,30 @@ class CadenceBasedStatsCollectionAnalyzerTest {
   }
 
   @Test
-  void shouldSchedule_availableAtInPast_returnsTrue() {
+  void shouldSchedule_nextEligibleAtInPast_returnsTrue() {
     Instant past = Instant.now().minus(Duration.ofMinutes(1));
-    // A past available_at releases the op even though it is still SCHEDULED within the stale
+    // A past next_eligible_at releases the op even though it is still SCHEDULED within the stale
     // window.
     assertThat(
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(
-                    opScheduledAtAvailableAt(OperationStatusDto.SCHEDULED, Instant.now(), past)),
+                    opScheduledAtNextEligibleAt(OperationStatusDto.SCHEDULED, Instant.now(), past)),
                 Optional.empty(),
                 0))
         .isTrue();
   }
 
   @Test
-  void nextAvailableAt_success_usesSuccessInterval() {
+  void nextEligibleAt_success_usesSuccessInterval() {
     Instant from = Instant.now();
-    assertThat(analyzer.nextAvailableAt(from, true, 1)).isEqualTo(from.plus(SUCCESS_INTERVAL));
+    assertThat(analyzer.nextEligibleAt(from, true, 1)).isEqualTo(from.plus(SUCCESS_INTERVAL));
   }
 
   @Test
-  void nextAvailableAt_failure_usesFailureInterval() {
+  void nextEligibleAt_failure_usesFailureInterval() {
     Instant from = Instant.now();
-    assertThat(analyzer.nextAvailableAt(from, false, 1)).isEqualTo(from.plus(FAILURE_INTERVAL));
+    assertThat(analyzer.nextEligibleAt(from, false, 1)).isEqualTo(from.plus(FAILURE_INTERVAL));
   }
 
   // --- helpers ---
@@ -317,12 +318,12 @@ class CadenceBasedStatsCollectionAnalyzerTest {
     return TableOperationDto.builder().status(status).scheduledAt(scheduledAt).build();
   }
 
-  private TableOperationDto opScheduledAtAvailableAt(
-      OperationStatusDto status, Instant scheduledAt, Instant availableAt) {
+  private TableOperationDto opScheduledAtNextEligibleAt(
+      OperationStatusDto status, Instant scheduledAt, Instant nextEligibleAt) {
     return TableOperationDto.builder()
         .status(status)
         .scheduledAt(scheduledAt)
-        .availableAt(availableAt)
+        .nextEligibleAt(nextEligibleAt)
         .build();
   }
 
