@@ -107,7 +107,14 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
    * Adds a check to run before each commit is sent to the service. Hooks run in registration order
    * and the first to block stops the commit.
    *
+   * <p>Registering a hook is only half of it. A table runs its hooks only while it carries {@value
+   * #PRE_COMMIT_HOOKS_ENABLED_KEY}{@code =true}, so a hook can be registered everywhere and turned
+   * on table by table.
+   *
+   * @param hook the check to run; must not be null
    * @return this, so it can be chained onto a newly built instance
+   * @throws NullPointerException if {@code hook} is null, so a mis-wired registration fails where
+   *     it is written rather than on the first commit that tries to run it
    */
   @Override
   public OpenHouseTableOperations withPreCommit(PreCommitHook hook) {
@@ -151,6 +158,14 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   private static final String OPENHOUSE_IS_TABLE_REPLICATED_KEY = "openhouse.isTableReplicated";
   private static final String POLICIES_KEY = "policies";
   static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
+
+  /**
+   * Opt-in for {@link PreCommitHook}s, read from the table's current properties.
+   *
+   * <p>Anything other than {@code "true"}, including the property being absent, leaves the hooks
+   * off; parsing is {@link Boolean#parseBoolean}, so the value is case-insensitive.
+   */
+  static final String PRE_COMMIT_HOOKS_ENABLED_KEY = "openhouse.preCommitHooksEnabled";
 
   @Override
   public void doRefresh() {
@@ -270,14 +285,15 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
    * CommitStateUnknownException}, the wrong thing to say about a commit that never left.
    *
    * <p>Each hook is evaluated in its own {@code try}, so an error names the hook that threw. A
-   * caller that registers nothing pays an empty-list check.
+   * caller that registers nothing pays an empty-list check, and a table that has not opted in pays
+   * one property lookup on top of that.
    */
   private void runPreCommitHooks(
       TableMetadata base,
       TableMetadata metadata,
       boolean metadataUpdated,
       boolean snapshotsUpdated) {
-    if (preCommitHooks.isEmpty()) {
+    if (preCommitHooks.isEmpty() || !preCommitHooksEnabled(base, metadata)) {
       return;
     }
     PreCommitHookContext context =
@@ -306,6 +322,32 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
             e);
       }
     }
+  }
+
+  /**
+   * Whether this table has opted in to pre-commit hooks, via the {@value
+   * #PRE_COMMIT_HOOKS_ENABLED_KEY} table property.
+   *
+   * <p>Off unless the property reads {@code true}, so registering a hook on the catalog does not
+   * light up every table loaded through it. A hook can be shipped everywhere and then enabled one
+   * table at a time, or switched off again by editing a property rather than by redeploying.
+   *
+   * <p>Read from {@code base}, the table as it stands, rather than from the commit: a commit that
+   * clears the property would otherwise disable the very hooks that were about to judge it. Turning
+   * it on behaves the same way round, taking effect from the next commit. A create has no {@code
+   * base}, so there the commit's own properties are all there is to read.
+   *
+   * <p>This is a rollout control, not a security control. The property is writer-settable, and a
+   * client-side hook is cooperative in any case: a writer could as easily use a catalog that never
+   * registered one. Checks that have to hold belong on the server.
+   *
+   * @param base the table as it is now, or null when it is being created
+   * @param metadata the table as it will be if the commit goes through
+   * @return whether the registered hooks should run for this commit
+   */
+  private boolean preCommitHooksEnabled(TableMetadata base, TableMetadata metadata) {
+    TableMetadata source = base == null ? metadata : base;
+    return Boolean.parseBoolean(source.properties().get(PRE_COMMIT_HOOKS_ENABLED_KEY));
   }
 
   /**

@@ -87,8 +87,13 @@ public class OpenHouseCatalogPreCommitTest {
     }
   }
 
+  /** Opts the table in to pre-commit hooks, which are off until it does. */
+  private static final ImmutableMap<String, String> HOOKS_ENABLED =
+      ImmutableMap.of(OpenHouseTableOperations.PRE_COMMIT_HOOKS_ENABLED_KEY, "true");
+
   /**
-   * Runs a commit far enough to call the hooks.
+   * Runs a commit far enough to call the hooks. The table carries the opt-in property, since a
+   * table without it runs no hooks at all.
    *
    * @return what stopped it: a block from a hook, or the failure to send
    */
@@ -97,8 +102,10 @@ public class OpenHouseCatalogPreCommitTest {
     TableMetadata metadata = mock(TableMetadata.class);
     when(base.schema()).thenReturn(mock(Schema.class));
     when(metadata.schema()).thenReturn(mock(Schema.class));
-    when(base.properties()).thenReturn(ImmutableMap.of());
-    when(metadata.properties()).thenReturn(ImmutableMap.of("a", "b"));
+    when(base.properties()).thenReturn(HOOKS_ENABLED);
+    when(metadata.properties())
+        .thenReturn(
+            ImmutableMap.<String, String>builder().putAll(HOOKS_ENABLED).put("a", "b").build());
     when(base.snapshots()).thenReturn(Collections.emptyList());
     when(metadata.snapshots()).thenReturn(Collections.emptyList());
     when(base.refs()).thenReturn(Collections.emptyMap());
@@ -228,7 +235,12 @@ public class OpenHouseCatalogPreCommitTest {
     ServiceUnavailableException thrown =
         Assertions.assertThrows(
             ServiceUnavailableException.class,
-            () -> catalog.buildTable(TABLE, SCHEMA).withLocation(LOCATION).create());
+            () ->
+                catalog
+                    .buildTable(TABLE, SCHEMA)
+                    .withLocation(LOCATION)
+                    .withProperties(HOOKS_ENABLED)
+                    .create());
 
     Assertions.assertTrue(thrown.getMessage().contains("unreachable-hook"));
     Assertions.assertTrue(thrown.getMessage().contains("service-down"));
@@ -246,7 +258,12 @@ public class OpenHouseCatalogPreCommitTest {
     ValidationException thrown =
         Assertions.assertThrows(
             ValidationException.class,
-            () -> catalog.buildTable(TABLE, SCHEMA).withLocation(LOCATION).create());
+            () ->
+                catalog
+                    .buildTable(TABLE, SCHEMA)
+                    .withLocation(LOCATION)
+                    .withProperties(HOOKS_ENABLED)
+                    .create());
 
     Assertions.assertTrue(thrown.getMessage().contains("create-hook"));
   }

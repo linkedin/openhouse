@@ -1177,6 +1177,30 @@ public class OpenHouseTableOperationsTest {
   }
 
   /** Registration is fluent, so it can be chained onto a freshly built instance. */
+  /**
+   * Opts a commit's table in to pre-commit hooks. The hooks are off unless the table carries {@code
+   * openhouse.preCommitHooksEnabled=true}, so a commit a hook is meant to see says so.
+   *
+   * <p>Set on both sides, so a fixture whose two sides are otherwise equal still reads as
+   * unchanged.
+   */
+  private static Commit hooksEnabled(Commit commit) {
+    if (commit.base != null) {
+      Map<String, String> baseProperties = commit.base.properties();
+      when(commit.base.properties()).thenReturn(withHooksEnabled(baseProperties));
+    }
+    Map<String, String> metadataProperties = commit.metadata.properties();
+    when(commit.metadata.properties()).thenReturn(withHooksEnabled(metadataProperties));
+    return commit;
+  }
+
+  private static Map<String, String> withHooksEnabled(Map<String, String> properties) {
+    return ImmutableMap.<String, String>builder()
+        .putAll(properties)
+        .put(OpenHouseTableOperations.PRE_COMMIT_HOOKS_ENABLED_KEY, "true")
+        .build();
+  }
+
   @Test
   public void testWithPreCommitReturnsTheSameInstance() {
     OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
@@ -1196,11 +1220,93 @@ public class OpenHouseTableOperationsTest {
   @Test
   public void testNoHookIsRegisteredByDefault() {
     SnapshotApi snapshotApi = acceptingSnapshotApi();
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     opsFor(snapshotApi).doCommit(commit.base, commit.metadata);
 
     verify(snapshotApi, times(1)).putSnapshotsV1(eq("db"), eq("tbl"), any());
+  }
+
+  /**
+   * A registered hook does nothing until the table opts in, so a hook registered catalog-wide can
+   * be rolled out table by table rather than lighting up every table at once.
+   */
+  @Test
+  public void testHooksDoNotRunUntilTheTableOptsIn() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    ops.doCommit(commit.base, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(eq("db"), eq("tbl"), any());
+  }
+
+  /**
+   * The flag is read from the table as it is now, not from the commit, so a commit that clears the
+   * property is still judged by the hooks the table had when it started.
+   */
+  @Test
+  public void testACommitCannotSwitchOffTheHooksThatJudgeIt() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+        });
+    Commit commit =
+        snapshotCommitWithProperties(
+            ImmutableMap.of(OpenHouseTableOperations.PRE_COMMIT_HOOKS_ENABLED_KEY, "true"),
+            ImmutableMap.of(OpenHouseTableOperations.PRE_COMMIT_HOOKS_ENABLED_KEY, "false"));
+
+    Assertions.assertThrows(
+        ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /**
+   * The same rule the other way round: turning it on applies from the next commit, not this one.
+   */
+  @Test
+  public void testTurningTheFlagOnAppliesToTheNextCommit() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+        });
+    Commit commit =
+        snapshotCommitWithProperties(
+            ImmutableMap.of(),
+            ImmutableMap.of(OpenHouseTableOperations.PRE_COMMIT_HOOKS_ENABLED_KEY, "true"));
+
+    ops.doCommit(commit.base, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(eq("db"), eq("tbl"), any());
+  }
+
+  /** A create has no current state to read the flag from, so the commit's own properties decide. */
+  @Test
+  public void testACreateReadsTheFlagFromTheCommitItself() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+        });
+    Commit commit =
+        snapshotCommitWithProperties(
+            ImmutableMap.of(),
+            ImmutableMap.of(OpenHouseTableOperations.PRE_COMMIT_HOOKS_ENABLED_KEY, "true"));
+
+    Assertions.assertThrows(ValidationException.class, () -> ops.doCommit(null, commit.metadata));
+
+    verifyNoInteractions(snapshotApi);
   }
 
   /**
@@ -1215,7 +1321,7 @@ public class OpenHouseTableOperationsTest {
         context -> {
           throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
         });
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     Assertions.assertThrows(
         ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
@@ -1231,7 +1337,7 @@ public class OpenHouseTableOperationsTest {
         context -> {
           throw PreCommitHookBlockedException.validation("ROW_COUNT", "expected > 0, got 0");
         });
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     ValidationException thrown =
         Assertions.assertThrows(
@@ -1253,7 +1359,7 @@ public class OpenHouseTableOperationsTest {
           throw PreCommitHookBlockedException.operational(
               "UNAVAILABLE", "validator unreachable", new java.io.IOException("connect timed out"));
         });
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     Assertions.assertThrows(
         CommitFailedException.class, () -> ops.doCommit(commit.base, commit.metadata));
@@ -1275,7 +1381,7 @@ public class OpenHouseTableOperationsTest {
   @Test
   public void testTheHookIsToldTheOperation() {
     PreCommitHookContext context =
-        contextSeenBy(opsFor(acceptingSnapshotApi()), metadataAndSnapshotsUpdated());
+        contextSeenBy(opsFor(acceptingSnapshotApi()), hooksEnabled(metadataAndSnapshotsUpdated()));
 
     Assertions.assertEquals(PreCommitHookOperation.SNAPSHOT, context.getOperation());
   }
@@ -1286,7 +1392,7 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
     ops.markReplaceTransaction();
 
-    PreCommitHookContext context = contextSeenBy(ops, metadataAndSnapshotsUpdated());
+    PreCommitHookContext context = contextSeenBy(ops, hooksEnabled(metadataAndSnapshotsUpdated()));
 
     Assertions.assertEquals(PreCommitHookOperation.REPLACE, context.getOperation());
     Assertions.assertTrue(context.isReplaceTransaction());
@@ -1304,7 +1410,7 @@ public class OpenHouseTableOperationsTest {
     ops.markReplaceTransaction();
 
     PreCommitHookContext context =
-        contextSeenBy(ops, new Commit(null, metadataAndSnapshotsUpdated().metadata));
+        contextSeenBy(ops, new Commit(null, hooksEnabled(metadataAndSnapshotsUpdated()).metadata));
 
     Assertions.assertFalse(context.getBase().isPresent());
     Assertions.assertEquals(PreCommitHookOperation.SNAPSHOT, context.getOperation());
@@ -1318,7 +1424,8 @@ public class OpenHouseTableOperationsTest {
   @Test
   public void testTheHookIsToldWhenOnlyMetadataChanged() {
     PreCommitHookContext context =
-        contextSeenByStoppedCommit(opsFor(acceptingSnapshotApi()), onlyMetadataUpdated());
+        contextSeenByStoppedCommit(
+            opsFor(acceptingSnapshotApi()), hooksEnabled(onlyMetadataUpdated()));
 
     Assertions.assertEquals(PreCommitHookOperation.METADATA, context.getOperation());
   }
@@ -1326,7 +1433,8 @@ public class OpenHouseTableOperationsTest {
   /** Nothing is sent when nothing changed, but the hook still runs and is told so. */
   @Test
   public void testTheHookIsToldWhenNothingChanged() {
-    PreCommitHookContext context = contextSeenBy(opsFor(acceptingSnapshotApi()), nothingUpdated());
+    PreCommitHookContext context =
+        contextSeenBy(opsFor(acceptingSnapshotApi()), hooksEnabled(nothingUpdated()));
 
     Assertions.assertEquals(PreCommitHookOperation.NOOP, context.getOperation());
   }
@@ -1335,7 +1443,7 @@ public class OpenHouseTableOperationsTest {
   @Test
   public void testTheHookIsToldWhichTable() {
     PreCommitHookContext context =
-        contextSeenBy(opsFor(acceptingSnapshotApi()), metadataAndSnapshotsUpdated());
+        contextSeenBy(opsFor(acceptingSnapshotApi()), hooksEnabled(metadataAndSnapshotsUpdated()));
 
     Assertions.assertEquals(TableIdentifier.of("a", "b"), context.getTableIdentifier());
     Assertions.assertEquals("cluster", context.getCluster());
@@ -1353,7 +1461,7 @@ public class OpenHouseTableOperationsTest {
         context -> {
           throw new CommitFailedException("thrown by a hook that should not throw this");
         });
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     Assertions.assertThrows(
         IllegalStateException.class, () -> ops.doCommit(commit.base, commit.metadata));
@@ -1373,7 +1481,7 @@ public class OpenHouseTableOperationsTest {
         context -> {
           throw new CommitStateUnknownException(new RuntimeException("boom"));
         });
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     IllegalStateException thrown =
         Assertions.assertThrows(
@@ -1396,7 +1504,7 @@ public class OpenHouseTableOperationsTest {
         context -> {
           throw bug;
         });
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     Assertions.assertSame(
         bug,
@@ -1422,7 +1530,7 @@ public class OpenHouseTableOperationsTest {
             return "row-count-check";
           }
         });
-    Commit commit = metadataAndSnapshotsUpdated();
+    Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
     ValidationException thrown =
         Assertions.assertThrows(
@@ -1508,7 +1616,9 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(new RequiredPropertyHook("owner"));
     Commit commit =
-        snapshotCommitWithProperties(ImmutableMap.of("owner", "team"), ImmutableMap.of("a", "b"));
+        hooksEnabled(
+            snapshotCommitWithProperties(
+                ImmutableMap.of("owner", "team"), ImmutableMap.of("a", "b")));
 
     ValidationException thrown =
         Assertions.assertThrows(
@@ -1526,8 +1636,9 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(new RequiredPropertyHook("owner"));
     Commit commit =
-        snapshotCommitWithProperties(
-            ImmutableMap.of("owner", "team"), ImmutableMap.of("owner", "team", "a", "b"));
+        hooksEnabled(
+            snapshotCommitWithProperties(
+                ImmutableMap.of("owner", "team"), ImmutableMap.of("owner", "team", "a", "b")));
 
     ops.doCommit(commit.base, commit.metadata);
 
@@ -1540,7 +1651,8 @@ public class OpenHouseTableOperationsTest {
     SnapshotApi snapshotApi = acceptingSnapshotApi();
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(new RequiredPropertyHook("owner"));
-    Commit commit = snapshotCommitWithProperties(ImmutableMap.of(), ImmutableMap.of("a", "b"));
+    Commit commit =
+        hooksEnabled(snapshotCommitWithProperties(ImmutableMap.of(), ImmutableMap.of("a", "b")));
 
     ops.doCommit(null, commit.metadata);
 

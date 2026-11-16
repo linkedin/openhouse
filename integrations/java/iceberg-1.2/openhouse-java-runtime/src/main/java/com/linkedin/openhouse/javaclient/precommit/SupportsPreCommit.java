@@ -13,7 +13,12 @@ public interface SupportsPreCommit {
    * Adds a check to run before each commit. Hooks run in registration order and the first to block
    * stops the commit, so registering here cannot switch off a hook registered earlier.
    *
+   * <p>Registration alone does not arm a hook: it runs only for tables carrying {@code
+   * openhouse.preCommitHooksEnabled=true}.
+   *
+   * @param hook the check to run; must not be null
    * @return this, so it can be chained onto a newly built instance
+   * @throws NullPointerException if {@code hook} is null
    */
   SupportsPreCommit withPreCommit(PreCommitHook hook);
 }

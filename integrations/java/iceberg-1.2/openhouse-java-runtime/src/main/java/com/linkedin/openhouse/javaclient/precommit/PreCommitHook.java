@@ -3,6 +3,10 @@ package com.linkedin.openhouse.javaclient.precommit;
 /**
  * A check that runs just before a commit is sent to the OpenHouse service.
  *
+ * <p>A hook runs only for tables carrying {@code openhouse.preCommitHooksEnabled=true}. Registering
+ * one is the first half, the table opting in is the second, and the flag is read from the table as
+ * it stands so a commit cannot clear it to escape the hooks judging that same commit.
+ *
  * <p>Three things a hook must honour:
  *
  * <ul>

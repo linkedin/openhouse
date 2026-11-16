@@ -146,7 +146,14 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    * individual instance adds to what the catalog gave it, so a table-level hook cannot switch off a
    * catalog-wide one.
    *
+   * <p>A hook registered here still runs only against tables that carry {@code
+   * openhouse.preCommitHooksEnabled=true}, so a catalog-wide hook can be rolled out table by table
+   * rather than landing on every table at once.
+   *
+   * @param hook the check to run; must not be null
    * @return this, so it can be chained onto a freshly built catalog
+   * @throws NullPointerException if {@code hook} is null, so a mis-wired registration fails where
+   *     it is written rather than on the first commit that tries to run it
    */
   @Override
   public OpenHouseCatalog withPreCommit(PreCommitHook hook) {
