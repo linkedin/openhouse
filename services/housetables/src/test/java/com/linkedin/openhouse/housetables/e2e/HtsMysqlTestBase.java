@@ -18,12 +18,16 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.tidb.TiDBContainer;
 
 /**
- * Points every HTS Spring test context at one disposable MySQL container per test JVM, built from
- * the canonical {@code services/housetables/ddl} files. There is deliberately no H2 fallback: a
- * missing Docker daemon fails the run.
+ * Points every HTS Spring test context at one disposable database container per test JVM, built
+ * from the canonical {@code services/housetables/ddl} files. Gradle's {@code -PhtsBackend} selects
+ * MySQL (the default) or TiDB; both speak the MySQL protocol and run through the service's MYSQL
+ * datasource path. There is deliberately no H2 or cross-backend fallback: a missing Docker daemon
+ * or a failed startup fails the run.
  *
  * <p>Each test starts from the same store: the four HTS tables are emptied and the test {@code
  * data.sql} toggle rules are loaded before every method, and the tables are emptied again after it.
@@ -34,7 +38,16 @@ public abstract class HtsMysqlTestBase {
 
   public static final String DATABASE = "hts_test";
 
-  private static final String IMAGE = "mysql:8.4.11";
+  private static final String MYSQL_IMAGE = "mysql:8.4.11";
+
+  /**
+   * pingcap/tidb v8.5.4, pinned by its multi-architecture index digest. Testcontainers 1.21.4
+   * rejects a combined tag and digest, so the version is enforced at runtime instead.
+   */
+  private static final String TIDB_IMAGE =
+      "pingcap/tidb@sha256:e986dadd59937fbfcbdfe7fd084421cc65988da8b795f75194b05a0292635ead";
+
+  private static final int TIDB_PORT = 4000;
 
   private static final String MYSQL = "mysql";
 
@@ -51,37 +64,112 @@ public abstract class HtsMysqlTestBase {
 
   /** Started and populated once, before any context builds a datasource; never stopped early. */
   private static final class Holder {
-    private static final MySQLContainer<?> MYSQL = start();
+    private static final String BACKEND = selectedBackend();
 
-    private static MySQLContainer<?> start() {
+    private static final JdbcDatabaseContainer<?> CONTAINER =
+        TIDB.equals(BACKEND) ? startTidb() : startMysql();
+
+    /** The one endpoint shared by Spring and the inspection connections. */
+    private static final String JDBC_URL =
+        TIDB.equals(BACKEND)
+            ? "jdbc:mysql://"
+                + CONTAINER.getHost()
+                + ":"
+                + CONTAINER.getMappedPort(TIDB_PORT)
+                + "/"
+                + DATABASE
+                + "?useSSL=false&allowPublicKeyRetrieval=true"
+            : CONTAINER.getJdbcUrl();
+
+    static {
+      try (Connection connection =
+          DriverManager.getConnection(JDBC_URL, CONTAINER.getUsername(), CONTAINER.getPassword())) {
+        System.out.println(
+            "HTS test backend: "
+                + BACKEND
+                + " image="
+                + CONTAINER.getDockerImageName()
+                + " server="
+                + connection.getMetaData().getDatabaseProductVersion()
+                + " driver="
+                + connection.getMetaData().getDriverVersion());
+      } catch (SQLException e) {
+        throw new IllegalStateException(
+            "Could not connect to the HTS " + BACKEND + " test database", e);
+      }
+    }
+
+    private static MySQLContainer<?> startMysql() {
       MySQLContainer<?> mysql =
-          new MySQLContainer<>(IMAGE)
+          new MySQLContainer<>(MYSQL_IMAGE)
               .withDatabaseName(DATABASE)
               .withCommand(
                   "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
-      mysql.start();
-      ResourceDatabasePopulator schema = new ResourceDatabasePopulator();
-      for (String ddl : DDL) {
-        schema.addScript(new ClassPathResource(ddl));
-      }
+      start(mysql, MYSQL_IMAGE);
       try (Connection connection =
           DriverManager.getConnection(
               mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())) {
-        schema.populate(connection);
+        populate(connection);
       } catch (SQLException e) {
         throw new IllegalStateException("Could not build the HTS MySQL test schema", e);
       }
       return mysql;
     }
+
+    /**
+     * Single-process unistore TiDB. Its server default collation is utf8mb4_bin, so the test
+     * database is created with the canonical collation that the DDL's job and toggle tables
+     * inherit.
+     */
+    private static TiDBContainer startTidb() {
+      TiDBContainer tidb =
+          new TiDBContainer(TIDB_IMAGE)
+              .withCommand(
+                  "--store=unistore",
+                  "--path=",
+                  "--host=0.0.0.0",
+                  "--status-host=0.0.0.0",
+                  "-L",
+                  "warn");
+      start(tidb, TIDB_IMAGE + " (v8.5.4)");
+      try (Connection connection = tidb.createConnection("")) {
+        try (Statement statement = connection.createStatement()) {
+          statement.execute(
+              "CREATE DATABASE " + DATABASE + " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
+        }
+        connection.setCatalog(DATABASE);
+        populate(connection);
+      } catch (SQLException e) {
+        throw new IllegalStateException("Could not build the HTS TiDB test schema", e);
+      }
+      return tidb;
+    }
+
+    private static void start(JdbcDatabaseContainer<?> container, String image) {
+      try {
+        container.start();
+      } catch (RuntimeException e) {
+        throw new IllegalStateException(
+            "Could not start the HTS " + BACKEND + " test database from " + image, e);
+      }
+    }
+
+    private static void populate(Connection connection) {
+      ResourceDatabasePopulator schema = new ResourceDatabasePopulator();
+      for (String ddl : DDL) {
+        schema.addScript(new ClassPathResource(ddl));
+      }
+      schema.populate(connection);
+    }
   }
 
   @DynamicPropertySource
   static void mysqlProperties(DynamicPropertyRegistry properties) {
-    MySQLContainer<?> mysql = Holder.MYSQL;
+    JdbcDatabaseContainer<?> container = Holder.CONTAINER;
     properties.add("cluster.housetables.database.type", () -> "MYSQL");
-    properties.add("cluster.housetables.database.url", mysql::getJdbcUrl);
-    properties.add("HTS_DB_USER", mysql::getUsername);
-    properties.add("HTS_DB_PASSWORD", mysql::getPassword);
+    properties.add("cluster.housetables.database.url", () -> Holder.JDBC_URL);
+    properties.add("HTS_DB_USER", container::getUsername);
+    properties.add("HTS_DB_PASSWORD", container::getPassword);
     properties.add("cluster.housetables.database.cert-based-auth.enabled", () -> "false");
     properties.add("spring.sql.init.mode", () -> "never");
     properties.add("spring.jpa.hibernate.ddl-auto", () -> "none");
@@ -90,9 +178,9 @@ public abstract class HtsMysqlTestBase {
 
   /** An unpooled connection to the test database, independent of any service session. */
   protected static Connection openInspectionConnection() throws SQLException {
-    MySQLContainer<?> mysql = Holder.MYSQL;
+    JdbcDatabaseContainer<?> container = Holder.CONTAINER;
     return DriverManager.getConnection(
-        mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
+        Holder.JDBC_URL, container.getUsername(), container.getPassword());
   }
 
   @Autowired private DataSource mysqlFixtureDataSource;
