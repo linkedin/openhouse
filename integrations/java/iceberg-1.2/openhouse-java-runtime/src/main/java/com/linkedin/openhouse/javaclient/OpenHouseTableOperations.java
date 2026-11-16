@@ -11,8 +11,8 @@ import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
-import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookRejectedException;
 import com.linkedin.openhouse.javaclient.precommit.SupportsPreCommit;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
@@ -105,7 +105,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
 
   /**
    * Adds a check to run before each commit is sent to the service. Hooks run in registration order
-   * and the first to block stops the commit.
+   * and the first to reject stops the commit.
    *
    * <p>Registering a hook is only half of it. A table runs its hooks only while it carries {@value
    * #PRE_COMMIT_HOOKS_ENABLED_KEY}{@code =true}, so a hook can be registered everywhere and turned
@@ -277,7 +277,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   }
 
   /**
-   * Runs the registered checks, in registration order, before anything is sent. The first to block
+   * Runs the registered checks, in registration order, before anything is sent. The first to reject
    * stops the commit and the rest do not run.
    *
    * <p>Placed here on purpose: the routing flags are settled, nothing has been sent yet, and it is
@@ -308,16 +308,16 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
     for (PreCommitHook hook : preCommitHooks) {
       try {
         hook.evaluate(context);
-      } catch (PreCommitHookBlockedException e) {
+      } catch (PreCommitHookRejectedException e) {
         throw asCommitException(hook, e, base == null);
       } catch (CommitFailedException | CommitStateUnknownException e) {
         // A hook throwing either of these is a bug, so say so rather than passing it on. Iceberg
-        // would retry a block that fails the same way every time, or report that a commit which
+        // would retry a rejection that fails the same way every time, or report that a commit which
         // never left may have landed.
         throw new IllegalStateException(
             String.format(
                 "Pre-commit hook %s threw %s, which it must not: a hook reports a problem with "
-                    + "PreCommitHookBlockedException. Table %s.",
+                    + "PreCommitHookRejectedException. Table %s.",
                 hook.getName(), e.getClass().getSimpleName(), tableName()),
             e);
       }
@@ -351,7 +351,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   }
 
   /**
-   * Turns a blocked commit into the exception Iceberg expects.
+   * Turns a rejected commit into the exception Iceberg expects.
    *
    * <p>The two failure types differ in whether Iceberg should try again. {@code
    * CommitFailedException} is retried by Iceberg's commit loop, which is right when the check could
@@ -369,8 +369,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
    * either path.
    */
   private RuntimeException asCommitException(
-      PreCommitHook hook, PreCommitHookBlockedException e, boolean create) {
-    if (e.getFailureType() == PreCommitHookBlockedException.FailureType.OPERATIONAL) {
+      PreCommitHook hook, PreCommitHookRejectedException e, boolean create) {
+    if (e.getFailureType() == PreCommitHookRejectedException.FailureType.OPERATIONAL) {
       String message =
           String.format(
               "Pre-commit hook %s could not check table %s [%s]: %s",
@@ -381,7 +381,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
     }
     return new ValidationException(
         e,
-        "Pre-commit hook %s blocked commit for table %s [%s]: %s",
+        "Pre-commit hook %s rejected commit for table %s [%s]: %s",
         hook.getName(),
         tableName(),
         e.getReasonCode(),

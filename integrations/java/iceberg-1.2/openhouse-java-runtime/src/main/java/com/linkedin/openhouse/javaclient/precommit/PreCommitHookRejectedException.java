@@ -3,17 +3,23 @@ package com.linkedin.openhouse.javaclient.precommit;
 import java.util.Objects;
 
 /**
- * Thrown by a {@link PreCommitHook} to stop a commit.
+ * Thrown by a {@link PreCommitHook} to reject a commit.
  *
- * <p>Checked on purpose, so a hook cannot block a commit by accident. The only way to stop one is
- * to say so in the signature.
+ * <p>The client-side counterpart of the service's {@code CommitRejectedException}, which a
+ * server-side pre-commit check throws for the same reason.
+ *
+ * <p>Checked on purpose, so a hook cannot reject a commit by accident. The only way to stop one is
+ * to say so in the signature. That also keeps a rejection distinguishable from the {@code
+ * ValidationException} Iceberg throws from its own conflict checks, which a hook may well see from
+ * the code it calls.
  *
  * <p>Use {@link #validation} when the commit itself is the problem and retrying would fail the same
  * way. Use {@link #operational} when the check could not reach a verdict, which is worth retrying.
- * The caller uses this to decide whether to retry; see {@link
+ * The caller uses this to decide whether to retry, and surfaces a validation rejection to Iceberg
+ * as a {@code ValidationException}; see {@link
  * com.linkedin.openhouse.javaclient.OpenHouseTableOperations}.
  */
-public class PreCommitHookBlockedException extends Exception {
+public class PreCommitHookRejectedException extends Exception {
 
   /** Whether retrying the commit could produce a different answer. */
   public enum FailureType {
@@ -27,17 +33,17 @@ public class PreCommitHookBlockedException extends Exception {
   private final FailureType failureType;
 
   /** The commit is the problem. */
-  public static PreCommitHookBlockedException validation(String reasonCode, String message) {
-    return new PreCommitHookBlockedException(FailureType.VALIDATION, reasonCode, message, null);
+  public static PreCommitHookRejectedException validation(String reasonCode, String message) {
+    return new PreCommitHookRejectedException(FailureType.VALIDATION, reasonCode, message, null);
   }
 
   /** The check could not reach a verdict. */
-  public static PreCommitHookBlockedException operational(
+  public static PreCommitHookRejectedException operational(
       String reasonCode, String message, Throwable cause) {
-    return new PreCommitHookBlockedException(FailureType.OPERATIONAL, reasonCode, message, cause);
+    return new PreCommitHookRejectedException(FailureType.OPERATIONAL, reasonCode, message, cause);
   }
 
-  private PreCommitHookBlockedException(
+  private PreCommitHookRejectedException(
       FailureType failureType, String reasonCode, String message, Throwable cause) {
     super(message, cause);
     this.failureType = Objects.requireNonNull(failureType, "failureType");

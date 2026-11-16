@@ -6,8 +6,8 @@ import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
-import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookRejectedException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.lang.reflect.Field;
 import java.util.Collections;
@@ -68,17 +68,17 @@ public class OpenHouseCatalogPreCommitTest {
     }
   }
 
-  /** Blocks every commit, under a name an error message can be checked for. */
-  private static final class BlockingHook implements PreCommitHook {
+  /** Rejects every commit, under a name an error message can be checked for. */
+  private static final class RejectingHook implements PreCommitHook {
     private final String name;
 
-    private BlockingHook(String name) {
+    private RejectingHook(String name) {
       this.name = name;
     }
 
     @Override
-    public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
-      throw PreCommitHookBlockedException.validation("blocked", "nope");
+    public void evaluate(PreCommitHookContext context) throws PreCommitHookRejectedException {
+      throw PreCommitHookRejectedException.validation("rejected", "nope");
     }
 
     @Override
@@ -95,7 +95,7 @@ public class OpenHouseCatalogPreCommitTest {
    * Runs a commit far enough to call the hooks. The table carries the opt-in property, since a
    * table without it runs no hooks at all.
    *
-   * @return what stopped it: a block from a hook, or the failure to send
+   * @return what stopped it: a rejection from a hook, or the failure to send
    */
   private static RuntimeException commit(OpenHouseTableOperations ops) {
     TableMetadata base = mock(TableMetadata.class);
@@ -166,12 +166,12 @@ public class OpenHouseCatalogPreCommitTest {
 
   /**
    * A hook registered on one table cannot switch off a catalog-wide one. The catalog's hook is
-   * registered first, so it blocks before the table's hook runs.
+   * registered first, so it rejects before the table's hook runs.
    */
   @Test
   public void testATableHookCannotSwitchOffTheCatalogHook() {
     RecordingHook operationsHook = new RecordingHook();
-    OpenHouseCatalog catalog = catalog().withPreCommit(new BlockingHook("catalog-hook"));
+    OpenHouseCatalog catalog = catalog().withPreCommit(new RejectingHook("catalog-hook"));
 
     RuntimeException stopped = commit(catalog.newTableOps(TABLE).withPreCommit(operationsHook));
 
@@ -180,13 +180,13 @@ public class OpenHouseCatalogPreCommitTest {
     Assertions.assertFalse(operationsHook.called);
   }
 
-  /** An error names the hook that blocked, not whichever ran first. */
+  /** An error names the hook that rejected, not whichever ran first. */
   @Test
-  public void testTheBlockingHookIsTheOneReported() {
+  public void testTheRejectingHookIsTheOneReported() {
     OpenHouseCatalog catalog = catalog().withPreCommit(new RecordingHook());
 
     RuntimeException stopped =
-        commit(catalog.newTableOps(TABLE).withPreCommit(new BlockingHook("second-hook")));
+        commit(catalog.newTableOps(TABLE).withPreCommit(new RejectingHook("second-hook")));
 
     Assertions.assertTrue(stopped.getMessage().contains("second-hook"));
   }
@@ -209,11 +209,12 @@ public class OpenHouseCatalogPreCommitTest {
     return catalog;
   }
 
-  /** Blocks every commit the way a hook whose service is down would. */
+  /** Rejects every commit the way a hook whose service is down would. */
   private static final class UnreachableHook implements PreCommitHook {
     @Override
-    public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
-      throw PreCommitHookBlockedException.operational("service-down", "cannot reach checker", null);
+    public void evaluate(PreCommitHookContext context) throws PreCommitHookRejectedException {
+      throw PreCommitHookRejectedException.operational(
+          "service-down", "cannot reach checker", null);
     }
 
     @Override
@@ -229,7 +230,7 @@ public class OpenHouseCatalogPreCommitTest {
    * the caller can act on.
    */
   @Test
-  public void testACreateBlockedByAnUnreachableHookSaysWhyRatherThanAlreadyExists() {
+  public void testACreateRejectedByAnUnreachableHookSaysWhyRatherThanAlreadyExists() {
     OpenHouseCatalog catalog = catalogWithNoTables().withPreCommit(new UnreachableHook());
 
     ServiceUnavailableException thrown =
@@ -244,16 +245,17 @@ public class OpenHouseCatalogPreCommitTest {
 
     Assertions.assertTrue(thrown.getMessage().contains("unreachable-hook"));
     Assertions.assertTrue(thrown.getMessage().contains("service-down"));
-    Assertions.assertTrue(thrown.getCause() instanceof PreCommitHookBlockedException);
+    Assertions.assertTrue(thrown.getCause() instanceof PreCommitHookRejectedException);
   }
 
   /**
    * The create path only mistranslates {@code CommitFailedException}, so a hook that ran and
-   * blocked needs no special case and keeps reporting the same way it does on a write.
+   * rejected needs no special case and keeps reporting the same way it does on a write.
    */
   @Test
-  public void testACreateBlockedByAHookThatRanReportsTheBlock() {
-    OpenHouseCatalog catalog = catalogWithNoTables().withPreCommit(new BlockingHook("create-hook"));
+  public void testACreateRejectedByAHookThatRanReportsTheRejection() {
+    OpenHouseCatalog catalog =
+        catalogWithNoTables().withPreCommit(new RejectingHook("create-hook"));
 
     ValidationException thrown =
         Assertions.assertThrows(

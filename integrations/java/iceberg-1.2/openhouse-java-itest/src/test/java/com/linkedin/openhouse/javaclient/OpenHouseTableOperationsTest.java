@@ -15,9 +15,9 @@ import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
-import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHookOperation;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookRejectedException;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ArrayNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ObjectNode;
@@ -1150,7 +1150,7 @@ public class OpenHouseTableOperationsTest {
   }
 
   /**
-   * Same as {@link #contextSeenBy}, but a second hook blocks so the commit stops before doCommit
+   * Same as {@link #contextSeenBy}, but a second hook rejects so the commit stops before doCommit
    * reaches the server. Used where the branch under test would need the whole API stubbed.
    */
   private PreCommitHookContext contextSeenByStoppedCommit(
@@ -1159,7 +1159,7 @@ public class OpenHouseTableOperationsTest {
     ops.withPreCommit(hook);
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.validation("STOP", "stop before the commit is sent");
+          throw PreCommitHookRejectedException.validation("STOP", "stop before the commit is sent");
         });
 
     Assertions.assertThrows(
@@ -1237,7 +1237,7 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          throw PreCommitHookRejectedException.validation("ROW_COUNT", "0 rows");
         });
     Commit commit = metadataAndSnapshotsUpdated();
 
@@ -1256,7 +1256,7 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          throw PreCommitHookRejectedException.validation("ROW_COUNT", "0 rows");
         });
     Commit commit =
         snapshotCommitWithProperties(
@@ -1278,7 +1278,7 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          throw PreCommitHookRejectedException.validation("ROW_COUNT", "0 rows");
         });
     Commit commit =
         snapshotCommitWithProperties(
@@ -1297,7 +1297,7 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          throw PreCommitHookRejectedException.validation("ROW_COUNT", "0 rows");
         });
     Commit commit =
         snapshotCommitWithProperties(
@@ -1310,16 +1310,16 @@ public class OpenHouseTableOperationsTest {
   }
 
   /**
-   * The point of the hook: a blocked commit never reaches the service, so the table is left exactly
-   * as it was.
+   * The point of the hook: a rejected commit never reaches the service, so the table is left
+   * exactly as it was.
    */
   @Test
-  public void testABlockedCommitIsNeverSent() {
+  public void testARejectedCommitIsNeverSent() {
     SnapshotApi snapshotApi = acceptingSnapshotApi();
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          throw PreCommitHookRejectedException.validation("ROW_COUNT", "0 rows");
         });
     Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
@@ -1329,13 +1329,13 @@ public class OpenHouseTableOperationsTest {
     verifyNoInteractions(snapshotApi);
   }
 
-  /** A blocked commit says why, so the message is usable without opening a log. */
+  /** A rejected commit says why, so the message is usable without opening a log. */
   @Test
-  public void testABlockedCommitExplainsItself() {
+  public void testARejectedCommitExplainsItself() {
     OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.validation("ROW_COUNT", "expected > 0, got 0");
+          throw PreCommitHookRejectedException.validation("ROW_COUNT", "expected > 0, got 0");
         });
     Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
 
@@ -1356,7 +1356,7 @@ public class OpenHouseTableOperationsTest {
     OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
     ops.withPreCommit(
         context -> {
-          throw PreCommitHookBlockedException.operational(
+          throw PreCommitHookRejectedException.operational(
               "UNAVAILABLE", "validator unreachable", new java.io.IOException("connect timed out"));
         });
     Commit commit = hooksEnabled(metadataAndSnapshotsUpdated());
@@ -1514,15 +1514,15 @@ public class OpenHouseTableOperationsTest {
     verifyNoInteractions(snapshotApi);
   }
 
-  /** The name says which hook blocked, which is what makes the message useful with several. */
+  /** The name says which hook rejected, which is what makes the message useful with several. */
   @Test
-  public void testABlockedCommitNamesTheHook() {
+  public void testARejectedCommitNamesTheHook() {
     OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
     ops.withPreCommit(
         new PreCommitHook() {
           @Override
-          public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
-            throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          public void evaluate(PreCommitHookContext context) throws PreCommitHookRejectedException {
+            throw PreCommitHookRejectedException.validation("ROW_COUNT", "0 rows");
           }
 
           @Override
@@ -1572,7 +1572,7 @@ public class OpenHouseTableOperationsTest {
     }
 
     @Override
-    public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
+    public void evaluate(PreCommitHookContext context) throws PreCommitHookRejectedException {
       if (context.getOperation() == PreCommitHookOperation.NOOP) {
         return;
       }
@@ -1582,7 +1582,7 @@ public class OpenHouseTableOperationsTest {
         return;
       }
       if (!context.getMetadata().properties().containsKey(key)) {
-        throw PreCommitHookBlockedException.validation(
+        throw PreCommitHookRejectedException.validation(
             "missing-required-property", "commit drops required property " + key);
       }
     }
@@ -1611,7 +1611,7 @@ public class OpenHouseTableOperationsTest {
 
   /** The example hook stops a commit that drops the property, and the failure names both. */
   @Test
-  public void testTheExampleHookBlocksACommitThatDropsARequiredProperty() {
+  public void testTheExampleHookRejectsACommitThatDropsARequiredProperty() {
     SnapshotApi snapshotApi = acceptingSnapshotApi();
     OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
     ops.withPreCommit(new RequiredPropertyHook("owner"));

@@ -10,12 +10,12 @@ package com.linkedin.openhouse.javaclient.precommit;
  * <p>Three things a hook must honour:
  *
  * <ul>
- *   <li><b>Check only.</b> Return to allow, throw {@link PreCommitHookBlockedException} to block.
+ *   <li><b>Check only.</b> Return to allow, throw {@link PreCommitHookRejectedException} to reject.
  *       Never change the commit. Nothing has been sent when the hook runs, so a thrown hook leaves
  *       the table untouched.
  *   <li><b>Synchronous and bounded.</b> This runs inline on the committing thread. A hook that
  *       calls another service owns its own timeout, and reports that service being unreachable as
- *       {@code OPERATIONAL} rather than as a block.
+ *       {@code OPERATIONAL} rather than as a rejection.
  *   <li><b>Current base only.</b> This runs after {@code doCommit} has settled what the commit
  *       does, so a hook only ever judges a commit built on the table's current version. Iceberg may
  *       retry a commit, which calls the hook again with the new base.
@@ -34,9 +34,9 @@ public interface PreCommitHook {
    * Checks a commit that is about to be sent.
    *
    * @param context what the commit is doing
-   * @throws PreCommitHookBlockedException to stop the commit
+   * @throws PreCommitHookRejectedException to stop the commit
    */
-  void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException;
+  void evaluate(PreCommitHookContext context) throws PreCommitHookRejectedException;
 
   /**
    * A short, stable name for this hook, used in logs and error messages.
