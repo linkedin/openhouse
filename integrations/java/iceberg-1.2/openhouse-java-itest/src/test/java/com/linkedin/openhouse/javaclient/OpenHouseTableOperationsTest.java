@@ -1341,14 +1341,6 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals("cluster", context.getCluster());
   }
 
-  /** Reason codes end up as metric tags, so a free-text one is rejected where it is written. */
-  @Test
-  public void testAReasonCodeMustBeATag() {
-    Assertions.assertThrows(
-        IllegalArgumentException.class,
-        () -> PreCommitHookBlockedException.validation("not a tag!", "message"));
-  }
-
   /**
    * A hook that throws {@code CommitFailedException} would be retried by Iceberg's commit loop and
    * fail the same way every time, so it is reported as the bug it is rather than passed on.

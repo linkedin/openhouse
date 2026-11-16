@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.javaclient.precommit;
 
 import java.util.Objects;
-import java.util.regex.Pattern;
 
 /**
  * Thrown by a {@link PreCommitHook} to stop a commit.
@@ -15,9 +14,6 @@ import java.util.regex.Pattern;
  * com.linkedin.openhouse.javaclient.OpenHouseTableOperations}.
  */
 public class PreCommitHookBlockedException extends Exception {
-
-  /** Reason codes are used as metric tags, so keep them short and bounded. */
-  private static final Pattern REASON_CODE_PATTERN = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
   /** Whether retrying the commit could produce a different answer. */
   public enum FailureType {
@@ -45,24 +41,21 @@ public class PreCommitHookBlockedException extends Exception {
       FailureType failureType, String reasonCode, String message, Throwable cause) {
     super(message, cause);
     this.failureType = Objects.requireNonNull(failureType, "failureType");
-    this.reasonCode = requireValidReasonCode(reasonCode);
+    this.reasonCode = Objects.requireNonNull(reasonCode, "reasonCode");
   }
 
-  /** A short, stable code naming why the commit was stopped. Safe to use as a metric tag. */
+  /**
+   * A short, stable code naming why the commit was stopped, used in logs and error messages.
+   *
+   * <p>Keep it low cardinality: a constant like {@code "row-count-check"}, never a value built from
+   * the table or the commit, so it can safely be used as a metric tag. Same contract as {@link
+   * PreCommitHook#getName()}.
+   */
   public String getReasonCode() {
     return reasonCode;
   }
 
   public FailureType getFailureType() {
     return failureType;
-  }
-
-  private static String requireValidReasonCode(String reasonCode) {
-    Objects.requireNonNull(reasonCode, "reasonCode");
-    if (!REASON_CODE_PATTERN.matcher(reasonCode).matches()) {
-      throw new IllegalArgumentException(
-          "reasonCode must match " + REASON_CODE_PATTERN.pattern() + " but was: " + reasonCode);
-    }
-    return reasonCode;
   }
 }
