@@ -438,6 +438,9 @@ This operation does not require authentication
 
 Creates and returns a Table resource in a database identified by databaseId
 
+When the configured per-database table-count limit has been reached, creation returns HTTP 422
+without persisting the new table. See [table-count limit configuration and operator exceptions](../../DEPLOY.md#per-database-table-count-limit).
+
 > Body parameter
 
 ```json
@@ -512,6 +515,7 @@ Creates and returns a Table resource in a database identified by databaseId
 |403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Table POST: FORBIDDEN|[GetTableResponseBody](#schemagettableresponsebody)|
 |404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|Table POST: DB_NOT_FOUND|[GetTableResponseBody](#schemagettableresponsebody)|
 |409|[Conflict](https://tools.ietf.org/html/rfc7231#section-6.5.8)|Table POST: TBL_EXISTS|[GetTableResponseBody](#schemagettableresponsebody)|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc4918#section-11.2)|Table POST: DATABASE_TABLE_LIMIT_REACHED|none|
 
 <aside class="success">
 This operation does not require authentication
