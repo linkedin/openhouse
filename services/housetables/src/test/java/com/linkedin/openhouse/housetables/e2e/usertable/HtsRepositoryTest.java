@@ -201,7 +201,7 @@ public class HtsRepositoryTest extends HtsMysqlTestBase {
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     List<String> result = Lists.newArrayList(htsRepository.findAllDistinctDatabaseIds());
-    Assertions.assertEquals(Lists.newArrayList("test_db0", "test_db1"), result);
+    assertThat(result).containsExactlyInAnyOrder("test_db0", "test_db1");
   }
 
   @Test
