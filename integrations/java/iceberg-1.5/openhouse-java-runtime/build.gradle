@@ -25,11 +25,45 @@ ext {
   hadoopVersion = '2.10.0'
 }
 
+// Inherit shared sources from the iceberg-1.2 module's src/main/java, but NOT its
+// src/iceberg-version-specific/java (whose classes bind to version-specific Iceberg base classes,
+// e.g. a view-capable OpenHouseCatalog that extends BaseMetastoreViewCatalog). This module supplies
+// its own copies of those classes under its own src/iceberg-version-specific/java.
+// This module ALSO has its own src/main/java (a Gradle-default source root) for single-copy,
+// iceberg-1.5-only classes that have no iceberg-1.2 counterpart, e.g. OpenHouseViewOperations
+// (binds to the 1.5-only Iceberg view API).
+// Files with an iceberg-1.5 copy (precommit hook support). They evolve independently of the
+// iceberg-1.2 versions, so they are left out of the shared 1.2 sources below.
+def ownedSources = [
+    'com/linkedin/openhouse/javaclient/OpenHouseTableOperations.java',
+    'com/linkedin/openhouse/javaclient/precommit/**'
+]
+
+def shared12Sources = tasks.register('copyShared12Sources', Sync) {
+  def base = project(':integrations:java:iceberg-1.2:openhouse-java-runtime')
+  from(base.sourceSets.main.java.srcDirs.findAll {
+    !it.absolutePath.endsWith('src/iceberg-version-specific/java')
+  }) {
+    exclude ownedSources
+  }
+  into layout.buildDirectory.dir('shared-iceberg-1.2-src')
+}
+
 sourceSets {
   main {
     java {
+      srcDir shared12Sources.map { it.destinationDir }
       srcDirs += 'src/iceberg-version-specific/java'
     }
+    resources {
+      srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-runtime').sourceSets.main.resources.srcDirs
+    }
+  }
+}
+
+tasks.configureEach { t ->
+  if (t.name != 'copyShared12Sources' && (t.name in ['compileJava', 'sourcesJar', 'spotlessJava', 'javadoc'] || t.name.startsWith('spotless'))) {
+    t.dependsOn shared12Sources
   }
 }
 
