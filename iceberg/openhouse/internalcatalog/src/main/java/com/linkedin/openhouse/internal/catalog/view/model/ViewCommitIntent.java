@@ -37,9 +37,12 @@ public class ViewCommitIntent {
   /** Null is normalized to {@link Namespace#empty()}. */
   private final Namespace defaultNamespace;
 
+  /**
+   * Complete desired properties; existing-view commits must echo stored system fields unchanged.
+   */
   private final Map<String, String> viewProperties;
 
-  /** Required: true for CREATE, false for REPLACE; null is rejected at commit. */
+  /** Required: true for CREATE, false for an existing-view commit; null is rejected. */
   private final Boolean isCreate;
 
   /** Trusted HTS snapshot; null means observed absence. Its tableLocation is the REPLACE token. */
