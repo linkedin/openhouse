@@ -41,7 +41,8 @@ jobs:
           echo "Waiting for openhouse-tables and openhouse-housetables..."
           token=$(cat ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token)
           probe() {
-            curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 5 "$@" || true
+            local status
+            status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 5 "$@") && printf '%s' "$status" || printf '000'
           }
           SECONDS=0
           i=0
