@@ -39,12 +39,19 @@ jobs:
       - name: Wait for Docker Containers to be ready
         run: |
           echo "Waiting for openhouse-tables and openhouse-housetables..."
-          for i in $(seq 1 60); do
-            tables_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/databases 2>&1 || echo "000")
-            hts_status=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8001/hts/tables/query" 2>&1 || echo "000")
+          token=$(cat ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token)
+          probe() {
+            curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 5 "$@" || true
+          }
+          SECONDS=0
+          i=0
+          while [ "$SECONDS" -lt 300 ]; do
+            i=$((i + 1))
+            tables_status=$(probe -H "Authorization: Bearer $token" http://localhost:8000/v1/databases)
+            hts_status=$(probe http://localhost:8001/hts/tables/query)
             echo "Poll $i: tables=$tables_status hts=$hts_status"
-            if [ "$tables_status" != "000" ] && [ "$hts_status" = "200" ]; then
-              echo "Services ready after $((i * 5))s"
+            if [ "$tables_status" = "200" ] && [ "$hts_status" = "200" ]; then
+              echo "Services ready after ${SECONDS}s"
               exit 0
             fi
             sleep 5
