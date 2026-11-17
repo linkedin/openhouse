@@ -7,25 +7,6 @@ ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
 }
 
-def shared12Tests = tasks.register('copyShared12Tests', Sync) {
-  from(project(':integrations:java:iceberg-1.2:openhouse-java-itest').sourceSets.test.java.srcDirs) {
-    // iceberg-1.5 has its own copies of these (precommit hook support)
-    exclude 'com/linkedin/openhouse/javaclient/OpenHouseTableOperationsTest.java',
-        'com/linkedin/openhouse/javaclient/OpenHouseCatalogPreCommitTest.java'
-  }
-  into layout.buildDirectory.dir('shared-iceberg-1.2-tests')
-}
-
-sourceSets {
-  test {
-    java {
-      srcDir shared12Tests.map { it.destinationDir }
-    }
-  }
-}
-
-tasks.named('compileTestJava') { dependsOn shared12Tests }
-
 dependencies {
   testImplementation(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
 
