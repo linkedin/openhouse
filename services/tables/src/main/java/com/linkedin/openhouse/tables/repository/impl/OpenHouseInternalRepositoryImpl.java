@@ -391,7 +391,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     throw new TableCountLimitExceededException(
         String.format(
             "Database %s has %d live tables, reaching the configured limit of %d. "
-                + "Drop unused tables or contact the OpenHouse operators before creating or restoring another table.",
+                + "Drop unused tables before creating or restoring another table.",
             databaseId, tableCount, limit));
   }
 
