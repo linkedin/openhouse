@@ -6,6 +6,7 @@ import com.linkedin.openhouse.optimizer.api.spec.TableOperations;
 import com.linkedin.openhouse.optimizer.api.spec.TableOperationsHistory;
 import com.linkedin.openhouse.optimizer.api.spec.UpdateOperationRequest;
 import com.linkedin.openhouse.optimizer.service.OptimizerDataService;
+import com.linkedin.openhouse.optimizer.service.StaleOperationUpdateException;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.List;
@@ -37,13 +38,15 @@ public class TableOperationsController {
    * Report an update to an operation. {@code id} comes from the URL; the body's {@code operationId}
    * must match (the controller rejects mismatched requests with 400). The backend looks up the
    * operation row, writes a history entry with the operation's table metadata, and returns 201
-   * Created with the history row, or 404 if the operation does not exist.
+   * Created with the history row, 404 if the operation does not exist, or 409 if the attempt no
+   * longer awaits a result (duplicate callback, already expired, or never claimed).
    */
   @ApiResponses(
       value = {
         @ApiResponse(responseCode = "201", description = "Operation UPDATE: CREATED"),
         @ApiResponse(responseCode = "400", description = "Operation UPDATE: BAD_REQUEST"),
-        @ApiResponse(responseCode = "404", description = "Operation UPDATE: NOT_FOUND")
+        @ApiResponse(responseCode = "404", description = "Operation UPDATE: NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "Operation UPDATE: CONFLICT")
       })
   @PostMapping("/{id}/update")
   public ResponseEntity<TableOperationsHistory> updateOperation(
@@ -61,16 +64,20 @@ public class TableOperationsController {
     if (request.getStatus() == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required");
     }
-    return service
-        .updateOperation(id, request.getStatus().toModel(), request.getFailureReason())
-        .map(
-            history ->
-                ResponseEntity.status(HttpStatus.CREATED)
-                    .body(TableOperationsHistory.fromModel(history)))
-        .orElseThrow(
-            () ->
-                new ResponseStatusException(
-                    HttpStatus.NOT_FOUND, String.format("no operation with id %s", id)));
+    try {
+      return service
+          .updateOperation(id, request.getStatus().toModel(), request.getFailureReason())
+          .map(
+              history ->
+                  ResponseEntity.status(HttpStatus.CREATED)
+                      .body(TableOperationsHistory.fromModel(history)))
+          .orElseThrow(
+              () ->
+                  new ResponseStatusException(
+                      HttpStatus.NOT_FOUND, String.format("no operation with id %s", id)));
+    } catch (StaleOperationUpdateException e) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
+    }
   }
 
   /** Fetch a single operation row by its ID, regardless of status. Returns 404 if not found. */

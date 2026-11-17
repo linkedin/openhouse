@@ -39,6 +39,13 @@ public interface OptimizerDataService {
    * operationId}, copies its table metadata into a new history row with the supplied terminal
    * {@code status}, and saves it. Returns the history record, or empty if the operation does not
    * exist.
+   *
+   * <p>Fenced: the outcome is recorded only if this attempt still owns the row (claimed and not yet
+   * resolved). Recording it also sets the row's {@code next_eligible_at} in the same conditional
+   * update.
+   *
+   * @throws StaleOperationUpdateException if the attempt was already resolved (duplicate callback),
+   *     expired by the analyzer, or never claimed; nothing is written
    */
   Optional<TableOperationsHistoryDto> updateOperation(
       String operationId, HistoryStatusDto status, String failureReason);

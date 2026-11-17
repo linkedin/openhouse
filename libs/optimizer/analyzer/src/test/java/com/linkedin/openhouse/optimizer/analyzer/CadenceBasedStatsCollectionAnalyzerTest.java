@@ -247,6 +247,55 @@ class CadenceBasedStatsCollectionAnalyzerTest {
         .isFalse();
   }
 
+  // --- shouldSchedule: next_eligible_at gate is authoritative when set ---
+
+  @Test
+  void shouldSchedule_nextEligibleAtInFuture_returnsFalse() {
+    Instant future = Instant.now().plus(Duration.ofHours(5));
+    // A future next_eligible_at blocks even a dead (past-stale-timeout) op that history would
+    // release.
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(
+                    opScheduledAtNextEligibleAt(
+                        OperationStatusDto.SCHEDULED,
+                        Instant.now().minus(Duration.ofHours(10)),
+                        future)),
+                Optional.of(
+                    historyWithStatus(
+                        HistoryStatusDto.FAILED, Instant.now().minus(Duration.ofHours(10)))),
+                0))
+        .isFalse();
+  }
+
+  @Test
+  void shouldSchedule_nextEligibleAtInPast_returnsTrue() {
+    Instant past = Instant.now().minus(Duration.ofMinutes(1));
+    // A past next_eligible_at releases the op even though it is still SCHEDULED within the stale
+    // window.
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(
+                    opScheduledAtNextEligibleAt(OperationStatusDto.SCHEDULED, Instant.now(), past)),
+                Optional.empty(),
+                0))
+        .isTrue();
+  }
+
+  @Test
+  void nextEligibleAt_success_usesSuccessInterval() {
+    Instant from = Instant.now();
+    assertThat(analyzer.nextEligibleAt(from, true, 1)).isEqualTo(from.plus(SUCCESS_INTERVAL));
+  }
+
+  @Test
+  void nextEligibleAt_failure_usesFailureInterval() {
+    Instant from = Instant.now();
+    assertThat(analyzer.nextEligibleAt(from, false, 1)).isEqualTo(from.plus(FAILURE_INTERVAL));
+  }
+
   // --- helpers ---
 
   private TableDto tableWithProperty(boolean enabled) {
@@ -267,6 +316,15 @@ class CadenceBasedStatsCollectionAnalyzerTest {
 
   private TableOperationDto opScheduledAt(OperationStatusDto status, Instant scheduledAt) {
     return TableOperationDto.builder().status(status).scheduledAt(scheduledAt).build();
+  }
+
+  private TableOperationDto opScheduledAtNextEligibleAt(
+      OperationStatusDto status, Instant scheduledAt, Instant nextEligibleAt) {
+    return TableOperationDto.builder()
+        .status(status)
+        .scheduledAt(scheduledAt)
+        .nextEligibleAt(nextEligibleAt)
+        .build();
   }
 
   private TableOperationsHistoryDto historyWithStatus(

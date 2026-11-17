@@ -122,4 +122,36 @@ class ControllerErrorHandlingTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.status").value("SUCCESS"));
   }
+
+  @Test
+  void updateOperation_duplicateCallback_returns409() throws Exception {
+    String id = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(id)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(OperationType.ORPHAN_FILES_DELETION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .jobId("job-x")
+            .build());
+    String body = String.format("{\"operationId\":\"%s\",\"status\":\"SUCCESS\"}", id);
+    mockMvc
+        .perform(
+            post("/v1/optimizer/operations/" + id + "/update")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isCreated());
+
+    // The attempt is already resolved, so a second callback for it is rejected as a conflict.
+    mockMvc
+        .perform(
+            post("/v1/optimizer/operations/" + id + "/update")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isConflict());
+  }
 }

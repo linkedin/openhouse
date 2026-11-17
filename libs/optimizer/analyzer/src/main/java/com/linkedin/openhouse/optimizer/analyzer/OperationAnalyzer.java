@@ -4,6 +4,7 @@ import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -56,14 +57,22 @@ public interface OperationAnalyzer {
   boolean isActiveOpTimedOut(TableOperationDto op);
 
   /**
+   * Earliest time to retry after an outcome observed at {@code from}: the success cadence on
+   * success, otherwise the failure backoff for {@code attempts}. Persisted to {@code
+   * next_eligible_at} on completion or expiry so retry timing no longer depends on the
+   * stale-timeout.
+   */
+  Instant nextEligibleAt(Instant from, boolean succeeded, int attempts);
+
+  /**
    * Returns {@code true} if a new or refreshed operation record should be upserted.
    *
    * @param table the table entry
    * @param currentOp the existing active operation record, or empty if none exists
    * @param latestHistory the most recent history entry for this (table, type), or empty
-   * @param consecutiveFailures number of consecutive non-success submissions ending at the latest
-   *     one — explicitly FAILED history plus logical timeouts (submitted-without-success); {@code
-   *     0} when the latest submission succeeded. Used by the per-table retry backoff to space out
+   * @param consecutiveFailures consecutive failed attempts (reported FAILED or timed out without
+   *     reporting) in the current retry sequence, read from the operation row's {@code attempts}
+   *     counter; {@code 0} after a success. Used by the per-table retry backoff to space out
    *     retries and signal a chronically-failing table.
    */
   boolean shouldSchedule(
