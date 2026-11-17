@@ -2,18 +2,22 @@ package com.linkedin.openhouse.housetables.e2e;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -52,11 +56,6 @@ public abstract class HtsDatabaseTestBase {
   private static final String MYSQL = "mysql";
 
   private static final String TIDB = "tidb";
-
-  private static final List<String> DDL =
-      Arrays.asList(
-          "hts-mysql/ddl/0000__baseline.sql",
-          "hts-mysql/ddl/0001__add_entity_type_to_user_table_row.sql");
 
   private static final List<String> TABLES =
       Arrays.asList(
@@ -110,7 +109,7 @@ public abstract class HtsDatabaseTestBase {
           DriverManager.getConnection(
               mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())) {
         populate(connection);
-      } catch (SQLException e) {
+      } catch (SQLException | IOException e) {
         throw new IllegalStateException("Could not build the HTS MySQL test schema", e);
       }
       return mysql;
@@ -139,7 +138,7 @@ public abstract class HtsDatabaseTestBase {
         }
         connection.setCatalog(DATABASE);
         populate(connection);
-      } catch (SQLException e) {
+      } catch (SQLException | IOException e) {
         throw new IllegalStateException("Could not build the HTS TiDB test schema", e);
       }
       return tidb;
@@ -154,12 +153,12 @@ public abstract class HtsDatabaseTestBase {
       }
     }
 
-    private static void populate(Connection connection) {
-      ResourceDatabasePopulator schema = new ResourceDatabasePopulator();
-      for (String ddl : DDL) {
-        schema.addScript(new ClassPathResource(ddl));
-      }
-      schema.populate(connection);
+    private static void populate(Connection connection) throws IOException {
+      Resource[] ddl =
+          new PathMatchingResourcePatternResolver().getResources("classpath:hts-mysql/ddl/*.sql");
+      assertThat(ddl).as("canonical HTS DDL resources").isNotEmpty();
+      Arrays.sort(ddl, Comparator.comparing(Resource::getFilename));
+      new ResourceDatabasePopulator(ddl).populate(connection);
     }
   }
 

@@ -49,7 +49,7 @@ initialization failures fail the tests rather than falling back to H2 or skippin
 
 - Spring integration tests share a disposable Testcontainers instance: MySQL by default,
   or TiDB with `-PhtsBackend=tidb`. Both use the same MySQL JDBC datasource path. The schema
-  comes from the canonical `services/housetables/ddl/` baseline and entity-type migration,
+  comes from all canonical `services/housetables/ddl/*.sql` files in filename order,
   not Hibernate-generated tables. Shared fixtures reset data between tests.
 - `HtsHttpIntegrationTest` starts Spring Boot on a random port and sends actual HTTP
   requests. It covers table/view behavior, pagination, soft-delete/restore/purge, and

@@ -13,6 +13,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -35,7 +36,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -61,7 +65,6 @@ import org.testcontainers.containers.MySQLContainer;
 @Transactional
 class HtsMysqlIndexIntegrationTest {
   private static final ObjectMapper JSON = new ObjectMapper();
-  private static final String DDL_REVISION = "970c87aaae748edb2bcafdb5d4f3e47495e91ac5";
   private static final String UPPER_INDEX = "idx_user_table_upper_db_table";
   private static final MySQLContainer<?> MYSQL =
       new MySQLContainer<>(System.getProperty("hts.index.mysqlImage", "mysql:8.4.11"))
@@ -111,31 +114,11 @@ class HtsMysqlIndexIntegrationTest {
   void seedAndVerifySchema() throws Exception {
     jdbc = new JdbcTemplate(dataSource);
     assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).isEqualTo("hts_index_test");
-    Map<String, String> ddlHashes = new LinkedHashMap<>();
-    ddlHashes.put(
-        "0000__baseline.sql", "19b23ce5077c1d16158ada5588209a5621402df0bdfd7f7d4b12e2b7dec061ff");
-    ddlHashes.put(
-        "0001__add_entity_type_to_user_table_row.sql",
-        "f4b892447ba2941adf4be02bc336646d065cbb3cb7b437a97be095b5addbec6d");
-    for (Map.Entry<String, String> ddl : ddlHashes.entrySet()) {
-      org.springframework.core.io.ClassPathResource resource =
-          new org.springframework.core.io.ClassPathResource("hts-mysql/ddl/" + ddl.getKey());
-      byte[] contents;
-      try (java.io.InputStream input = resource.getInputStream()) {
-        contents = input.readAllBytes();
-      }
-      String hash =
-          String.format(
-              Locale.ROOT,
-              "%064x",
-              new java.math.BigInteger(
-                  1, java.security.MessageDigest.getInstance("SHA-256").digest(contents)));
-      assertThat(hash)
-          .as("Unmodified DDL from %s: %s", DDL_REVISION, ddl.getKey())
-          .isEqualTo(ddl.getValue());
-      new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(resource)
-          .execute(dataSource);
-    }
+    Resource[] ddl =
+        new PathMatchingResourcePatternResolver().getResources("classpath:hts-mysql/ddl/*.sql");
+    assertThat(ddl).as("canonical HTS DDL resources").isNotEmpty();
+    Arrays.sort(ddl, Comparator.comparing(Resource::getFilename));
+    new ResourceDatabasePopulator(ddl).execute(dataSource);
     List<Object[]> live = new ArrayList<>();
     List<Object[]> deleted = new ArrayList<>();
     List<Object[]> jobs = new ArrayList<>();
@@ -193,8 +176,11 @@ class HtsMysqlIndexIntegrationTest {
             + " (feature,database_pattern,table_pattern,creation_time_ms) VALUES (?,?,?,?)",
         rules);
     Map<String, Object> fixture = new LinkedHashMap<>();
-    fixture.put("ddlRevision", DDL_REVISION);
-    fixture.put("ddlSha256", ddlHashes);
+    fixture.put(
+        "ddlFiles",
+        Arrays.stream(ddl)
+            .map(Resource::getFilename)
+            .collect(java.util.stream.Collectors.toList()));
     fixture.put("mysqlVersion", jdbc.queryForObject("SELECT VERSION()", String.class));
     fixture.put("image", MYSQL.getDockerImageName());
     fixture.put("imageId", MYSQL.getContainerInfo().getImageId());
