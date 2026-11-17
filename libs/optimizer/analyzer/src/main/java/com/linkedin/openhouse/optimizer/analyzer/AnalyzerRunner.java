@@ -16,7 +16,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,16 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @RequiredArgsConstructor
 public class AnalyzerRunner {
-
-  /**
-   * Maximum number of recent submissions the per-table retry backoff inspects to measure the
-   * consecutive non-success streak. This is a <i>look-back bound, not a retry limit</i>: retries
-   * continue indefinitely at the backed-off cadence and never give up after N attempts. The streak
-   * only sets the backoff exponent, and that backoff reaches its {@code failure-backoff-max}
-   * ceiling after a handful of failures (e.g. ~5 with a 1h base and a 21h cap), so inspecting
-   * further back than this cannot change the computed interval.
-   */
-  private static final int FAILURE_STREAK_WINDOW = 10;
 
   private final List<OperationAnalyzer> analyzers;
   private final TableStatsRepository statsRepo;
@@ -281,24 +270,28 @@ public class AnalyzerRunner {
       return false;
     }
     if (recordExpiryBackoff(analyzer, currentOp)) {
-      // The active op just timed out with no reported outcome; we wrote its retry backoff on this
-      // pass and defer. The gate picks it up once next_eligible_at elapses.
+      // The active op just timed out with no reported outcome; we resolved it with its retry
+      // backoff on this pass (or a racing callback resolved it first) and defer. The gate picks it
+      // up once next_eligible_at elapses.
       return false;
     }
-    int consecutiveFailures = countConsecutiveNonSuccess(table, analyzer, currentOp, latestHistory);
+    int consecutiveFailures = consecutiveFailures(analyzer, currentOp, latestHistory);
     if (!analyzer.shouldSchedule(table, currentOp, latestHistory, consecutiveFailures)) {
       return false;
     }
-    return createPending(analyzer, table, nextAttempts(currentOp, latestHistory));
+    return createPending(analyzer, table, consecutiveFailures + 1);
   }
 
   /**
-   * Writes the retry backoff for a dead/missed job: a submitted op that crossed the stale-timeout
-   * without ever reporting a terminal outcome never got an {@code next_eligible_at} written by the
-   * completion callback, so its retry would fire immediately on timeout. Write the failure backoff
-   * here — the same interval a reported failure would get — so the dead job backs off like any
-   * other failure. No-op unless the op is timed out and has no {@code next_eligible_at} yet.
-   * Returns whether a backoff was written.
+   * Resolves a dead/missed job: a submitted op that crossed the stale-timeout without ever
+   * reporting a terminal outcome never got a {@code next_eligible_at} written by the completion
+   * callback, so its retry would fire immediately on timeout. Write the failure backoff here — the
+   * same interval a reported failure would get — so the dead job backs off like any other failure.
+   *
+   * <p>Goes through the same fenced {@code resolveAttempt} as the completion callback, so expiry
+   * and a racing callback cannot overwrite each other: exactly one resolves the attempt, and a
+   * callback arriving after expiry is rejected. No-op unless the op is timed out and unresolved.
+   * Returns whether the op was timed out and unresolved on this read (the caller then defers).
    */
   private boolean recordExpiryBackoff(
       OperationAnalyzer analyzer, Optional<TableOperationDto> currentOp) {
@@ -310,91 +303,58 @@ public class AnalyzerRunner {
       return false;
     }
     Instant nextEligibleAt = analyzer.nextEligibleAt(Instant.now(), false, op.getAttempts());
-    operationsRepo.save(op.toRow().toBuilder().nextEligibleAt(nextEligibleAt).build());
-    log.info(
-        "Operation {} for table {}.{} timed out without reporting; backing off retry until {}",
-        op.getId(),
-        op.getDatabaseName(),
-        op.getTableName(),
-        nextEligibleAt);
+    if (operationsRepo.resolveAttempt(op.getId(), nextEligibleAt) == 1) {
+      log.info(
+          "Operation {} for table {}.{} timed out without reporting; backing off retry until {}",
+          op.getId(),
+          op.getDatabaseName(),
+          op.getTableName(),
+          nextEligibleAt);
+    } else {
+      // A completion callback resolved the attempt between our read and this update; its real
+      // outcome stands. Defer — the next pass sees the resolved row.
+      log.info(
+          "Operation {} for table {}.{} was resolved concurrently; leaving its outcome",
+          op.getId(),
+          op.getDatabaseName(),
+          op.getTableName());
+    }
     return true;
   }
 
   /**
-   * Attempt number for the next PENDING: reset to 1 when the latest run succeeded, otherwise one
-   * past the prior attempt (carried forward on the operation row). Maintained independently of the
-   * history windows so a recorded success can't be miscounted.
-   */
-  private static int nextAttempts(
-      Optional<TableOperationDto> currentOp, Optional<TableOperationsHistoryDto> latestHistory) {
-    boolean lastSucceeded =
-        latestHistory.map(h -> h.getStatus() == HistoryStatusDto.SUCCESS).orElse(false);
-    int prior = lastSucceeded ? 0 : currentOp.map(TableOperationDto::getAttempts).orElse(0);
-    return prior + 1;
-  }
-
-  /**
-   * Count the table's current consecutive non-success streak for {@code operationType}, newest
-   * first, stopping at the first success. A "non-success" is any submitted job that did not reach
-   * SUCCESS — an explicitly FAILED history entry or a <i>logical timeout</i> (a submitted op past
-   * the stale-timeout with no history, i.e. it never reported back). Nothing is persisted: the
-   * timeout is derived at read time, so a late callback simply writes its real outcome and resets
-   * the streak on the next pass.
+   * Consecutive failed attempts in the current retry sequence, read from the {@code attempts}
+   * counter on the current operation row — the single source of truth for retries (no history
+   * reconstruction). Each row is one attempt numbered from 1 after the last success, so:
    *
-   * <p>Lazy: healthy tables (latest history SUCCESS and no timed-out active op) return {@code 0}
-   * with no extra read. Only a non-healthy table pays for the recent-submissions / recent-history
-   * windows. Because a table has at most one active op at a time, recent submissions ordered by
-   * {@code scheduledAt} are the outcome sequence; each submission's result comes from its same-id
-   * history row.
+   * <ul>
+   *   <li>no current op, or its recorded outcome is SUCCESS &rarr; {@code 0};
+   *   <li>its recorded outcome is FAILED, or it timed out without reporting &rarr; {@code attempts}
+   *       (this attempt failed too);
+   *   <li>otherwise (still pending / in flight / canceled) &rarr; {@code attempts - 1} (only the
+   *       earlier attempts failed).
+   * </ul>
+   *
+   * <p>The next PENDING attempt is numbered {@code consecutiveFailures + 1}. Fenced completion
+   * guarantees the history row with the op's id is that attempt's own result, so a late callback
+   * from an older attempt cannot skew this count.
    */
-  private int countConsecutiveNonSuccess(
-      TableDto table,
+  private static int consecutiveFailures(
       OperationAnalyzer analyzer,
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory) {
-    boolean latestNonSuccess =
-        latestHistory.map(h -> h.getStatus() != HistoryStatusDto.SUCCESS).orElse(false);
-    boolean activeOpTimedOut = currentOp.map(analyzer::isActiveOpTimedOut).orElse(false);
-    if (!latestNonSuccess && !activeOpTimedOut) {
+    if (currentOp.isEmpty()) {
       return 0;
     }
-
-    OperationTypeDto operationType = analyzer.getOperationType();
-    Map<String, HistoryStatusDto> statusByOpId =
-        historyRepo
-            .findRecent(
-                table.getTableUuid(),
-                operationType.toDb(),
-                PageRequest.of(0, FAILURE_STREAK_WINDOW))
-            .stream()
-            .map(TableOperationsHistoryDto::fromRow)
-            .collect(
-                Collectors.toMap(
-                    TableOperationsHistoryDto::getId,
-                    TableOperationsHistoryDto::getStatus,
-                    (a, b) -> a));
-
-    int streak = 0;
-    for (TableOperationDto submission :
-        operationsRepo
-            .findRecentSubmissions(
-                table.getTableUuid(),
-                operationType.toDb(),
-                PageRequest.of(0, FAILURE_STREAK_WINDOW))
-            .stream()
-            .map(TableOperationDto::fromRow)
-            .collect(Collectors.toList())) {
-      HistoryStatusDto outcome = statusByOpId.get(submission.getId());
-      if (outcome == HistoryStatusDto.SUCCESS) {
-        break;
-      }
-      if (outcome == HistoryStatusDto.FAILED || analyzer.isActiveOpTimedOut(submission)) {
-        streak++;
-      }
-      // Otherwise the submission is still in-flight (no history, not yet timed out): skip it and
-      // keep walking older submissions.
+    TableOperationDto op = currentOp.get();
+    Optional<HistoryStatusDto> outcome =
+        latestHistory
+            .filter(h -> op.getId().equals(h.getId()))
+            .map(TableOperationsHistoryDto::getStatus);
+    if (outcome.isPresent()) {
+      return outcome.get() == HistoryStatusDto.SUCCESS ? 0 : op.getAttempts();
     }
-    return streak;
+    return analyzer.isActiveOpTimedOut(op) ? op.getAttempts() : Math.max(0, op.getAttempts() - 1);
   }
 
   /**

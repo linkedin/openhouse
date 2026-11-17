@@ -82,33 +82,45 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
         .map(
             row -> {
               boolean succeeded = status == HistoryStatusDto.SUCCESS;
-              TableOperationsHistoryDto saved =
-                  TableOperationsHistoryDto.fromRow(
-                      historyRepository.save(
-                          TableOperationsHistoryDto.builder()
-                              .id(row.getId())
-                              .tableUuid(row.getTableUuid())
-                              .databaseName(row.getDatabaseName())
-                              .tableName(row.getTableName())
-                              .operationType(OperationTypeDto.fromDb(row.getOperationType()))
-                              .completedAt(Instant.now())
-                              .status(status)
-                              .failureReason(succeeded ? null : boundFailureReason(failureReason))
-                              .build()
-                              .toRow()));
-              // Write the next retry time on the operation row from this outcome, so a reported
-              // failure retries after its backoff instead of waiting out the stale-timeout.
-              analyzerRunner
-                  .nextEligibleAt(
-                      OperationTypeDto.fromDb(row.getOperationType()),
-                      Instant.now(),
-                      succeeded,
-                      row.getAttempts())
-                  .ifPresent(
-                      nextEligibleAt ->
-                          operationsRepository.save(
-                              row.toBuilder().nextEligibleAt(nextEligibleAt).build()));
-              return saved;
+              Instant completedAt = Instant.now();
+              // Next retry time from this outcome. If no analyzer handles the type, the op is
+              // eligible immediately — the column still must be set to mark the attempt resolved.
+              Instant nextEligibleAt =
+                  analyzerRunner
+                      .nextEligibleAt(
+                          OperationTypeDto.fromDb(row.getOperationType()),
+                          completedAt,
+                          succeeded,
+                          row.getAttempts())
+                      .orElse(completedAt);
+              // Fence first: only the attempt that still owns the row may record an outcome. A
+              // duplicate callback, or a late one from an attempt the analyzer already expired, is
+              // rejected here before any history is written.
+              if (operationsRepository.resolveAttempt(row.getId(), nextEligibleAt) == 0) {
+                log.warn(
+                    "Rejecting {} result for operation {} on {}.{}: attempt already resolved, "
+                        + "expired, or never claimed (status={})",
+                    status,
+                    row.getId(),
+                    row.getDatabaseName(),
+                    row.getTableName(),
+                    row.getStatus());
+                throw new StaleOperationUpdateException(row.getId());
+              }
+              // Each attempt's result is its own history row, keyed by the attempt's row id.
+              return TableOperationsHistoryDto.fromRow(
+                  historyRepository.save(
+                      TableOperationsHistoryDto.builder()
+                          .id(row.getId())
+                          .tableUuid(row.getTableUuid())
+                          .databaseName(row.getDatabaseName())
+                          .tableName(row.getTableName())
+                          .operationType(OperationTypeDto.fromDb(row.getOperationType()))
+                          .completedAt(completedAt)
+                          .status(status)
+                          .failureReason(succeeded ? null : boundFailureReason(failureReason))
+                          .build()
+                          .toRow()));
             });
   }
 

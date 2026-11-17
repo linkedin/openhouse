@@ -103,46 +103,31 @@ class AnalyzerRunnerTest {
   }
 
   @Test
-  void analyze_countsConsecutiveFailures_fromRecentSubmissions_andPassesToShouldSchedule() {
+  void analyze_consecutiveFailures_readFromAttemptsCounter_withoutHistoryReconstruction() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
     TableDto expectedTable = TableDto.fromRow(statsEntity);
+    // Third attempt in the current sequence, resolved FAILED (its own history row shares its id).
+    TableOperationsRow failedThirdAttempt =
+        submittedOpRow("op-3", Instant.now().minusSeconds(100))
+            .toBuilder()
+            .attempts(3)
+            .nextEligibleAt(Instant.now().minusSeconds(10))
+            .build();
 
     when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
         .thenReturn(List.of(statsEntity));
-    when(operationsRepo.find(
-            eq(Optional.of(OFD_DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            eq(Optional.of(DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            any()))
-        .thenReturn(Collections.emptyList());
-    // Latest run FAILED → not healthy → the runner walks recent submissions to measure the streak.
+    stubOpsFind(List.of(failedThirdAttempt));
     when(historyRepo.findLatest(eq(OFD_DB), any()))
-        .thenReturn(List.of(failedHistoryRow("op-1", Instant.now().minusSeconds(100))));
-    // Three submissions, each with a FAILED outcome (history shares the submission's op id).
-    when(operationsRepo.findRecentSubmissions(eq("uuid-1"), eq(OFD_DB), any()))
-        .thenReturn(
-            List.of(
-                submittedOpRow("op-1", Instant.now().minusSeconds(100)),
-                submittedOpRow("op-2", Instant.now().minusSeconds(200)),
-                submittedOpRow("op-3", Instant.now().minusSeconds(300))));
-    when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
-        .thenReturn(
-            List.of(
-                failedHistoryRow("op-1", Instant.now().minusSeconds(100)),
-                failedHistoryRow("op-2", Instant.now().minusSeconds(200)),
-                failedHistoryRow("op-3", Instant.now().minusSeconds(300))));
+        .thenReturn(List.of(failedHistoryRow("op-3", Instant.now().minusSeconds(50))));
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(3))).thenReturn(false);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
-    // The runner derived consecutiveFailures=3 from the recent submissions and passed it through.
+    // The count comes straight from the row's attempts counter; no history walk.
     verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(3));
+    verify(historyRepo, never()).findRecent(any(), any(), any());
     verify(operationsRepo, never()).save(any());
   }
 
@@ -171,16 +156,39 @@ class AnalyzerRunnerTest {
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
     when(analyzer.nextEligibleAt(any(Instant.class), eq(false), anyInt())).thenReturn(backoffUntil);
+    when(operationsRepo.resolveAttempt("op-dead", backoffUntil)).thenReturn(1);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
-    // The dead job's failure backoff is written (so it is not rescheduled immediately) and this
-    // pass defers: no streak walk, no shouldSchedule, no new PENDING row.
-    ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
-    verify(operationsRepo).save(captor.capture());
-    TableOperationsRow savedOp = captor.getValue();
-    assertThat(savedOp.getId()).isEqualTo("op-dead");
-    assertThat(savedOp.getNextEligibleAt()).isEqualTo(backoffUntil);
+    // The dead job is resolved with its failure backoff through the fenced update (never a full-row
+    // save that could clobber a concurrent change) and this pass defers: no shouldSchedule, no new
+    // PENDING row.
+    verify(operationsRepo).resolveAttempt("op-dead", backoffUntil);
+    verify(operationsRepo, never()).save(any());
+    verify(analyzer, never()).shouldSchedule(any(), any(), any(), anyInt());
+  }
+
+  @Test
+  void analyze_timedOutCurrentOp_resolvedConcurrentlyByCallback_defersWithoutOverwriting() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableOperationsRow staleOp = submittedOpRow("op-dead", Instant.now().minusSeconds(20_000));
+    Instant backoffUntil = Instant.now().plusSeconds(3_600);
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    stubOpsFind(List.of(staleOp));
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
+    when(analyzer.nextEligibleAt(any(Instant.class), eq(false), anyInt())).thenReturn(backoffUntil);
+    // A completion callback resolved the attempt between our read and the expiry update: the fence
+    // rejects the expiry (0 rows), so the callback's real outcome stands.
+    when(operationsRepo.resolveAttempt("op-dead", backoffUntil)).thenReturn(0);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    verify(operationsRepo, never()).save(any());
     verify(analyzer, never()).shouldSchedule(any(), any(), any(), anyInt());
   }
 
@@ -211,10 +219,6 @@ class AnalyzerRunnerTest {
             any()))
         .thenReturn(List.of(staleBackedOffOp));
     when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
-    when(operationsRepo.findRecentSubmissions(eq("uuid-1"), eq(OFD_DB), any()))
-        .thenReturn(List.of(staleBackedOffOp));
-    when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
-        .thenReturn(Collections.emptyList());
     when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
     when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(1))).thenReturn(false);
@@ -222,8 +226,9 @@ class AnalyzerRunnerTest {
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     // No rewrite (next_eligible_at already set); the pass proceeds to the normal gate decision. The
-    // timed-out submission still counts as one non-success in the streak passed to shouldSchedule.
+    // timed-out attempt (attempts=1) counts as one failure passed to shouldSchedule.
     verify(operationsRepo, never()).save(any());
+    verify(operationsRepo, never()).resolveAttempt(any(), any());
     verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(1));
   }
 
@@ -238,6 +243,7 @@ class AnalyzerRunnerTest {
         .createdAt(scheduledAt.minusSeconds(100))
         .scheduledAt(scheduledAt)
         .jobId("job-" + id)
+        .attempts(1)
         .build();
   }
 
@@ -294,7 +300,7 @@ class AnalyzerRunnerTest {
   }
 
   @Test
-  void analyze_attempts_carriesForwardFromPriorOp() {
+  void analyze_attempts_carriesForwardAfterFailedAttempt() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
     TableDto expectedTable = TableDto.fromRow(statsEntity);
@@ -314,15 +320,17 @@ class AnalyzerRunnerTest {
     when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
         .thenReturn(List.of(statsEntity));
     stubOpsFind(List.of(priorOp));
-    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
+    // The prior (second) attempt reported FAILED.
+    when(historyRepo.findLatest(eq(OFD_DB), any()))
+        .thenReturn(List.of(failedHistoryRow("prior-op", Instant.now().minusSeconds(8_000))));
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), anyInt())).thenReturn(true);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(2))).thenReturn(true);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
     verify(operationsRepo).save(captor.capture());
-    // Prior attempt was 2 and the latest run did not succeed → next attempt is 3.
+    // Prior attempt 2 failed → 2 consecutive failures → next attempt is 3.
     assertThat(captor.getValue().getAttempts()).isEqualTo(3);
   }
 

@@ -129,9 +129,9 @@ public class CadencePolicy {
    *
    * @param currentOp the existing active operation record, or empty if none exists
    * @param latestHistory the most recent history entry for this (table, type), or empty
-   * @param consecutiveFailures number of consecutive FAILED history entries ending at {@code
-   *     latestHistory}; {@code 0} when the latest run did not fail. Drives exponential backoff once
-   *     it reaches {@link #failureStreakThreshold}.
+   * @param consecutiveFailures consecutive failed attempts in the current retry sequence, read from
+   *     the operation row's {@code attempts} counter; {@code 0} after a success. Drives exponential
+   *     backoff once it reaches {@link #failureStreakThreshold}.
    */
   public boolean shouldSchedule(
       Optional<TableOperationDto> currentOp,
@@ -230,11 +230,12 @@ public class CadencePolicy {
 
   /**
    * Doubles {@code interval} up to {@code doublings} times, stopping early once it reaches {@link
-   * #failureBackoffMax}. Expressed as a fold so there is no mutable accumulator; the streak window
-   * and the cap both bound the recursion depth to a handful of frames.
+   * #failureBackoffMax}. Expressed as a fold so there is no mutable accumulator. The cap bounds the
+   * recursion depth to a handful of frames however large {@code doublings} grows (the attempt
+   * counter is unbounded); a zero interval can never reach the cap, so it returns immediately.
    */
   private Duration backoffInterval(Duration interval, int doublings) {
-    if (doublings <= 0 || interval.compareTo(failureBackoffMax) >= 0) {
+    if (doublings <= 0 || interval.isZero() || interval.compareTo(failureBackoffMax) >= 0) {
       return interval.compareTo(failureBackoffMax) > 0 ? failureBackoffMax : interval;
     }
     return backoffInterval(interval.multipliedBy(2), doublings - 1);

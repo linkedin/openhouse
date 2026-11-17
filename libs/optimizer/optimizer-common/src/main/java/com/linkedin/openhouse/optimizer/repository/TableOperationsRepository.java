@@ -17,21 +17,29 @@ import org.springframework.transaction.annotation.Transactional;
 public interface TableOperationsRepository extends JpaRepository<TableOperationsRow, String> {
 
   /**
-   * Return the table's recent <i>submissions</i> for an operation type — rows that reached {@code
-   * SCHEDULED} (i.e. carry a {@code scheduledAt}) — newest first by submission time. Because a
-   * table has at most one active op at a time, this is the submission sequence the circuit breaker
-   * walks to count the consecutive non-success streak (each row's outcome comes from its same-id
-   * history row, or is a logical timeout when none exists). {@code pageable} caps the window.
+   * Fenced resolution of one attempt: record its terminal outcome by writing {@code
+   * next_eligible_at}, but only if this attempt still owns the row — i.e. it was claimed ({@code
+   * SCHEDULING}/{@code SCHEDULED}) and has not been resolved yet ({@code next_eligible_at IS
+   * NULL}). Each row is one attempt, so the row id is the attempt's fencing token, and a newer
+   * attempt is only inserted after the older row is resolved. Completion callbacks and the
+   * analyzer's expiry both go through this single conditional UPDATE, so exactly one of them wins
+   * and a duplicate callback, or a late callback from an expired/superseded attempt, is rejected.
+   * {@code SCHEDULING} is accepted so a very fast job's callback isn't rejected before the
+   * scheduler records {@code SCHEDULED}.
+   *
+   * <p>Only {@code next_eligible_at} is written (never a full-row save), so this cannot clobber a
+   * concurrent status or jobId change.
+   *
+   * @return 1 if this call resolved the attempt, 0 if it was already resolved or never claimed
    */
+  @Transactional
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
-      "SELECT r FROM TableOperationsRow r "
-          + "WHERE r.tableUuid = :tableUuid AND r.operationType = :operationType "
-          + "AND r.scheduledAt IS NOT NULL "
-          + "ORDER BY r.scheduledAt DESC")
-  List<TableOperationsRow> findRecentSubmissions(
-      @Param("tableUuid") String tableUuid,
-      @Param("operationType") OperationType operationType,
-      Pageable pageable);
+      "UPDATE TableOperationsRow r SET r.nextEligibleAt = :nextEligibleAt "
+          + "WHERE r.id = :id AND r.nextEligibleAt IS NULL "
+          + "AND r.status IN (com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULING, "
+          + "com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)")
+  int resolveAttempt(@Param("id") String id, @Param("nextEligibleAt") Instant nextEligibleAt);
 
   /**
    * Find operation rows matching the given filters. Every filter is optional ({@link

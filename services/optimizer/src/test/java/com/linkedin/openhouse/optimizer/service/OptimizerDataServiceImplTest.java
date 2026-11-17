@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.optimizer.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -222,7 +223,73 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
-  void completeOperation_analyzerReturnsEmpty_leavesNextEligibleAtUnset() {
+  void completeOperation_analyzerReturnsEmpty_stillResolvesAttempt_eligibleNow() {
+    String operationId =
+        saveOp(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED, null);
+    // No analyzer handles the type (empty): the attempt must still be marked resolved, so it is
+    // stamped eligible from the completion time rather than left null (which means unresolved).
+    when(analyzerRunner.nextEligibleAt(any(), any(Instant.class), eq(true), eq(1)))
+        .thenReturn(Optional.empty());
+    Instant before = Instant.now().minusSeconds(1);
+
+    service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
+
+    TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
+    assertThat(updated.getNextEligibleAt()).isNotNull().isAfter(before);
+  }
+
+  // --- fencing: only the attempt that still owns the row may record an outcome ---
+
+  @Test
+  void completeOperation_duplicateCallback_isRejected_andFirstOutcomeStands() {
+    String operationId =
+        saveOp(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED, null);
+    service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
+
+    // A retried/duplicate callback for the same attempt must not overwrite the recorded result.
+    assertThatThrownBy(() -> service.updateOperation(operationId, HistoryStatusDto.FAILED, "dup"))
+        .isInstanceOf(StaleOperationUpdateException.class);
+
+    assertThat(service.getHistory(tableUuidOf(operationId), 10))
+        .singleElement()
+        .satisfies(h -> assertThat(h.getStatus()).isEqualTo(HistoryStatusDto.SUCCESS));
+  }
+
+  @Test
+  void completeOperation_lateCallbackAfterExpiry_isRejected_andWritesNoHistory() {
+    // The analyzer already expired this attempt (next_eligible_at set) after the stale-timeout.
+    String operationId =
+        saveOp(
+            com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED,
+            Instant.now().plusSeconds(3_600));
+
+    assertThatThrownBy(() -> service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null))
+        .isInstanceOf(StaleOperationUpdateException.class);
+
+    assertThat(service.getHistory(tableUuidOf(operationId), 10)).isEmpty();
+  }
+
+  @Test
+  void completeOperation_unclaimedPendingAttempt_isRejected() {
+    String operationId = saveOp(com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING, null);
+
+    assertThatThrownBy(() -> service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null))
+        .isInstanceOf(StaleOperationUpdateException.class);
+  }
+
+  @Test
+  void completeOperation_whileScheduling_isAccepted() {
+    // A very fast job can report before the scheduler records SCHEDULED; it still owns the attempt.
+    String operationId =
+        saveOp(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULING, null);
+
+    assertThat(service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null)).isPresent();
+    assertThat(operationsRepository.findById(operationId).orElseThrow().getNextEligibleAt())
+        .isNotNull();
+  }
+
+  private String saveOp(
+      com.linkedin.openhouse.optimizer.db.OperationStatus status, Instant nextEligibleAt) {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
@@ -231,19 +298,20 @@ class OptimizerDataServiceImplTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
-            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .status(status)
             .createdAt(Instant.now())
-            .scheduledAt(Instant.now())
+            .scheduledAt(
+                status == com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING
+                    ? null
+                    : Instant.now())
+            .attempts(1)
+            .nextEligibleAt(nextEligibleAt)
             .build());
-    // No analyzer handles the type (empty) → nothing is written; the row's next_eligible_at stays
-    // null.
-    when(analyzerRunner.nextEligibleAt(any(), any(Instant.class), eq(true), eq(0)))
-        .thenReturn(Optional.empty());
+    return operationId;
+  }
 
-    service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
-
-    TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
-    assertThat(updated.getNextEligibleAt()).isNull();
+  private String tableUuidOf(String operationId) {
+    return operationsRepository.findById(operationId).orElseThrow().getTableUuid();
   }
 
   // --- upsertTableStats ---
