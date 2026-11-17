@@ -1154,3 +1154,80 @@ def test_transformer_sql_for_different_table_is_rejected(tmp_path):
 
     with pytest.raises(ValueError, match=r"references mydb\.othertable, expected myDb\.myTable"):
         list(loader)
+
+
+# --- Every SQL casing must behave exactly like the exact-spelling run ---
+
+_SPELLINGS = [("myDb", "myTable"), ("mydb", "mytable"), ("MYDB", "MYTABLE")]
+_SHAPES = {
+    "table_qualified": "SELECT {t}.id, {t}.value FROM {db}.{t} WHERE {t}.value > 1.5",
+    "db_table_qualified": "SELECT {db}.{t}.id, {db}.{t}.value FROM {db}.{t} WHERE {db}.{t}.value > 1.5",
+    "qualified_star": "SELECT {t}.* FROM {db}.{t} WHERE {t}.value > 1.5",
+    "explicit_alias": "SELECT x.id, x.value FROM {db}.{t} AS x WHERE x.value > 1.5",
+    "subquery_alias_is_table_name": (
+        "SELECT {t}.id, {t}.value FROM (SELECT id, value FROM {db}.{t} WHERE value > 1.5) AS {t}"
+    ),
+}
+
+
+_SHAPE_SOURCE_COLUMNS = {"qualified_star": (COL_ID, COL_NAME, COL_VALUE)}
+
+
+class _SqlTransformer(TableTransformer):
+    def __init__(self, sql: str):
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
+        self._sql = sql
+
+    def transform(self, table, context):
+        return self._sql
+
+
+def _run_shape(tmp_path, request, shape, sql_spelling):
+    """Load via OpenHouseDataLoader; return (rows, rows from pickled splits, selected_fields, row_filter)."""
+    import pickle
+
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+    sql = _SHAPES[shape].format(db=sql_spelling[0], t=sql_spelling[1])
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database=request[0],
+        table=request[1],
+        context=DataLoaderContext(table_transformer=_SqlTransformer(sql)),
+    )
+    splits = list(loader)
+    result = pa.Table.from_batches([b for s in splits for b in s])
+    restored = pa.Table.from_batches([b for s in splits for b in pickle.loads(pickle.dumps(s))])
+    kwargs = mock_table.scan.call_args.kwargs
+    return result, restored, kwargs["selected_fields"], kwargs["row_filter"]
+
+
+@pytest.mark.parametrize("request_spelling", _SPELLINGS)
+@pytest.mark.parametrize("sql_spelling", _SPELLINGS)
+@pytest.mark.parametrize("shape", list(_SHAPES))
+def test_sql_casing_matches_exact_spelling_run(tmp_path, shape, sql_spelling, request_spelling):
+    expected_dir = tmp_path / "exact"
+    actual_dir = tmp_path / "actual"
+    expected_dir.mkdir()
+    actual_dir.mkdir()
+
+    expected, _, expected_fields, expected_filter = _run_shape(expected_dir, request_spelling, shape, request_spelling)
+    actual, restored, actual_fields, actual_filter = _run_shape(actual_dir, request_spelling, shape, sql_spelling)
+
+    assert actual.column_names == expected.column_names
+    assert actual.equals(expected)
+    assert restored.equals(expected)
+    assert sorted(actual.column("id").to_pylist()) == [2, 3]
+    assert actual_fields == expected_fields == _SHAPE_SOURCE_COLUMNS.get(shape, (COL_ID, COL_VALUE))
+    assert actual_filter == expected_filter
+    assert str(actual_filter) == "GreaterThan(term=Reference(name='value'), literal=DoubleLiteral(1.5))"
+
+
+@pytest.mark.parametrize("request_spelling", _SPELLINGS)
+@pytest.mark.parametrize("sql_spelling", _SPELLINGS)
+@pytest.mark.parametrize("shape", list(_SHAPES))
+def test_sql_for_different_table_errors_for_every_casing(tmp_path, shape, sql_spelling, request_spelling):
+    wrong = (sql_spelling[0], sql_spelling[1] + "_other")
+
+    with pytest.raises(ValueError, match=r"references .*_other, expected "):
+        _run_shape(tmp_path, request_spelling, shape, wrong)
