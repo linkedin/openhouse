@@ -7,14 +7,6 @@ ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
 }
 
-sourceSets {
-  test {
-    java {
-      srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-itest').sourceSets.test.java.srcDirs
-    }
-  }
-}
-
 dependencies {
   testImplementation(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
 
