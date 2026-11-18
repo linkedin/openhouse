@@ -103,27 +103,10 @@ tasks.named('test') {
         "Unsupported htsBackend '${htsBackend}'. Supported values are mysql and tidb, "
             + "for example -PhtsBackend=tidb. Omit the property to use mysql.")
   }
-  useJUnitPlatform {
-    excludeTags 'mysql-index'
-  }
+  useJUnitPlatform()
   // One JVM owns one shared database container whose fixture callbacks reset every table.
   maxParallelForks = 1
   systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
   systemProperty 'hts.test.backend', htsBackend
-}
-
-tasks.register('mysqlIndexTest', Test) {
-  description = 'Checks actual HTS endpoint SQL plans against an isolated MySQL container (MySQL only)'
-  group = 'verification'
-  testClassesDirs = sourceSets.test.output.classesDirs
-  classpath = sourceSets.test.runtimeClasspath
-  useJUnitPlatform {
-    includeTags 'mysql-index'
-  }
-  maxParallelForks = 1
   systemProperty 'hts.index.reportDir', "${buildDir}/reports/mysql-index-plans"
-  systemProperty 'hts.index.mysqlImage', project.findProperty('mysqlIndexImage') ?: 'mysql:8.4.11'
-  doFirst {
-    logger.lifecycle('mysqlIndexTest runs on MySQL only; -PhtsBackend applies to the test task.')
-  }
 }

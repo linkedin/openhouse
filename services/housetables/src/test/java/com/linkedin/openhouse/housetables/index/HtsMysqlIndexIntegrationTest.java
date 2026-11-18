@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,7 +14,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -21,12 +21,11 @@ import java.util.Map;
 import java.util.stream.Stream;
 import javax.persistence.EntityManager;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,24 +35,19 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.MySQLContainer;
 
-@Tag("mysql-index")
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@EnabledIfSystemProperty(
+    named = "hts.test.backend",
+    matches = "mysql",
+    disabledReason = "EXPLAIN FORMAT=JSON index assertions are MySQL-specific")
 @SpringBootTest(
     classes = SpringHtsTestApplication.class,
     properties = {
       "hts.index.capture-enabled=true",
-      "spring.sql.init.mode=never",
       "spring.jpa.open-in-view=false",
       "spring.jpa.properties.hibernate.jdbc.batch_size=0",
       "spring.jpa.properties.hibernate.cache.use_second_level_cache=false",
@@ -62,37 +56,28 @@ import org.testcontainers.containers.MySQLContainer;
     })
 @Import(HtsMysqlIndexIntegrationTest.CaptureConfiguration.class)
 @AutoConfigureMockMvc
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @Transactional
-class HtsMysqlIndexIntegrationTest {
+class HtsMysqlIndexIntegrationTest extends HtsDatabaseTestBase {
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final String UPPER_INDEX = "idx_user_table_upper_db_table";
-  private static final MySQLContainer<?> MYSQL =
-      new MySQLContainer<>(System.getProperty("hts.index.mysqlImage", "mysql:8.4.11"))
-          .withDatabaseName("hts_index_test")
-          .withCommand(
-              "--innodb-buffer-pool-size=134217728",
-              "--character-set-server=utf8mb4",
-              "--collation-server=utf8mb4_0900_ai_ci")
-          .withCreateContainerCmdModifier(
-              command ->
-                  command
-                      .getHostConfig()
-                      .withMemory(512L * 1024 * 1024)
-                      .withNanoCPUs(1_000_000_000L));
-
-  @DynamicPropertySource
-  static void mysqlProperties(DynamicPropertyRegistry properties) {
-    MYSQL.start();
-    properties.add("cluster.housetables.database.type", () -> "MYSQL");
-    properties.add("cluster.housetables.database.url", MYSQL::getJdbcUrl);
-    properties.add("HTS_DB_USER", MYSQL::getUsername);
-    properties.add("HTS_DB_PASSWORD", MYSQL::getPassword);
-  }
 
   @Autowired private MockMvc mvc;
   @Autowired private DataSource dataSource;
   @Autowired private EntityManager entityManager;
   private JdbcTemplate jdbc;
+
+  // The committed large fixture is seeded once; test-managed transactions roll back endpoint
+  // writes.
+  @Override
+  protected boolean resetFixtureBeforeEach() {
+    return false;
+  }
+
+  @Override
+  protected boolean clearFixtureAfterEach() {
+    return false;
+  }
 
   @TestConfiguration
   @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
@@ -113,12 +98,10 @@ class HtsMysqlIndexIntegrationTest {
   @BeforeAll
   void seedAndVerifySchema() throws Exception {
     jdbc = new JdbcTemplate(dataSource);
-    assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).isEqualTo("hts_index_test");
-    Resource[] ddl =
-        new PathMatchingResourcePatternResolver().getResources("classpath:hts-mysql/ddl/*.sql");
-    assertThat(ddl).as("canonical HTS DDL resources").isNotEmpty();
-    Arrays.sort(ddl, Comparator.comparing(Resource::getFilename));
-    new ResourceDatabasePopulator(ddl).execute(dataSource);
+    try (Connection connection = openInspectionConnection()) {
+      assertSelectedBackend(connection);
+    }
+    assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).isEqualTo(DATABASE);
     List<Object[]> live = new ArrayList<>();
     List<Object[]> deleted = new ArrayList<>();
     List<Object[]> jobs = new ArrayList<>();
@@ -176,31 +159,24 @@ class HtsMysqlIndexIntegrationTest {
             + " (feature,database_pattern,table_pattern,creation_time_ms) VALUES (?,?,?,?)",
         rules);
     Map<String, Object> fixture = new LinkedHashMap<>();
-    fixture.put(
-        "ddlFiles",
-        Arrays.stream(ddl)
-            .map(Resource::getFilename)
-            .collect(java.util.stream.Collectors.toList()));
     fixture.put("mysqlVersion", jdbc.queryForObject("SELECT VERSION()", String.class));
-    fixture.put("image", MYSQL.getDockerImageName());
-    fixture.put("imageId", MYSQL.getContainerInfo().getImageId());
-    fixture.put("memoryBytes", MYSQL.getContainerInfo().getHostConfig().getMemory());
-    fixture.put("nanoCpus", MYSQL.getContainerInfo().getHostConfig().getNanoCPUs());
     fixture.put(
         "bufferPoolBytes", jdbc.queryForObject("SELECT @@innodb_buffer_pool_size", Long.class));
     fixture.put("collation", jdbc.queryForObject("SELECT @@collation_database", String.class));
-    assertThat(fixture.get("memoryBytes")).isEqualTo(512L * 1024 * 1024);
-    assertThat(fixture.get("nanoCpus")).isEqualTo(1_000_000_000L);
-    assertThat(fixture.get("bufferPoolBytes")).isEqualTo(128L * 1024 * 1024);
     assertThat(fixture.get("collation")).isEqualTo("utf8mb4_0900_ai_ci");
-    for (String table :
-        Arrays.asList(
-            "user_table_row", "soft_deleted_user_table_row", "job_row", "table_toggle_rule")) {
+    for (String table : Arrays.asList("user_table_row", "soft_deleted_user_table_row", "job_row")) {
       assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class))
           .isEqualTo(10000);
       jdbc.execute("ANALYZE TABLE " + table);
       fixture.put(table, jdbc.queryForList("SHOW CREATE TABLE " + table));
     }
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM table_toggle_rule WHERE feature LIKE 'Feature%'",
+                Integer.class))
+        .isEqualTo(10000);
+    jdbc.execute("ANALYZE TABLE table_toggle_rule");
+    fixture.put("table_toggle_rule", jdbc.queryForList("SHOW CREATE TABLE table_toggle_rule"));
     List<Map<String, Object>> indexes =
         jdbc.queryForList(
             "SELECT TABLE_NAME,INDEX_NAME,SEQ_IN_INDEX,NON_UNIQUE,COLUMN_NAME,EXPRESSION FROM"
@@ -451,10 +427,5 @@ class HtsMysqlIndexIntegrationTest {
         .writeValue(
             reportDirectory().resolve(name.replaceAll("[^a-zA-Z0-9-]", "_") + ".json").toFile(),
             evidence);
-  }
-
-  @AfterAll
-  static void stopMysql() {
-    MYSQL.stop();
   }
 }
