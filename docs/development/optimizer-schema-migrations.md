@@ -1,24 +1,33 @@
 # Optimizer Schema Migrations
 
-The Optimizer Service creates and changes its MySQL tables with
-[Flyway](https://documentation.red-gate.com/fd) migrations, which it applies when it starts. The
-tables can share a database with HouseTables' tables. The migrations' only targets are the four
-optimizer tables (`table_operations`, `table_operations_history`, `table_stats`,
-`table_stats_history`) and `optimizer_schema_history`. HouseTables' production schema and data must
-stay untouched.
+The Optimizer Service runs [Flyway](https://documentation.red-gate.com/fd) migrations when it
+starts. These migrations create and update its MySQL tables.
+
+The optimizer can share a database with HouseTables. Migrations may only change these tables:
+
+- `table_operations`
+- `table_operations_history`
+- `table_stats`
+- `table_stats_history`
+- `optimizer_schema_history`
+
+Do not change HouseTables' schema or data.
 
 | Path | Role |
 |------|------|
-| `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | The entities, with their columns in `@Column` and their indexes in `@Table(indexes = ...)`. They map the tables the migrations create. |
-| `libs/optimizer/optimizer-common/src/main/resources/db/migration/` | The migrations. They ship in the optimizer-common jar; only the service runs them. |
+| `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | Defines the columns with `@Column` and the indexes with `@Table(indexes = ...)`. These entities map the tables the migrations create. |
+| `libs/optimizer/optimizer-common/src/main/resources/db/migration/` | Contains the migrations. These ship in the optimizer-common jar. Only the service runs them. |
 
 ## Tests
 
-The optimizer repository, service, and scheduler integration tests run on MySQL 8.0.46, the release
-production runs, in Docker, so start Docker before you run them. The test modules include Flyway on
-their test runtime classpath. `MySqlContainerInitializer` (optimizer-common test fixtures) gives each
-Spring test context a new [MySQL container](https://java.testcontainers.org/modules/databases/mysql/),
-and Flyway migrates it as the service does at startup. Add it to a `@SpringBootTest`:
+The optimizer integration tests run on MySQL 8.0.46 in Docker. Production uses the same MySQL
+release. Start Docker before running the repository tests or the service and scheduler integration
+tests.
+
+The test modules include Flyway at runtime. `MySqlContainerInitializer` starts a new
+[MySQL container](https://java.testcontainers.org/modules/databases/mysql/) for each Spring test
+context. Flyway applies the migrations just as it does when the service starts. The initializer
+lives in the optimizer-common test fixtures. Add it to a `@SpringBootTest`:
 
 ```java
 @SpringBootTest
@@ -26,104 +35,123 @@ and Flyway migrates it as the service does at startup. Add it to a `@SpringBootT
 class MyRepositoryTest { ... }
 ```
 
-`OptimizerSchemaMigrationsTest` starts the service on an empty database, and on one that holds the
-real HouseTables schema with seeded rows. Both must end up with the same optimizer tables, and
-HouseTables' table definitions and row contents must be identical before and after.
+`OptimizerSchemaMigrationsTest` starts the service as a MySQL user that can access only the four
+optimizer tables and `optimizer_schema_history`. A migration that reads or changes any other table
+fails, and so does the startup. This includes `DROP TABLE IF EXISTS` on a table that doesn't exist.
+The test starts the service on an empty database, and on one that holds the real HouseTables schema
+with seeded rows. Both must end up with the same optimizer tables, and HouseTables' table
+definitions and rows must not change.
+
+The test grants access through its own `OPTIMIZER_TABLES` list, not one derived from the
+migrations. Add each new optimizer table to it. Never replace it with a database-wide grant.
+
+This check runs before deployment. It does not isolate production tables. It cannot cover SQL
+paths that depend on production-only data or configuration. It cannot protect a deployment that
+skips the checked migrations. Production credentials are unchanged. Review the SQL and require
+`:services:optimizer:test` to pass before deploying.
 
 ## Changing the Schema
 
-1. Write the migration in `libs/optimizer/optimizer-common/src/main/resources/db/migration/`, named
-   `V<UTC timestamp>__<description>.sql`, such as `V20261020000000__add_job_attempts.sql`. Flyway
-   applies migrations in version order; a timestamp keeps two branches from taking the same version.
+1. Write the migration in `libs/optimizer/optimizer-common/src/main/resources/db/migration/`. Name
+   it `V<UTC timestamp>__<description>.sql`. An example is `V20261020000000__add_job_attempts.sql`.
+   Flyway applies migrations in version order. A timestamp keeps two branches from taking the same
+   version.
 2. Edit the entities in `com.linkedin.openhouse.optimizer.db` to match.
 3. Review the SQL:
-   - Prefer one DDL statement per migration. MySQL commits each DDL statement on its own, so a
-     migration that fails partway keeps its earlier statements, and the service won't start until
-     someone sorts them out by hand ([Recovering from a Failed Migration](#recovering-from-a-failed-migration)).
-   - Keep the previous release working on the new schema. Rolling back the service doesn't undo
-     migrations, so add a column before code uses it, stop using it before a migration drops it, and
-     give a new `NOT NULL` column a default.
-   - Startup waits for the migration, so a long `ALTER TABLE` on a large table delays readiness and
-     has to fit the deployment's startup probe ([What Happens at Startup](#what-happens-at-startup)).
+   - Prefer one DDL statement per migration. MySQL commits each statement separately. A failure
+     leaves earlier statements in place. The service will not start until someone fixes the
+     partial migration by hand. See [Recovering from a Failed Migration](#recovering-from-a-failed-migration).
+   - Keep the previous release working on the new schema. Rolling back the service does not undo
+     migrations. Add a column before code uses it. Stop using a column before dropping it. Give a
+     new `NOT NULL` column a default.
+   - The service waits for migrations before it becomes ready. A long `ALTER TABLE` can delay
+     startup on a large table. Set the startup probe to allow enough time for it to finish.
+     See [What Happens at Startup](#what-happens-at-startup).
 4. Run the tests:
    ```bash
    ./gradlew :libs:optimizer:optimizer-common:test :services:optimizer:test
    ```
 5. Commit the entity change and the migration together.
 
-If another change merged a migration with a later version first, give yours a new timestamp when you
-rebase. Don't keep a migration that sorts before the base branch's newest: Flyway won't apply it to
-a database that already has the newer one, and the service stops starting there. The tests can't
-catch it, because they migrate databases that have none of the migrations.
+Another migration may merge before yours. Give yours a new timestamp when you rebase. Your
+migration must sort after the base branch's newest migration. Flyway will not apply an older
+migration to a database that already has the newer one. The service will fail to start there.
+The tests cannot catch this ordering problem because they start with no migrations applied.
 
 ```
 Validate failed: Migrations have failed validation
 Detected resolved migration not applied to database: 20261020000000.
 ```
 
-Never edit a migration that has shipped: Flyway compares every applied migration's checksum at
-startup and refuses to start on a mismatch. Fix it with a new migration instead.
+Never edit a migration that has shipped. Flyway checks each applied migration's checksum at startup.
+The service refuses to start if a checksum has changed. Add a new migration to fix a shipped one.
 
 ## What Happens at Startup
 
-Spring Boot runs Flyway before JPA starts and before the HTTP port opens. Flyway records each
-applied migration in `optimizer_schema_history` and applies the pending ones in version order.
-Replicas that start together take turns through a MySQL named lock, so each migration runs once.
+Spring Boot runs Flyway before JPA starts. Flyway applies pending migrations in version order.
+It records each applied migration in `optimizer_schema_history`. A MySQL named lock makes replicas
+take turns so that each migration runs once. The HTTP port opens after the migrations finish.
 
-The service can share HouseTables' database. Its MySQL user can read and write HouseTables' tables,
-so Flyway sees them: it records a baseline at version 0 in the nonempty database, then applies every
-migration, since each has a higher version. Flyway doesn't check whose the other tables are: pointed
-at the wrong database, the service adds its tables there.
+The service can share HouseTables' database. Its MySQL user can read and write HouseTables' tables.
+Flyway sees those tables and records a version 0 baseline in the nonempty database. This marks the
+starting point before any optimizer migration. Flyway then applies every migration because their
+versions are higher than 0. Check the database URL before deployment. Flyway does not check which
+service owns the existing tables. The optimizer will add its tables even in the wrong database.
 
-The migrations may only create and change the optimizer tables and `optimizer_schema_history`.
-Neither Flyway nor the MySQL account enforces that: Flyway runs whatever SQL a migration holds, and
-the user can write HouseTables' tables. Review each migration so that it doesn't reference
-HouseTables' tables, and rely on the preservation test ([Tests](#tests)) as a check.
+Migrations may only change the optimizer tables and `optimizer_schema_history`. Neither Flyway nor
+the current shared production account enforces this limit. Flyway runs whatever SQL the migration
+contains. The account can write to HouseTables' tables. Check each migration for references to
+HouseTables' tables. The [tests](#tests) run the migrations as a user limited to the optimizer
+tables, so a migration that touches another table fails there. These test grants do not change
+production permissions.
 
-On the first rollout, HouseTables' tables may exist and the optimizer's tables must not. Flyway
-doesn't adopt or diff optimizer tables that exist without history: the initial migration fails on
-the existing table and the service doesn't start. Any reset of such tables needs a separate,
-explicit approval of what happens to their data, and never includes HouseTables' tables.
+HouseTables' tables may exist before the first rollout. The optimizer tables must not exist yet.
+Flyway does not adopt existing optimizer tables that have no migration history. The initial
+migration fails if they exist. The service then refuses to start. Get separate approval before
+resetting those tables. The approval must cover what happens to their data. Never include
+HouseTables' tables in a reset.
 
-The HTTP port opens only once the migrations finish, so the liveness probe fails for as long as one
-runs. Give the deployment a startup probe that allows for the slowest migration: Kubernetes holds off
-the liveness probe until the startup probe passes. A pod killed mid-migration leaves its statement
-running in MySQL, and the service may not start again until someone recovers it by hand
-([Recovering from a Failed Migration](#recovering-from-a-failed-migration)).
+Liveness probes fail while a migration runs. Set a startup probe that allows enough time for the
+slowest migration. Kubernetes waits for that probe to pass before running liveness probes. Killing
+the pod does not stop its SQL statement in MySQL. Manual recovery may be needed before the service
+can start again. See [Recovering from a Failed Migration](#recovering-from-a-failed-migration).
 
-Flyway's `clean`, which drops every table in the database, HouseTables' included, is disabled. That
-guards only against `clean`, not against migration SQL that touches other tables.
+Flyway's `clean` command is disabled. It would drop every table in the database including
+HouseTables' tables. Disabling `clean` does not stop migration SQL from changing other tables.
 
-Flyway ignores applied migrations newer than the newest one it knows, so a rolled-back release
-still starts against the newer schema.
+Flyway ignores applied migrations that are newer than the release knows about. A rolled-back
+release still starts against the newer schema.
 
-The analyzer and scheduler apps don't migrate: they use the tables the service migrated. Roll out
-the service before the apps.
+The analyzer and scheduler do not run migrations. They use the tables the service migrated. Roll
+out the service first.
 
-The service runs Flyway 8.5.13, the release Spring Boot 2.7 is built against. It supports MySQL up
-to 8.0; on a later MySQL it logs that support hasn't been tested.
+The service runs Flyway 8.5.13. Spring Boot 2.7 is built against this release. It supports MySQL
+through 8.0. On later MySQL releases it logs a warning that support has not been tested.
 
 ## Recovering from a Failed Migration
 
-A migration fails when a statement errors, or when the service is killed while it runs: by a probe,
-a rollout, or a node drain. The service then exits at every start, with one of:
+A failed SQL statement can leave a migration incomplete. A probe can kill the service during a
+migration. A rollout or node drain can do the same. The service may then fail at every start with
+one of these errors:
 
 ```
 Migration of schema `oh_db` to version "20261020000000 - add job attempts" failed!
 Detected failed migration to version 20261020000000 (add job attempts).
 ```
 
-MySQL commits each DDL statement on its own, and keeps running a statement whose client was killed,
-so the database can hold all, some, or none of the migration's changes. Flyway records the migration
-as failed (`success = 0` in `optimizer_schema_history`) when a statement errors, including when the
-start after a kill runs the migration again into its own half-applied change. Flyway's `repair`,
-which the service doesn't run, only deletes that row, so the next start runs into the same error.
+MySQL commits each DDL statement separately. It keeps running a statement after its client is
+killed. The database may contain all or some or none of the migration's changes.
 
-Recover by hand, as a MySQL admin connected to the optimizer's database:
+Flyway records a failed statement with `success = 0` in `optimizer_schema_history`. After a kill
+the next start may retry a statement that already took effect. That retry also records a failure.
+The service does not run Flyway's `repair` command. Removing the failed history row with `repair`
+does not undo database changes. The next start can hit the same error.
 
-1. Make sure none of the migration's statements is still running; one blocked by another
-   transaction shows `Waiting for table metadata lock`. Wait for it to finish, or stop it: MySQL
-   rolls back a statement it stops.
+Connect to the optimizer database as a MySQL admin. Recover by hand:
+
+1. Make sure none of the migration's statements is still running. A statement blocked by another
+   transaction shows `Waiting for table metadata lock`. Wait for it to finish or stop it. MySQL
+   rolls back a statement that it stops.
    ```sql
    SELECT id, time, state, info FROM performance_schema.processlist
    WHERE db = DATABASE() AND command = 'Query' AND id <> CONNECTION_ID();
@@ -133,32 +161,48 @@ Recover by hand, as a MySQL admin connected to the optimizer's database:
    ```sql
    SELECT version, script FROM optimizer_schema_history WHERE success = 0;
    ```
-   No row means no start has failed on it yet. Restart the service: it runs the migration again,
-   and records it as failed if the change is already there.
-3. Check which of the script's statements took effect, with `SHOW CREATE TABLE`. The script is in
-   `libs/optimizer/optimizer-common/src/main/resources/db/migration/` at the release that ran it.
+   No row means no start has recorded a failure yet. Restart the service. It retries the
+   migration and records a failure if the change is already there.
+3. Use `SHOW CREATE TABLE` to check which statements took effect. Find the script under
+   `libs/optimizer/optimizer-common/src/main/resources/db/migration/` in the release that ran it.
 4. Make the history match the database:
-   - All of them: mark the migration applied.
+   - All statements took effect: mark the migration applied.
      ```sql
      UPDATE optimizer_schema_history SET success = 1 WHERE version = '<version>';
      ```
-   - None: delete the row, so that the next start runs the migration again.
+   - No statements took effect: delete the row. The next start runs the migration again.
      ```sql
      DELETE FROM optimizer_schema_history WHERE version = '<version>';
      ```
-   - Some: run the rest by hand and mark the migration applied, or revert them and delete the row.
+   - Some statements took effect: run the rest by hand and mark the migration applied.
+     Alternatively undo the changes that took effect and delete the row.
 5. Restart the service.
 
 ## Database Privileges
 
-The service's MySQL user needs at least these privileges on the optimizer's tables. It can also
-read and write HouseTables' tables in a shared database, so the account's privileges are not a
-safety boundary: migration review and the preservation test are.
+In production the optimizer should use its own MySQL user. Follow these rules for that user:
+
+- Grant access to the exact optimizer table names.
+- Give no access to HouseTables. This includes `SELECT`.
+- Do not use a database-wide or global grant. Either one removes this limit.
+- Check grants inherited through roles too. They must not give access to other tables.
+
+Table-level grants do not cancel broader grants. Any broader grant still gives access.
+
+If migrations run separately from the service:
+
+- Give DDL privileges only to the migration user.
+- Give the runtime user only the DML privileges it needs.
+
+This production change is not part of the current rollout. The restricted test user has these
+table-level grants. The shared production account can still access HouseTables:
 
 | Tables | Privileges |
 |--------|------------|
-| `table_operations`, `table_operations_history`, `table_stats`, `table_stats_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, and `DROP` once a migration drops a table |
-| `optimizer_schema_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `INDEX`: Flyway creates the table, then its index with `CREATE INDEX`. Without `INDEX`, it keeps the table and goes on without the index. |
+| `table_operations`, `table_operations_history`, `table_stats`, `table_stats_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, `INDEX` |
+| `optimizer_schema_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `INDEX`. Flyway creates the table and then adds its index with `CREATE INDEX`. Without `INDEX` it keeps the table but skips the index. |
 
-Grant these before the service first starts; the optimizer tables don't exist until then. Write
-index changes on the optimizer's tables as `ALTER TABLE`, which doesn't need `INDEX`.
+Grant these privileges before the service first starts. MySQL allows table-level grants before the
+named tables exist. This includes `CREATE`. In production grant only the privileges that the
+deployed migrations need. `INDEX` is needed for standalone `CREATE INDEX` and `DROP INDEX`. Index
+changes inside `ALTER TABLE` need `ALTER` instead.
