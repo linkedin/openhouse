@@ -44,8 +44,10 @@ dependencies {
   // :iceberg:openhouse:htscatalog) — 2.2.x switches to slf4j-api 2.x and breaks downstream bridges.
   developmentOnly 'com.h2database:h2:2.1.210'
   testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
-  // MySqlContainerInitializer: each Spring test context runs on a new MySQL container.
+  // The shared Testcontainers MySQL settings, and the driver that runs them: each Spring test
+  // context runs on a new MySQL container.
   testImplementation testFixtures(project(':libs:optimizer:optimizer-common'))
+  testImplementation 'org.testcontainers:mysql:1.21.4'
 }
 
 // Reuse HouseTables' schema without adding its service to the optimizer's test classpath.

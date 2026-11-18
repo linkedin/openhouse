@@ -19,7 +19,6 @@ import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import com.linkedin.openhouse.optimizer.scheduler.config.SchedulerConfig;
-import com.linkedin.openhouse.optimizer.testing.MySqlContainerInitializer;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -40,11 +39,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ActiveProfiles("test")
-@ContextConfiguration(initializers = MySqlContainerInitializer.class)
+@TestPropertySource(locations = "classpath:optimizer-mysql-testcontainers.properties")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class SchedulerRunnerIntegrationTest {
   private static final String RESULTS_ENDPOINT = "http://optimizer/operations";

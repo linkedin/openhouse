@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.linkedin.openhouse.optimizer.db.HistoryStatus;
 import com.linkedin.openhouse.optimizer.db.OperationType;
 import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
-import com.linkedin.openhouse.optimizer.testing.MySqlContainerInitializer;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -13,11 +12,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
-@ContextConfiguration(initializers = MySqlContainerInitializer.class)
+@TestPropertySource(locations = "classpath:optimizer-mysql-testcontainers.properties")
 @Transactional
 class TableOperationsHistoryRepositoryTest {
 
