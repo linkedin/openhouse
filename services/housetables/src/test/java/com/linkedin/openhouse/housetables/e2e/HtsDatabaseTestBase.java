@@ -33,12 +33,10 @@ import org.testcontainers.tidb.TiDBContainer;
  * datasource path. There is deliberately no H2 or cross-backend fallback: a missing Docker daemon
  * or a failed startup fails the run.
  *
- * <p>By default each test starts from the same store: the four HTS tables are emptied and the test
- * {@code data.sql} toggle rules are loaded before every method, and the tables are emptied again
- * after it. A suite with a large shared fixture can opt out of either reset and use test-managed
- * transactions for isolation. The reset is raw SQL through the real service datasource, so it never
- * hydrates a corrupt discriminator and works unchanged in mock-application contexts, whose
- * datasource is real.
+ * <p>Each test starts from the same store: the four HTS tables are emptied and the test {@code
+ * data.sql} toggle rules are loaded before every method, and the tables are emptied again after it.
+ * The reset is raw SQL through the real service datasource, so it never hydrates a corrupt
+ * discriminator and works unchanged in mock-application contexts, whose datasource is real.
  */
 public abstract class HtsDatabaseTestBase {
 
@@ -188,9 +186,6 @@ public abstract class HtsDatabaseTestBase {
 
   @BeforeEach
   public void prepareMysqlFixture() throws SQLException {
-    if (!resetFixtureBeforeEach()) {
-      return;
-    }
     try (Connection connection = mysqlFixtureDataSource.getConnection()) {
       clear(connection);
       ScriptUtils.executeSqlScript(connection, new ClassPathResource("data.sql"));
@@ -199,20 +194,9 @@ public abstract class HtsDatabaseTestBase {
 
   @AfterEach
   public void clearMysqlFixture() throws SQLException {
-    if (!clearFixtureAfterEach()) {
-      return;
-    }
     try (Connection connection = mysqlFixtureDataSource.getConnection()) {
       clear(connection);
     }
-  }
-
-  protected boolean resetFixtureBeforeEach() {
-    return true;
-  }
-
-  protected boolean clearFixtureAfterEach() {
-    return true;
   }
 
   /** The backend forwarded by Gradle's -PhtsBackend; mysql when the property is absent. */

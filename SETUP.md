@@ -41,7 +41,7 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
-## HouseTables database and index regression tests
+## HouseTables database and query-contract tests
 
 **Java 17 and Docker are required** for the database-backed HouseTables (HTS) tests; no
 preinstalled database server, staging access or Spark is needed. Container or schema
@@ -54,11 +54,10 @@ initialization failures fail the tests rather than falling back to H2 or skippin
 - `HtsControllerTest` starts Spring Boot on a random port and sends actual HTTP requests with
   `WebTestClient`. It covers table/view behavior, pagination, soft-delete/restore/purge, and
   legacy or invalid entity types. These tests run in ordinary Gradle `test`/`build` and CI.
-- Index unit and controller-routing tests also run by default. `HtsMysqlIndexIntegrationTest`
-  captures real endpoint SQL and checks MySQL `EXPLAIN` plans for selective indexed access
-  using the same container and canonical schema. It runs in ordinary Gradle `test`/`build`
-  with MySQL; its MySQL-specific optimizer assertions are explicitly skipped with
-  `-PhtsBackend=tidb`, while backend-independent tests continue to run.
+- Query-contract unit tests and controller-routing tests also run by default. They verify typed
+  repository predicates, case normalization, legacy `NULL` handling, and that representative
+  endpoint parameters reach the intended persistence handler. They do not execute SQL or assert
+  database optimizer plans.
 
 These in-JVM tests do not validate the packaged JAR/image, entrypoint, Compose startup,
 deployed configuration/credentials, or the application's SQL bootstrap scripts.
@@ -66,7 +65,7 @@ deployed configuration/credentials, or the application's SQL bootstrap scripts.
 ### Running the tests
 
 ```bash
-# All HTS tests except the opt-in optimizer suite (Docker required).
+# All HTS tests (Docker required for the Spring integration tests).
 ./gradlew :services:housetables:test
 
 # The same tests against TiDB (use -PhtsBackend=mysql for explicit MySQL selection).
@@ -80,21 +79,18 @@ deployed configuration/credentials, or the application's SQL bootstrap scripts.
   --tests '*HtsIndexUnitTest' \
   --tests '*HtsEndpointIndexRoutingTest'
 
-# Focused MySQL optimizer regression tests (Docker required; also included in the full test task).
-./gradlew :services:housetables:test --tests '*HtsMysqlIndexIntegrationTest'
 ```
 
 CI uses the default MySQL backend. TiDB runs as single-process unistore, not a distributed
 TiKV/PD cluster; this mode checks compatibility, not distributed behavior or performance.
 
 The images are pinned to MySQL 8.4.11 and TiDB 8.5.4. JUnit reports are under
-`build/housetables/reports/tests/`; captured SQL and plans are under
-`build/housetables/reports/mysql-index-plans/`.
+`build/housetables/reports/tests/`.
 
 ### Endpoint coverage
 
-The behavioral and index suites cover these routes. The index scenario inventory also
-guards against adding a controller route without an explicit access policy.
+The HTTP behavior and controller-routing tests cover these routes. The routing tests check
+parameter binding and handler dispatch; they do not enforce database access plans.
 
 | Endpoint | Coverage |
 |---|---|
@@ -118,10 +114,6 @@ guards against adding a controller route without an explicit access policy.
 | `GET /v1/hts/views/query` | Paginated database/pattern queries and counts |
 | `PUT /hts/views` | View create and update |
 | `DELETE /hts/views` | View-scoped delete |
-
-Optimizer assertions for soft-delete listing/restore/purge and job-ID search remain
-disabled pending access-pattern fixes; behavioral and routing coverage remains active.
-Unbounded listings are not required to use selective access.
 
 ## Available Recipes
 

@@ -108,5 +108,4 @@ tasks.named('test') {
   maxParallelForks = 1
   systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
   systemProperty 'hts.test.backend', htsBackend
-  systemProperty 'hts.index.reportDir', "${buildDir}/reports/mysql-index-plans"
 }
