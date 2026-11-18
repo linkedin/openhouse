@@ -10,7 +10,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import com.linkedin.openhouse.optimizer.config.OptimizerDatabaseConfiguration;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
@@ -54,7 +53,7 @@ class SchedulerRunnerIntegrationTest {
   @EnableAutoConfiguration
   @EntityScan(basePackageClasses = TableOperationsRow.class)
   @EnableJpaRepositories(basePackageClasses = TableOperationsRepository.class)
-  @Import({SchedulerConfig.class, OptimizerDatabaseConfiguration.class})
+  @Import(SchedulerConfig.class)
   static class TestApplication {}
 
   @Autowired private SchedulerRunner runner;
