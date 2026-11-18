@@ -14,6 +14,7 @@ import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 
 /**
  * JPA entity representing an Analyzer recommendation for a table maintenance operation.
@@ -71,11 +72,11 @@ public class TableOperationsRow {
   private OperationStatus status;
 
   /** When the analyzer first created this row. Set on insert; never updated. */
-  @Column(name = "created_at", nullable = false)
+  @Column(name = "created_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
   private Instant createdAt;
 
   /** When the scheduler last submitted a job for this row. {@code null} while {@code PENDING}. */
-  @Column(name = "scheduled_at")
+  @Column(name = "scheduled_at", columnDefinition = "TIMESTAMP(6)")
   private Instant scheduledAt;
 
   /** Spark job ID written by the scheduler at claim time. Internal-only; never exposed on wire. */
@@ -88,6 +89,7 @@ public class TableOperationsRow {
    * to 1 once a run succeeds. Drives the retry backoff independently of the history windows.
    */
   @Column(name = "attempts", nullable = false)
+  @ColumnDefault("1")
   private int attempts;
 
   /**
@@ -96,6 +98,6 @@ public class TableOperationsRow {
    * means eligible now. Gating on this makes a reported failure retry after its backoff instead of
    * waiting out the stale-timeout, and a dead job back off instead of rescheduling immediately.
    */
-  @Column(name = "next_eligible_at")
+  @Column(name = "next_eligible_at", columnDefinition = "TIMESTAMP(6)")
   private Instant nextEligibleAt;
 }
