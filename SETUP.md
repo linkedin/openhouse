@@ -47,10 +47,9 @@ This single command:
 preinstalled database server, staging access or Spark is needed. Container or schema
 initialization failures fail the tests rather than falling back to H2 or skipping them.
 
-- Spring integration tests share a disposable Testcontainers instance: MySQL by default,
-  or TiDB with `-PhtsBackend=tidb`. Both use the same MySQL JDBC datasource path. The schema
-  comes from all canonical `services/housetables/ddl/*.sql` files in filename order,
-  not Hibernate-generated tables. Shared fixtures reset data between tests.
+- Spring integration tests share a disposable MySQL Testcontainers instance. The schema comes
+  from all canonical `services/housetables/ddl/*.sql` files in filename order, not
+  Hibernate-generated tables. Shared fixtures reset data between tests.
 - `HtsControllerTest` starts Spring Boot on a random port and sends actual HTTP requests with
   `WebTestClient`. It covers table/view behavior, pagination, soft-delete/restore/purge, and
   legacy or invalid entity types. These tests run in ordinary Gradle `test`/`build` and CI.
@@ -68,9 +67,6 @@ deployed configuration/credentials, or the application's SQL bootstrap scripts.
 # All HTS tests (Docker required for the Spring integration tests).
 ./gradlew :services:housetables:test
 
-# The same tests against TiDB (use -PhtsBackend=mysql for explicit MySQL selection).
-./gradlew :services:housetables:test -PhtsBackend=tidb
-
 # Real-HTTP behavioral tests only (Docker required).
 ./gradlew :services:housetables:test --tests '*HtsControllerTest'
 
@@ -81,11 +77,7 @@ deployed configuration/credentials, or the application's SQL bootstrap scripts.
 
 ```
 
-CI uses the default MySQL backend. TiDB runs as single-process unistore, not a distributed
-TiKV/PD cluster; this mode checks compatibility, not distributed behavior or performance.
-
-The images are pinned to MySQL 8.4.11 and TiDB 8.5.4. JUnit reports are under
-`build/housetables/reports/tests/`.
+The tests use MySQL 8.4.11. JUnit reports are under `build/housetables/reports/tests/`.
 
 ### Endpoint coverage
 

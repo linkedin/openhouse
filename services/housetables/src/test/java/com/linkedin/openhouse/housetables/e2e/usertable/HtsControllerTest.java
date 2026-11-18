@@ -2799,9 +2799,6 @@ public class HtsControllerTest extends HtsDatabaseTestBase {
 
   @Test
   public void testUsesCanonicalMysqlSchema() throws SQLException {
-    try (Connection connection = dataSource.getConnection()) {
-      assertSelectedBackend(connection);
-    }
     assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).isEqualTo(DATABASE);
 
     Map<String, Map<String, Object>> columns =
