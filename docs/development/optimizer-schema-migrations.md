@@ -1,7 +1,8 @@
 # Optimizer Schema Migrations
 
 The Optimizer Service runs [Flyway](https://documentation.red-gate.com/fd) migrations when it
-starts. These migrations create and update its MySQL tables.
+starts. These migrations create and update its MySQL tables. Each migration is handwritten SQL,
+committed with its entity change.
 
 The optimizer can share a database with HouseTables. Migrations may only change these tables:
 
@@ -44,6 +45,10 @@ fails, and so does the startup. This includes `DROP TABLE IF EXISTS` on a table 
 The test starts the service on an empty database, and on one that holds the real HouseTables schema
 with seeded rows. Both must end up with the same optimizer tables, and HouseTables' table
 definitions and rows must not change.
+
+Hibernate validates the schema during each startup, so a mapped table or column missing from the
+migrations, or an incompatible column type, fails the test. It does not check indexes, nullability,
+column lengths, or extra database objects; review those in each migration.
 
 The test grants access through its own `OPTIMIZER_TABLES` list, not one derived from the
 migrations. Add each new optimizer table to it. Never replace it with a database-wide grant.
@@ -93,7 +98,9 @@ The service refuses to start if a checksum has changed. Add a new migration to f
 
 Spring Boot runs Flyway before JPA starts. Flyway applies pending migrations in version order.
 It records each applied migration in `optimizer_schema_history`. A MySQL named lock makes replicas
-take turns so that each migration runs once. The HTTP port opens after the migrations finish.
+take turns so that each migration runs once. Hibernate then validates the tables against the
+entities (`spring.jpa.hibernate.ddl-auto=validate`) without changing them. The HTTP port opens
+after the migrations finish.
 
 The service can share HouseTables' database. Its MySQL user can read and write HouseTables' tables.
 Flyway sees those tables and records a version 0 baseline in the nonempty database. This marks the
@@ -125,8 +132,8 @@ HouseTables' tables. Disabling `clean` does not stop migration SQL from changing
 Flyway ignores applied migrations that are newer than the release knows about. A rolled-back
 release still starts against the newer schema.
 
-The analyzer and scheduler do not run migrations. They use the tables the service migrated. Roll
-out the service first.
+The analyzer and scheduler do not run migrations. They validate the tables the service migrated.
+Roll out the service first.
 
 The service runs Flyway 8.5.13. Spring Boot 2.7 is built against this release. It supports MySQL
 through 8.0. On later MySQL releases it logs a warning that support has not been tested.
