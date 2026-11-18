@@ -51,8 +51,8 @@ initialization failures fail the tests rather than falling back to H2 or skippin
   or TiDB with `-PhtsBackend=tidb`. Both use the same MySQL JDBC datasource path. The schema
   comes from all canonical `services/housetables/ddl/*.sql` files in filename order,
   not Hibernate-generated tables. Shared fixtures reset data between tests.
-- `HtsHttpIntegrationTest` starts Spring Boot on a random port and sends actual HTTP
-  requests. It covers table/view behavior, pagination, soft-delete/restore/purge, and
+- `HtsControllerTest` starts Spring Boot on a random port and sends actual HTTP requests with
+  `WebTestClient`. It covers table/view behavior, pagination, soft-delete/restore/purge, and
   legacy or invalid entity types. These tests run in ordinary Gradle `test`/`build` and CI.
 - Index unit and controller-routing tests also run by default. The opt-in
   `mysqlIndexTest` uses MockMvc and a separate, populated MySQL container initialized
@@ -72,7 +72,7 @@ deployed configuration/credentials, or the application's SQL bootstrap scripts.
 ./gradlew :services:housetables:test -PhtsBackend=tidb
 
 # Real-HTTP behavioral tests only (Docker required).
-./gradlew :services:housetables:test --tests '*HtsHttpIntegrationTest'
+./gradlew :services:housetables:test --tests '*HtsControllerTest'
 
 # Index unit contracts, controller routing and plan-detector tests (Docker-free).
 ./gradlew :services:housetables:test --tests 'com.linkedin.openhouse.housetables.index.*'
