@@ -163,6 +163,14 @@ class DataLoaderContext:
         udf_registry: UDFs required for the table transformation
         jvm_config: JVM configuration for JNI-based storage access.  Currently only HDFS is supported
             via the ``LIBHDFS_OPTS`` environment variable.  See :class:`JvmConfig`.
+        orc_readahead_bytes: Maximum read-ahead per request for ORC data files, in bytes. Arrow's ORC
+            reader issues one ~128 KB positional read per stream chunk, and each one is a separate
+            storage request, which is slow on high-latency links (e.g. cross-data-center HDFS). When set,
+            a read miss fetches up to this many bytes in one request and later reads are served from it.
+            The fetch size adapts per ORC stream, and at most 32 times this value is cached per open
+            file. ``None`` or ``0`` keeps the default (no read-ahead). Parquet files are not affected:
+            PyIceberg already coalesces Parquet reads with Arrow's ``pre_buffer``, which Arrow does not
+            support for ORC.
     """
 
     execution_context: Mapping[str, str] | None = None
@@ -170,6 +178,7 @@ class DataLoaderContext:
     table_transformer: TableTransformer | None = None
     udf_registry: UDFRegistry | None = None
     jvm_config: JvmConfig | None = None
+    orc_readahead_bytes: int | None = None
 
 
 class OpenHouseDataLoader:
@@ -213,6 +222,8 @@ class OpenHouseDataLoader:
             raise ValueError("Cannot specify both branch and snapshot_id")
         if files_per_split < 1:
             raise ValueError("files_per_split must be at least 1")
+        if context is not None and context.orc_readahead_bytes is not None and context.orc_readahead_bytes < 0:
+            raise ValueError("orc_readahead_bytes must be non-negative")
         self._catalog = catalog
         self._table_id = TableIdentifier(database, table, branch)
         self._snapshot_id = snapshot_id
@@ -363,6 +374,7 @@ class OpenHouseDataLoader:
             worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
             metric_attributes=self._resolved_metric_attributes,
             sql_table_id=sql_table_id,
+            orc_readahead_bytes=self._context.orc_readahead_bytes or 0,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)
