@@ -1,12 +1,13 @@
 package com.linkedin.openhouse.internal.catalog;
 
+import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.TableMetadata;
 
 /**
  * Best-effort {@link PostCommitOperation} that extracts {@link CommitStats} from a successful
- * commit and publishes them, gated per table by a user-settable table property.
+ * commit and publishes them, gated per table by user-settable table properties.
  *
  * <p>OSS provides only this abstract base (it is not a Spring bean), so nothing is registered or
  * runs in OSS/dev. A deployment supplies a concrete subclass annotated {@code @Component} that
@@ -18,10 +19,13 @@ import org.apache.iceberg.TableMetadata;
  *
  * <ul>
  *   <li><b>Global runner switch</b> {@code cluster.tables.postcommit.enabled} (owns the seam), and
- *   <li><b>Per-table opt-in</b> table property {@value #COMMIT_STATS_COLLECTION_ENABLED_PROP}{@code
- *       =true}. This is a plain user property (no reserved {@code openhouse.} prefix) so table
- *       owners can set it via {@code ALTER TABLE ... SET TBLPROPERTIES}; reserved {@code
- *       openhouse.} keys cannot be modified by users and would make the gate un-settable.
+ *   <li><b>Per-table condition</b>: the table opts in with the table property {@value
+ *       #COMMIT_STATS_COLLECTION_ENABLED_PROP}{@code =true}, or the table is a temporary table (it
+ *       has the {@value CatalogConstants#OPENHOUSE_LEASE_EXPIRATION_TIME_KEY} property). The opt-in
+ *       property is a plain user property (no reserved {@code openhouse.} prefix) so table owners
+ *       can set it via {@code ALTER TABLE ... SET TBLPROPERTIES}; users cannot modify most {@code
+ *       openhouse.} keys, which would make the gate un-settable. A temporary table is published
+ *       without the opt-in so the Optimizer can find it.
  * </ul>
  */
 @Slf4j
@@ -55,8 +59,10 @@ public abstract class AbstractCommitStatsPublishOperation implements PostCommitO
   }
 
   private boolean isCollectionEnabled(TableMetadata committedMetadata) {
+    Map<String, String> properties = committedMetadata.properties();
     return Boolean.parseBoolean(
-        committedMetadata.properties().getOrDefault(COMMIT_STATS_COLLECTION_ENABLED_PROP, "false"));
+            properties.getOrDefault(COMMIT_STATS_COLLECTION_ENABLED_PROP, "false"))
+        || properties.containsKey(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY);
   }
 
   /**
