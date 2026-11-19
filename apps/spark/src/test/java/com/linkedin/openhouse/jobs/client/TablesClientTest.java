@@ -21,6 +21,7 @@ import com.linkedin.openhouse.tables.client.model.GetSoftDeletedTableResponseBod
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.History;
 import com.linkedin.openhouse.tables.client.model.PageGetSoftDeletedTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.PageGetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Replication;
 import com.linkedin.openhouse.tables.client.model.ReplicationConfig;
@@ -79,6 +80,9 @@ public class TablesClientTest {
   private TablesClient client;
   private DatabaseApi dbApiMock;
   private StorageClient storageClient;
+  private final String testRootPath = "/data/openhouse";
+  private static final List<String> TABLE_LOCATION_FIELD =
+      Collections.singletonList("tableLocation");
 
   @Test
   void testSystemActionHeaderIsSentOnlyWhenRequestedAndColumnDefaultsAlways() throws IOException {
@@ -122,6 +126,7 @@ public class TablesClientTest {
     apiMock = Mockito.mock(TableApi.class);
     dbApiMock = Mockito.mock(DatabaseApi.class);
     storageClient = Mockito.mock(StorageClient.class);
+    Mockito.when(storageClient.getRootPath()).thenReturn(testRootPath);
     RetryPolicy retryPolicy = new NeverRetryPolicy();
 
     client =
@@ -276,7 +281,9 @@ public class TablesClientTest {
 
     Assertions.assertEquals(
         Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
-        client.getOrphanTableDirectories(new Path(testDbName)));
+        client.getOrphanTableDirectories(testDbName));
+    Mockito.verify(storageClient).getSubDirectoriesWithOwners(new Path(testRootPath, testDbName));
+    Mockito.verify(apiMock, Mockito.never()).getTableV1(any(), any());
   }
 
   @Test
@@ -292,15 +299,16 @@ public class TablesClientTest {
 
     Assertions.assertEquals(
         Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
-        client.getOrphanTableDirectories(new Path(testDbName)));
+        client.getOrphanTableDirectories(testDbName));
   }
 
   @Test
   void testGetOrphanTableDirectoriesProtectsTableRestoredDuringLookup() {
-    mockLiveTables(testTableName, "restored");
-    GetAllTablesResponseBody beforeRestore = allTablesResponse(testTableName);
-    GetAllTablesResponseBody afterRestore = allTablesResponse(testTableName, "restored");
-    Mockito.when(apiMock.searchTablesV1(testDbName))
+    GetAllTablesResponseBody beforeRestore = liveTablesPage(1, 1L, testTableName);
+    GetAllTablesResponseBody afterRestore = liveTablesPage(1, 2L, testTableName, "restored");
+    Mockito.when(
+            apiMock.searchTablesPaginatedV2(
+                eq(testDbName), eq(0), anyInt(), isNull(), eq(TABLE_LOCATION_FIELD)))
         .thenReturn(Mono.just(beforeRestore))
         .thenReturn(Mono.just(afterRestore));
     mockNoSoftDeletedTables();
@@ -311,8 +319,31 @@ public class TablesClientTest {
 
     Assertions.assertEquals(
         Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
-        client.getOrphanTableDirectories(new Path(testDbName)));
-    Mockito.verify(apiMock, Mockito.times(1)).getTableV1(testDbName, testTableName);
+        client.getOrphanTableDirectories(testDbName));
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesReadsListingAgainWhenItChanges() {
+    mockLiveTables(testTableName);
+    GetAllSoftDeletedTablesResponseBody firstPage = softDeletedTablesPage(2, 2L, "dropped_1");
+    GetAllSoftDeletedTablesResponseBody changedSecondPage = softDeletedTablesPage(1, 1L);
+    GetAllSoftDeletedTablesResponseBody secondPage = softDeletedTablesPage(2, 2L, "dropped_2");
+    Mockito.when(
+            apiMock.searchSoftDeletedTablesV1(eq(testDbName), isNull(), eq(0), anyInt(), isNull()))
+        .thenReturn(Mono.just(firstPage));
+    Mockito.when(
+            apiMock.searchSoftDeletedTablesV1(eq(testDbName), isNull(), eq(1), anyInt(), isNull()))
+        .thenReturn(Mono.just(changedSecondPage))
+        .thenReturn(Mono.just(secondPage));
+    mockTableDirectories(
+        tableDirectoryName(testTableName),
+        tableDirectoryName("dropped_1"),
+        tableDirectoryName("dropped_2"),
+        tableDirectoryName(testOrphanDirectoryName));
+
+    Assertions.assertEquals(
+        Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
+        client.getOrphanTableDirectories(testDbName));
   }
 
   @Test
@@ -338,7 +369,7 @@ public class TablesClientTest {
 
     Assertions.assertEquals(
         Collections.singletonList(directoryMetadata(tableDirectoryName("orphan_1"))),
-        filteredClient.getOrphanTableDirectories(new Path(testDbName)));
+        filteredClient.getOrphanTableDirectories(testDbName));
   }
 
   @Test
@@ -355,7 +386,7 @@ public class TablesClientTest {
 
     Assertions.assertEquals(
         Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
-        client.getOrphanTableDirectories(new Path(testDbName)));
+        client.getOrphanTableDirectories(testDbName));
   }
 
   @ParameterizedTest
@@ -364,9 +395,11 @@ public class TablesClientTest {
         "tableSearchFails",
         "tableSearchReturnsNothing",
         "noLiveTables",
-        "tableLoadFails",
+        "liveTablesKeepChangingWhilePaging",
+        "liveTablesChangeWhilePagingWithoutChangingRowCount",
+        "liveTablesRowCountDoesNotMatchTotal",
         "softDeletedSearchFails",
-        "softDeletedTablesChangeWhilePaging",
+        "softDeletedTablesKeepChangingWhilePaging",
         "noListedDirectoryInUse"
       })
   void testGetOrphanTableDirectoriesSkipsDatabaseWhenLookupIsUnreliable(String failure) {
@@ -376,18 +409,33 @@ public class TablesClientTest {
         tableDirectoryName(testTableName), tableDirectoryName(testOrphanDirectoryName));
     switch (failure) {
       case "tableSearchFails":
-        Mockito.when(apiMock.searchTablesV1(testDbName))
+        Mockito.when(
+                apiMock.searchTablesPaginatedV2(
+                    eq(testDbName), anyInt(), anyInt(), isNull(), eq(TABLE_LOCATION_FIELD)))
             .thenReturn(Mono.error(new RuntimeException("search failed")));
         break;
       case "tableSearchReturnsNothing":
-        Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(Mono.empty());
+        Mockito.when(
+                apiMock.searchTablesPaginatedV2(
+                    eq(testDbName), anyInt(), anyInt(), isNull(), eq(TABLE_LOCATION_FIELD)))
+            .thenReturn(Mono.empty());
         break;
       case "noLiveTables":
-        mockTableSearch();
+        mockLiveTablesPage(0, liveTablesPage(0, 0L));
         break;
-      case "tableLoadFails":
-        Mockito.when(apiMock.getTableV1(testDbName, testTableName))
-            .thenReturn(Mono.error(new RuntimeException("load failed")));
+      case "liveTablesKeepChangingWhilePaging":
+        mockLiveTablesPage(0, liveTablesPage(2, 2L, testTableName));
+        mockLiveTablesPage(1, liveTablesPage(1, 1L));
+        break;
+      case "liveTablesChangeWhilePagingWithoutChangingRowCount":
+        // table_b is dropped after page 0 and table_g is created after page 1, so table_c is
+        // missed although 6 rows are read.
+        mockLiveTablesPage(0, liveTablesPage(3, 6L, testTableName, "table_b"));
+        mockLiveTablesPage(1, liveTablesPage(3, 5L, "table_d", "table_e"));
+        mockLiveTablesPage(2, liveTablesPage(3, 6L, "table_f", "table_g"));
+        break;
+      case "liveTablesRowCountDoesNotMatchTotal":
+        mockLiveTablesPage(0, liveTablesPage(1, 2L, testTableName));
         break;
       case "softDeletedSearchFails":
         Mockito.when(
@@ -395,7 +443,7 @@ public class TablesClientTest {
                     eq(testDbName), isNull(), anyInt(), anyInt(), isNull()))
             .thenReturn(Mono.error(new RuntimeException("search failed")));
         break;
-      case "softDeletedTablesChangeWhilePaging":
+      case "softDeletedTablesKeepChangingWhilePaging":
         mockSoftDeletedTablesPage(0, 2, 2L, "dropped_1");
         mockSoftDeletedTablesPage(1, 1, 1L);
         break;
@@ -407,24 +455,28 @@ public class TablesClientTest {
         throw new IllegalArgumentException(failure);
     }
 
-    Assertions.assertEquals(
-        Collections.emptyList(), client.getOrphanTableDirectories(new Path(testDbName)));
+    Assertions.assertEquals(Collections.emptyList(), client.getOrphanTableDirectories(testDbName));
   }
 
   @ParameterizedTest
   @NullAndEmptySource
   @ValueSource(strings = {"/data/openhouse/test_db_name/test_table_name"})
   void testGetOrphanTableDirectoriesSkipsDatabaseWhenTableLocationIsInvalid(String location) {
-    mockLiveTables(testTableName);
     GetTableResponseBody table =
         createTableWithLocationResponseBodyMock(testDbName, testTableName, location);
-    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(Mono.just(table));
+    mockLiveTablesPage(
+        0,
+        new GetAllTablesResponseBody()
+            .pageResults(
+                new PageGetTableResponseBody()
+                    .content(Collections.singletonList(table))
+                    .totalPages(1)
+                    .totalElements(1L)));
     mockNoSoftDeletedTables();
     mockTableDirectories(
         tableDirectoryName(testTableName), tableDirectoryName(testOrphanDirectoryName));
 
-    Assertions.assertEquals(
-        Collections.emptyList(), client.getOrphanTableDirectories(new Path(testDbName)));
+    Assertions.assertEquals(Collections.emptyList(), client.getOrphanTableDirectories(testDbName));
   }
 
   @Test
@@ -811,33 +863,35 @@ public class TablesClientTest {
   }
 
   // Responses are built before stubbing because Mockito cannot stub a mock inside thenReturn().
-  private GetAllTablesResponseBody allTablesResponse(String... tableNames) {
-    List<GetTableResponseBody> results = new ArrayList<>();
+  private GetAllTablesResponseBody liveTablesPage(
+      int totalPages, long totalElements, String... tableNames) {
+    List<GetTableResponseBody> content = new ArrayList<>();
     for (String tableName : tableNames) {
-      results.add(createTableResponseBodyMock(testDbName, tableName));
+      content.add(
+          createTableWithLocationResponseBodyMock(
+              testDbName, tableName, metadataLocation(tableName)));
     }
-    GetAllTablesResponseBody response = Mockito.mock(GetAllTablesResponseBody.class);
-    Mockito.when(response.getResults()).thenReturn(results);
-    return response;
+    return new GetAllTablesResponseBody()
+        .pageResults(
+            new PageGetTableResponseBody()
+                .content(content)
+                .totalPages(totalPages)
+                .totalElements(totalElements));
   }
 
-  private void mockTableSearch(String... tableNames) {
-    GetAllTablesResponseBody response = allTablesResponse(tableNames);
-    Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(Mono.just(response));
+  private void mockLiveTablesPage(int page, GetAllTablesResponseBody response) {
+    Mockito.when(
+            apiMock.searchTablesPaginatedV2(
+                eq(testDbName), eq(page), anyInt(), isNull(), eq(TABLE_LOCATION_FIELD)))
+        .thenReturn(Mono.just(response));
   }
 
   private void mockLiveTables(String... tableNames) {
-    for (String tableName : tableNames) {
-      GetTableResponseBody table =
-          createTableWithLocationResponseBodyMock(
-              testDbName, tableName, metadataLocation(tableName));
-      Mockito.when(apiMock.getTableV1(testDbName, tableName)).thenReturn(Mono.just(table));
-    }
-    mockTableSearch(tableNames);
+    mockLiveTablesPage(0, liveTablesPage(1, tableNames.length, tableNames));
   }
 
-  private void mockSoftDeletedTablesPage(
-      int page, int totalPages, long totalElements, String... tableNames) {
+  private GetAllSoftDeletedTablesResponseBody softDeletedTablesPage(
+      int totalPages, long totalElements, String... tableNames) {
     List<GetSoftDeletedTableResponseBody> content = new ArrayList<>();
     for (String tableName : tableNames) {
       GetSoftDeletedTableResponseBody table = Mockito.mock(GetSoftDeletedTableResponseBody.class);
@@ -845,13 +899,18 @@ public class TablesClientTest {
       Mockito.when(table.getTableLocation()).thenReturn(metadataLocation(tableName));
       content.add(table);
     }
+    return new GetAllSoftDeletedTablesResponseBody()
+        .pageResults(
+            new PageGetSoftDeletedTableResponseBody()
+                .content(content)
+                .totalPages(totalPages)
+                .totalElements(totalElements));
+  }
+
+  private void mockSoftDeletedTablesPage(
+      int page, int totalPages, long totalElements, String... tableNames) {
     GetAllSoftDeletedTablesResponseBody response =
-        new GetAllSoftDeletedTablesResponseBody()
-            .pageResults(
-                new PageGetSoftDeletedTableResponseBody()
-                    .content(content)
-                    .totalPages(totalPages)
-                    .totalElements(totalElements));
+        softDeletedTablesPage(totalPages, totalElements, tableNames);
     Mockito.when(
             apiMock.searchSoftDeletedTablesV1(
                 eq(testDbName), isNull(), eq(page), anyInt(), isNull()))
