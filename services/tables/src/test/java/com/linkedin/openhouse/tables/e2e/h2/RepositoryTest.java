@@ -1362,7 +1362,7 @@ public class RepositoryTest {
         e.getMessage()
             .startsWith(
                 "Bad tblproperties provided: Can't add, alter or drop table properties due to the restriction: "
-                    + "[table properties starting with `openhouse.` and the `policies` key cannot be modified], diff in existing "
+                    + "[table properties starting with `openhouse.` (except `openhouse.leaseExpirationTime`) and the `policies` key cannot be modified], diff in existing "
                     + "& provided table properties: {"));
 
     openHouseInternalRepository.deleteById(primaryKey);
