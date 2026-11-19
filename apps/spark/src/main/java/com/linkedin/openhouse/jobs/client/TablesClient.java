@@ -21,6 +21,7 @@ import com.linkedin.openhouse.tables.client.model.GetSoftDeletedTableResponseBod
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.History;
 import com.linkedin.openhouse.tables.client.model.PageGetSoftDeletedTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.PageGetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Replication;
 import java.time.Duration;
@@ -34,11 +35,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.IntFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
@@ -58,7 +61,10 @@ public class TablesClient {
   private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
   private static final int REQUEST_TIMEOUT_SECONDS = 180;
   private static final String METADATA_FILE_SUFFIX = ".metadata.json";
-  private static final int SOFT_DELETED_TABLES_PAGE_SIZE = 1000;
+  private static final int LISTING_PAGE_SIZE = 1000;
+  private static final int MAX_LISTING_ATTEMPTS = 3;
+  private static final List<String> TABLE_LOCATION_FIELD =
+      Collections.singletonList("tableLocation");
   /** OpenHouse names table directories {@code <tableId>-<tableUUID>}. */
   private static final Pattern TABLE_DIRECTORY_NAME_PATTERN =
       Pattern.compile(
@@ -305,23 +311,22 @@ public class TablesClient {
   }
 
   /**
-   * Given a database path, get the table directories under that path that no live or soft-deleted
-   * table uses.
+   * Get the table directories of the given database that no live or soft-deleted table uses.
    *
    * <p>Fails closed: the database is skipped (an empty list is returned) if the directories in use
    * cannot be determined completely, or if none of the listed directories is in use, which means
    * the listing and the table locations disagree. Only directories named like OpenHouse table
    * directories ({@code <tableId>-<tableUUID>}) are returned.
    *
-   * @param dbPath database path to get table directories from
+   * @param dbName database to get table directories from
    * @return a list of DirectoryMetadata that are not used by any table
    */
   @VisibleForTesting
-  public List<DirectoryMetadata> getOrphanTableDirectories(Path dbPath) {
-    String dbName = dbPath.getName();
+  public List<DirectoryMetadata> getOrphanTableDirectories(String dbName) {
     if (!databaseTableFilter.applyDatabaseName(dbName)) {
       return Collections.emptyList();
     }
+    Path dbPath = new Path(storageClient.getRootPath(), dbName);
     // List before reading table metadata, so a table created in between cannot look orphaned.
     List<DirectoryMetadata> allTableDirectories = storageClient.getSubDirectoriesWithOwners(dbPath);
     if (allTableDirectories.isEmpty()) {
@@ -372,10 +377,7 @@ public class TablesClient {
     // we use getDatabases interface to avoid accidentally deleting essential directories on the
     // database level
     for (String dbName : getDatabases()) {
-      if (databaseTableFilter.applyDatabaseName(dbName)) {
-        Path dbPath = new Path(storageClient.getRootPath(), dbName);
-        orphanTableDirectories.addAll(getOrphanTableDirectories(dbPath));
-      }
+      orphanTableDirectories.addAll(getOrphanTableDirectories(dbName));
     }
     return orphanTableDirectories;
   }
@@ -498,91 +500,128 @@ public class TablesClient {
    * database. Throws if any lookup fails or returns an incomplete answer.
    */
   private Set<String> getTableDirectoryNamesInUse(String dbName) {
-    Set<String> directoryNames = new HashSet<>();
-    Set<String> resolvedTableIds = new HashSet<>();
-    addLiveTableDirectoryNames(dbName, resolvedTableIds, directoryNames);
-    if (resolvedTableIds.isEmpty()) {
+    Set<String> directoryNames = getLiveTableDirectoryNames(dbName);
+    if (directoryNames.isEmpty()) {
       // Databases are listed from live tables, so an empty result means the lookup is not reliable.
       throw new IllegalStateException("No live tables found for database " + dbName);
     }
     directoryNames.addAll(getSoftDeletedTableDirectoryNames(dbName));
     // Read live tables again: a table restored while soft-deleted tables were being read is in
     // neither earlier result.
-    addLiveTableDirectoryNames(dbName, resolvedTableIds, directoryNames);
+    directoryNames.addAll(getLiveTableDirectoryNames(dbName));
     return directoryNames;
   }
 
-  private void addLiveTableDirectoryNames(
-      String dbName, Set<String> resolvedTableIds, Set<String> directoryNames) {
-    GetAllTablesResponseBody response =
-        retryTemplate.execute(
-            (RetryCallback<GetAllTablesResponseBody, RuntimeException>)
-                context ->
-                    tableApi
-                        .searchTablesV1(dbName)
-                        .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
-    if (response == null || response.getResults() == null) {
-      throw new IllegalStateException("Cannot list tables of database " + dbName);
+  private Set<String> getLiveTableDirectoryNames(String dbName) {
+    List<GetTableResponseBody> tables =
+        readAllPages(
+            "tables of database " + dbName,
+            page -> {
+              GetAllTablesResponseBody response =
+                  retryTemplate.execute(
+                      (RetryCallback<GetAllTablesResponseBody, RuntimeException>)
+                          context ->
+                              tableApi
+                                  .searchTablesPaginatedV2(
+                                      dbName, page, LISTING_PAGE_SIZE, null, TABLE_LOCATION_FIELD)
+                                  .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+              PageGetTableResponseBody pageResults =
+                  response == null ? null : response.getPageResults();
+              return pageResults == null
+                  ? null
+                  : new ListingPage<>(
+                      pageResults.getContent(),
+                      pageResults.getTotalElements(),
+                      pageResults.getTotalPages());
+            });
+    Set<String> directoryNames = new HashSet<>();
+    for (GetTableResponseBody table : tables) {
+      directoryNames.add(
+          toTableDirectoryName(table.getTableLocation(), dbName, table.getTableId()));
     }
-    for (GetTableResponseBody shallowTable : response.getResults()) {
-      String tableId = Objects.requireNonNull(shallowTable.getTableId());
-      if (resolvedTableIds.add(tableId)) {
-        GetTableResponseBody table = getTable(dbName, tableId);
-        if (table == null) {
-          throw new IllegalStateException(
-              String.format("Cannot load table %s.%s", dbName, tableId));
-        }
-        directoryNames.add(toTableDirectoryName(table.getTableLocation(), dbName, tableId));
-      }
-    }
+    return directoryNames;
   }
 
   private Set<String> getSoftDeletedTableDirectoryNames(String dbName) {
+    List<GetSoftDeletedTableResponseBody> tables =
+        readAllPages(
+            "soft-deleted tables of database " + dbName,
+            page -> {
+              GetAllSoftDeletedTablesResponseBody response =
+                  retryTemplate.execute(
+                      (RetryCallback<GetAllSoftDeletedTablesResponseBody, RuntimeException>)
+                          context ->
+                              tableApi
+                                  .searchSoftDeletedTablesV1(
+                                      dbName, null, page, LISTING_PAGE_SIZE, null)
+                                  .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+              PageGetSoftDeletedTableResponseBody pageResults =
+                  response == null ? null : response.getPageResults();
+              return pageResults == null
+                  ? null
+                  : new ListingPage<>(
+                      pageResults.getContent(),
+                      pageResults.getTotalElements(),
+                      pageResults.getTotalPages());
+            });
     Set<String> directoryNames = new HashSet<>();
+    for (GetSoftDeletedTableResponseBody table : tables) {
+      directoryNames.add(
+          toTableDirectoryName(table.getTableLocation(), dbName, table.getTableId()));
+    }
+    return directoryNames;
+  }
+
+  /** One page of a paginated listing. */
+  @Value
+  private static class ListingPage<T> {
+    List<T> content;
+    Long totalElements;
+    Integer totalPages;
+  }
+
+  /**
+   * Reads every page of a listing. Rows added or removed between pages shift the remaining pages,
+   * so a row could be missed: a listing that changes while being read is read again, and the read
+   * fails if it keeps changing.
+   */
+  private static <T> List<T> readAllPages(String listing, IntFunction<ListingPage<T>> readPage) {
+    for (int attempt = 1; attempt <= MAX_LISTING_ATTEMPTS; attempt++) {
+      Optional<List<T>> rows = tryReadAllPages(listing, readPage);
+      if (rows.isPresent()) {
+        return rows.get();
+      }
+      log.warn(
+          "{} changed while being read (attempt {} of {})", listing, attempt, MAX_LISTING_ATTEMPTS);
+    }
+    throw new IllegalStateException(listing + " kept changing while being read");
+  }
+
+  /** Returns empty if rows were added or removed while the pages were read. */
+  private static <T> Optional<List<T>> tryReadAllPages(
+      String listing, IntFunction<ListingPage<T>> readPage) {
+    List<T> rows = new ArrayList<>();
     Long expectedTotal = null;
-    long rowsRead = 0;
     int page = 0;
     int totalPages;
     do {
-      final int currentPage = page;
-      GetAllSoftDeletedTablesResponseBody response =
-          retryTemplate.execute(
-              (RetryCallback<GetAllSoftDeletedTablesResponseBody, RuntimeException>)
-                  context ->
-                      tableApi
-                          .searchSoftDeletedTablesV1(
-                              dbName, null, currentPage, SOFT_DELETED_TABLES_PAGE_SIZE, null)
-                          .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
-      PageGetSoftDeletedTableResponseBody pageResults =
-          response == null ? null : response.getPageResults();
+      ListingPage<T> pageResults = readPage.apply(page);
       if (pageResults == null
           || pageResults.getContent() == null
           || pageResults.getTotalElements() == null
           || pageResults.getTotalPages() == null) {
-        throw new IllegalStateException("Cannot list soft-deleted tables of database " + dbName);
+        throw new IllegalStateException("Cannot read " + listing);
       }
-      // Rows added or removed between pages shift the remaining pages, so a row could be missed.
       if (expectedTotal == null) {
         expectedTotal = pageResults.getTotalElements();
       } else if (!expectedTotal.equals(pageResults.getTotalElements())) {
-        throw new IllegalStateException(
-            "Soft-deleted tables changed while being read for database " + dbName);
+        return Optional.empty();
       }
-      for (GetSoftDeletedTableResponseBody table : pageResults.getContent()) {
-        directoryNames.add(
-            toTableDirectoryName(table.getTableLocation(), dbName, table.getTableId()));
-        rowsRead++;
-      }
+      rows.addAll(pageResults.getContent());
       totalPages = pageResults.getTotalPages();
       page++;
     } while (page < totalPages);
-    if (rowsRead != expectedTotal) {
-      throw new IllegalStateException(
-          String.format(
-              "Read %d of %d soft-deleted tables for database %s",
-              rowsRead, expectedTotal, dbName));
-    }
-    return directoryNames;
+    return rows.size() == expectedTotal ? Optional.of(rows) : Optional.empty();
   }
 
   /**
