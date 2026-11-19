@@ -10,6 +10,10 @@ import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookRejectedException;
+import com.linkedin.openhouse.javaclient.precommit.SupportsPreCommit;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
@@ -22,7 +26,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -43,6 +49,8 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.util.Tasks;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
@@ -52,7 +60,8 @@ import reactor.core.publisher.Mono;
 @Builder
 @Slf4j
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
-public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
+public class OpenHouseTableOperations extends BaseMetastoreTableOperations
+    implements SupportsPreCommit {
 
   @Getter(AccessLevel.PROTECTED)
   private TableIdentifier tableIdentifier;
@@ -87,6 +96,31 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    * so skip-reload and a failed UUID check cannot desync stamps from overlays.
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
+
+  /**
+   * Checks run before each commit is sent, in registration order. A final holder keeps Lombok's
+   * all-args constructor unchanged, so nothing downstream has to be rebuilt.
+   */
+  private final List<PreCommitHook> preCommitHooks = new CopyOnWriteArrayList<>();
+
+  /**
+   * Adds a check to run before each commit is sent to the service. Hooks run in registration order
+   * and the first to reject stops the commit.
+   *
+   * <p>Registering a hook is only half of it. A table runs its hooks only while it carries {@value
+   * #PRE_COMMIT_HOOKS_ENABLED_KEY}{@code =true}, so a hook can be registered everywhere and turned
+   * on table by table.
+   *
+   * @param hook the check to run; must not be null
+   * @return this, so it can be chained onto a newly built instance
+   * @throws NullPointerException if {@code hook} is null, so a mis-wired registration fails where
+   *     it is written rather than on the first commit that tries to run it
+   */
+  @Override
+  public OpenHouseTableOperations withPreCommit(PreCommitHook hook) {
+    preCommitHooks.add(Objects.requireNonNull(hook, "hook"));
+    return this;
+  }
 
   /** Stamps last applied to {@code current()}, or {@code null}. */
   protected Map<String, String> currentConfig() {
@@ -124,6 +158,14 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private static final String OPENHOUSE_IS_TABLE_REPLICATED_KEY = "openhouse.isTableReplicated";
   private static final String POLICIES_KEY = "policies";
   static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
+
+  /**
+   * Opt-in for {@link PreCommitHook}s, read from the table's current properties.
+   *
+   * <p>Anything other than {@code "true"}, including the property being absent, leaves the hooks
+   * off; parsing is {@link Boolean#parseBoolean}, so the value is case-insensitive.
+   */
+  static final String PRE_COMMIT_HOOKS_ENABLED_KEY = "openhouse.preCommitHooksEnabled";
 
   @Override
   public void doRefresh() {
@@ -205,6 +247,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     // an RTAS at this point. A replace always replaces the table wholesale, even when only part of
     // the metadata changed, so the flag alone decides the route.
     boolean replaceCommit = isReplaceTransaction() && base != null;
+    runPreCommitHooks(base, metadata, metadataUpdated, snapshotsUpdated);
     try {
       if (replaceCommit) {
         putSnapshotsForReplace(base, metadata);
@@ -231,6 +274,118 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       replaceTransaction.set(false);
     }
     log.debug("Calling doCommit succeeded");
+  }
+
+  /**
+   * Runs the registered checks, in registration order, before anything is sent. The first to reject
+   * stops the commit and the rest do not run.
+   *
+   * <p>Placed here on purpose: the routing flags are settled, nothing has been sent yet, and it is
+   * outside the {@code catch} above, which turns an interrupt into a {@code
+   * CommitStateUnknownException}, the wrong thing to say about a commit that never left.
+   *
+   * <p>Each hook is evaluated in its own {@code try}, so an error names the hook that threw. A
+   * caller that registers nothing pays an empty-list check, and a table that has not opted in pays
+   * one property lookup on top of that.
+   */
+  private void runPreCommitHooks(
+      TableMetadata base,
+      TableMetadata metadata,
+      boolean metadataUpdated,
+      boolean snapshotsUpdated) {
+    if (preCommitHooks.isEmpty() || !preCommitHooksEnabled(base, metadata)) {
+      return;
+    }
+    PreCommitHookContext context =
+        new PreCommitHookContext(
+            getCluster(),
+            getTableIdentifier(),
+            base,
+            metadata,
+            isReplaceTransaction(),
+            metadataUpdated,
+            snapshotsUpdated);
+    for (PreCommitHook hook : preCommitHooks) {
+      try {
+        hook.evaluate(context);
+      } catch (PreCommitHookRejectedException e) {
+        throw asCommitException(hook, e, base == null);
+      } catch (CommitFailedException | CommitStateUnknownException e) {
+        // A hook throwing either of these is a bug, so say so rather than passing it on. Iceberg
+        // would retry a rejection that fails the same way every time, or report that a commit which
+        // never left may have landed.
+        throw new IllegalStateException(
+            String.format(
+                "Pre-commit hook %s threw %s, which it must not: a hook reports a problem with "
+                    + "PreCommitHookRejectedException. Table %s.",
+                hook.getName(), e.getClass().getSimpleName(), tableName()),
+            e);
+      }
+    }
+  }
+
+  /**
+   * Whether this table has opted in to pre-commit hooks, via the {@value
+   * #PRE_COMMIT_HOOKS_ENABLED_KEY} table property.
+   *
+   * <p>Off unless the property reads {@code true}, so registering a hook on the catalog does not
+   * light up every table loaded through it. A hook can be shipped everywhere and then enabled one
+   * table at a time, or switched off again by editing a property rather than by redeploying.
+   *
+   * <p>Read from {@code base}, the table as it stands, rather than from the commit: a commit that
+   * clears the property would otherwise disable the very hooks that were about to judge it. Turning
+   * it on behaves the same way round, taking effect from the next commit. A create has no {@code
+   * base}, so there the commit's own properties are all there is to read.
+   *
+   * <p>This is a rollout control, not a security control. The property is writer-settable, and a
+   * client-side hook is cooperative in any case: a writer could as easily use a catalog that never
+   * registered one. Checks that have to hold belong on the server.
+   *
+   * @param base the table as it is now, or null when it is being created
+   * @param metadata the table as it will be if the commit goes through
+   * @return whether the registered hooks should run for this commit
+   */
+  private boolean preCommitHooksEnabled(TableMetadata base, TableMetadata metadata) {
+    TableMetadata source = base == null ? metadata : base;
+    return Boolean.parseBoolean(source.properties().get(PRE_COMMIT_HOOKS_ENABLED_KEY));
+  }
+
+  /**
+   * Turns a rejected commit into the exception Iceberg expects.
+   *
+   * <p>The two failure types differ in whether Iceberg should try again. {@code
+   * CommitFailedException} is retried by Iceberg's commit loop, which is right when the check could
+   * not reach a verdict and wrong when the commit itself is the problem. That would retry until the
+   * attempts run out and then report a conflict that never happened.
+   *
+   * <p>A create is the exception. {@code BaseMetastoreCatalog}'s table builder catches {@code
+   * CommitFailedException} from a create and rethrows {@code AlreadyExistsException("Table was
+   * created concurrently")} without the cause, so a hook that could not run would report a table
+   * that does not exist and lose the reason. Nothing retries a create either, so the retry signal
+   * buys nothing there. Operational failures on a create use {@code ServiceUnavailableException},
+   * which Iceberg passes through.
+   *
+   * <p>Validation failures need no special case: {@code ValidationException} is not caught on
+   * either path.
+   */
+  private RuntimeException asCommitException(
+      PreCommitHook hook, PreCommitHookRejectedException e, boolean create) {
+    if (e.getFailureType() == PreCommitHookRejectedException.FailureType.OPERATIONAL) {
+      String message =
+          String.format(
+              "Pre-commit hook %s could not check table %s [%s]: %s",
+              hook.getName(), tableName(), e.getReasonCode(), e.getMessage());
+      return create
+          ? new ServiceUnavailableException(e, "%s", message)
+          : new CommitFailedException(e, "%s", message);
+    }
+    return new ValidationException(
+        e,
+        "Pre-commit hook %s rejected commit for table %s [%s]: %s",
+        hook.getName(),
+        tableName(),
+        e.getReasonCode(),
+        e.getMessage());
   }
 
   private Boolean isMetadataUpdated(TableMetadata base, TableMetadata metadata) {
