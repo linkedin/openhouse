@@ -6,8 +6,9 @@ import java.util.Optional;
 
 /**
  * Reads a temporary table's expiration time from its table properties. A table whose {@value
- * #EXPIRATION_TIME_PROPERTY} property holds epoch milliseconds is a temporary table, and the
- * Optimizer runs no maintenance on it.
+ * #EXPIRATION_TIME_PROPERTY} property holds epoch milliseconds is a temporary table. The Optimizer
+ * runs no maintenance on it, and the expired-table deletion analyzer schedules a drop once that
+ * time passes.
  */
 public final class TemporaryTable {
 

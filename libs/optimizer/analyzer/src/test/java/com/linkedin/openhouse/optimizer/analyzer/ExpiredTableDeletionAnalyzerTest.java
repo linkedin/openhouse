@@ -1,0 +1,109 @@
+package com.linkedin.openhouse.optimizer.analyzer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
+import com.linkedin.openhouse.optimizer.model.TableDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.model.TemporaryTable;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+
+class ExpiredTableDeletionAnalyzerTest {
+
+  private final ExpiredTableDeletionAnalyzer analyzer = new ExpiredTableDeletionAnalyzer();
+
+  @Test
+  void isEnabled_returnsTrue_forTemporaryTable() {
+    assertThat(analyzer.isEnabled(temporaryTable(Instant.now()))).isTrue();
+  }
+
+  @Test
+  void isEnabled_returnsFalse_forOrdinaryTable() {
+    assertThat(analyzer.isEnabled(TableDto.builder().tableUuid("test-uuid").build())).isFalse();
+  }
+
+  @Test
+  void shouldSchedule_returnsFalse_beforeExpirationTime() {
+    TableDto table = temporaryTable(Instant.now().plus(Duration.ofHours(1)));
+    assertThat(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty(), 0)).isFalse();
+  }
+
+  @Test
+  void shouldSchedule_returnsTrue_afterExpirationTime() {
+    TableDto table = temporaryTable(Instant.now().minus(Duration.ofMinutes(1)));
+    assertThat(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty(), 0)).isTrue();
+  }
+
+  @Test
+  void shouldSchedule_returnsFalse_whileDeletionIsPending() {
+    TableDto table = temporaryTable(Instant.now().minus(Duration.ofMinutes(1)));
+    TableOperationDto pendingOp =
+        TableOperationDto.builder().status(OperationStatusDto.PENDING).build();
+    assertThat(analyzer.shouldSchedule(table, Optional.of(pendingOp), Optional.empty(), 0))
+        .isFalse();
+  }
+
+  @Test
+  void shouldSchedule_returnsTrue_afterFailedDeletionBackoff() {
+    TableDto table = temporaryTable(Instant.now().minus(Duration.ofDays(1)));
+    Instant failedAt = Instant.now().minus(Duration.ofHours(2));
+    assertThat(
+            analyzer.shouldSchedule(
+                table,
+                Optional.of(completedOp(failedAt.plus(Duration.ofHours(1)))),
+                Optional.of(history(HistoryStatusDto.FAILED, failedAt)),
+                1))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_returnsFalse_afterSuccessfulDeletion() {
+    // On SUCCESS the service sets the op row's next eligible time one success interval out. Once
+    // that time passes, the SUCCESS still keeps the deleted table from being scheduled again.
+    TableDto table = temporaryTable(Instant.now().minus(Duration.ofDays(2)));
+    Instant deletedAt = Instant.now().minus(Duration.ofDays(1)).minus(Duration.ofHours(1));
+    assertThat(
+            analyzer.shouldSchedule(
+                table,
+                Optional.of(completedOp(deletedAt.plus(Duration.ofDays(1)))),
+                Optional.of(history(HistoryStatusDto.SUCCESS, deletedAt)),
+                0))
+        .isFalse();
+  }
+
+  private TableDto temporaryTable(Instant expirationTime) {
+    return TableDto.builder()
+        .tableUuid("test-uuid")
+        .databaseName("db1")
+        .tableId("tbl1")
+        .tableProperties(
+            Map.of(
+                TemporaryTable.EXPIRATION_TIME_PROPERTY,
+                Long.toString(expirationTime.toEpochMilli())))
+        .build();
+  }
+
+  /** The op row as the service leaves it after a reported outcome. */
+  private TableOperationDto completedOp(Instant nextEligibleAt) {
+    return TableOperationDto.builder()
+        .status(OperationStatusDto.SCHEDULED)
+        .nextEligibleAt(nextEligibleAt)
+        .build();
+  }
+
+  private TableOperationsHistoryDto history(HistoryStatusDto status, Instant completedAt) {
+    return TableOperationsHistoryDto.builder()
+        .tableUuid("test-uuid")
+        .operationType(OperationTypeDto.EXPIRED_TABLE_DELETION)
+        .completedAt(completedAt)
+        .status(status)
+        .build();
+  }
+}
