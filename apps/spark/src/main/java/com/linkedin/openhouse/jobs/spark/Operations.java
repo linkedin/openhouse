@@ -99,6 +99,11 @@ public final class Operations implements AutoCloseable {
     return catalog.loadTable(TableIdentifier.parse(fqtn));
   }
 
+  /** Drops the table and purges its data. */
+  public void dropTable(String tableName) {
+    getCatalog().dropTable(TableIdentifier.parse(tableName));
+  }
+
   @VisibleForTesting
   protected Transaction createTransaction(String fqtn, Schema schema) {
     Catalog catalog = getCatalog();

@@ -13,5 +13,8 @@ public enum OperationType {
   ORPHAN_FILES_DELETION,
 
   /** Collects per-table snapshot/size statistics used to drive optimizer decisions. */
-  TABLE_STATS_COLLECTION
+  TABLE_STATS_COLLECTION,
+
+  /** Deletes a temporary table after its expiration time passes. */
+  EXPIRED_TABLE_DELETION
 }
