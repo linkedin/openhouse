@@ -9,6 +9,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
@@ -86,6 +87,43 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     List<String> validationFailures = new ArrayList<>();
     validateDatabaseId(databaseId, validationFailures);
     ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+    validateSearchFields(fields, validationFailures);
+    if (!validationFailures.isEmpty()) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
+  @Override
+  public void validateSearchTables(
+      String databaseId,
+      SearchTablesRequestBody searchTablesRequestBody,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields) {
+    List<String> validationFailures = new ArrayList<>();
+    validateDatabaseId(databaseId, validationFailures);
+    ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+    validateSearchFields(fields, validationFailures);
+    // The filter and every field on it are optional.
+    if (searchTablesRequestBody != null && searchTablesRequestBody.getTableId() != null) {
+      // Rejects wildcards along with every other character outside the identifier charset, so the
+      // filter can only ever name a single table.
+      validateTableId(searchTablesRequestBody.getTableId(), validationFailures);
+    }
+    if (!validationFailures.isEmpty()) {
+      throw new RequestValidationFailureException(validationFailures);
+    }
+  }
+
+  /**
+   * Collects a failure for any requested field that the search endpoints cannot populate, so an
+   * unsupported name is reported rather than silently returning nothing for it.
+   *
+   * @param fields optional list of requested field names, may be null or empty
+   * @param validationFailures accumulator the failure is appended to
+   */
+  private void validateSearchFields(List<String> fields, List<String> validationFailures) {
     if (fields != null && !fields.isEmpty()) {
       List<String> unsupported =
           fields.stream()
@@ -97,9 +135,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
                 "fields : unsupported field(s) %s. Supported fields: %s",
                 unsupported, SUPPORTED_SEARCH_FIELDS));
       }
-    }
-    if (!validationFailures.isEmpty()) {
-      throw new RequestValidationFailureException(validationFailures);
     }
   }
 

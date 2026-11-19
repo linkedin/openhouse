@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.api.validator;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import java.util.List;
 
@@ -40,6 +41,32 @@ public interface TablesApiValidator {
    */
   void validateSearchTables(
       String databaseId, int page, int size, String sortBy, List<String> fields);
+
+  /**
+   * Function to validate a filtered request to get a Page of Table Resources in a given databaseId.
+   *
+   * <p>Defaults to rejecting the request so that an implementation which does not serve the
+   * filtered search route keeps compiling without change. Implementations that serve it override
+   * this.
+   *
+   * @param databaseId
+   * @param searchTablesRequestBody optional filter, may be null when no filter was supplied
+   * @param page
+   * @param size
+   * @param sortBy
+   * @param fields optional list of GetTableResponseBody field names to populate
+   * @throws com.linkedin.openhouse.common.exception.RequestValidationFailureException if request is
+   *     invalid
+   */
+  default void validateSearchTables(
+      String databaseId,
+      SearchTablesRequestBody searchTablesRequestBody,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields) {
+    throw new UnsupportedOperationException("Filtered table search is not supported");
+  }
 
   /**
    * Function to validate a request to create a Table Resource.

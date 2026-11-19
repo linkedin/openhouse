@@ -41,6 +41,12 @@ import org.springframework.data.domain.Page;
 public interface TablesMapper {
 
   /**
+   * Name of the one non-identifier field the search endpoints can populate. Must match the field on
+   * {@link TableDto} and on {@code GetTableResponseBody}.
+   */
+  String TABLE_LOCATION_FIELD = "tableLocation";
+
+  /**
    * Update elements in {@link TableDto} based on {@link
    * com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody} Note that
    * return of this method is for saving, thus read-only field like creationTime is omitted
@@ -170,8 +176,23 @@ public interface TablesMapper {
   default TableDto toTableDto(HouseTable houseTable, Set<String> fields) {
     TableDto.TableDtoBuilder builder =
         TableDto.builder().databaseId(houseTable.getDatabaseId()).tableId(houseTable.getTableId());
-    if (fields != null && fields.contains("tableLocation")) {
+    if (fields != null && fields.contains(TABLE_LOCATION_FIELD)) {
       builder.tableLocation(houseTable.getTableLocation());
+    }
+    return builder.build();
+  }
+
+  /**
+   * Narrow an already-resolved TableDto to the same shape {@link #toTableDto(HouseTable, Set)}
+   * produces: identifiers always, and nothing else unless the caller requested it. Used by the
+   * filtered search endpoint, which resolves a single named table directly rather than through a
+   * listing.
+   */
+  default TableDto toTableDto(TableDto tableDto, Set<String> fields) {
+    TableDto.TableDtoBuilder builder =
+        TableDto.builder().databaseId(tableDto.getDatabaseId()).tableId(tableDto.getTableId());
+    if (fields != null && fields.contains(TABLE_LOCATION_FIELD)) {
+      builder.tableLocation(tableDto.getTableLocation());
     }
     return builder.build();
   }
