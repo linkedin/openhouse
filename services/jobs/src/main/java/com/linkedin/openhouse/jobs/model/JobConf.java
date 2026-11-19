@@ -44,6 +44,11 @@ public class JobConf {
      * BatchedTableStatsCollectionSparkApp}.
      */
     TABLE_STATS_COLLECTION_BATCH,
+    /**
+     * Deletes each listed temporary table whose expiration time has passed. See {@code
+     * ExpiredTableDeletionSparkApp}.
+     */
+    EXPIRED_TABLE_DELETION_BATCH,
     DATA_LAYOUT_STRATEGY_GENERATION,
     DATA_LAYOUT_STRATEGY_EXECUTION,
     REPLICATION,

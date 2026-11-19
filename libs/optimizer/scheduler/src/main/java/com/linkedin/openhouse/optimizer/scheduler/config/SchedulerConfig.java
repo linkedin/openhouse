@@ -56,6 +56,10 @@ public class SchedulerConfig {
    * scales with file count, not table byte size (a few huge files are cheap; millions of tiny files
    * are expensive). Many low-file tables share one job (up to {@code max-tables-per-bin}, default
    * 25), while any table with more than {@code max-files-per-bin} files lands in a job of its own.
+   *
+   * <p>Expired table deletion: a {@link FirstFitDecreasingBinPacker} over {@link TotalFilesBinItem}
+   * with the builder's default limits. The job drops each table with one catalog call, so a table's
+   * file count has little effect on the job's cost.
    */
   @Bean
   public SchedulerRunner schedulerRunner(
@@ -83,6 +87,11 @@ public class SchedulerConfig {
                 .binItemSupplier(TotalFilesBinItem::new)
                 .maxWeightPerBin(statsMaxFilesPerBin)
                 .maxItemsPerBin(statsMaxTablesPerBin)
+                .build())
+        .registerOperation(
+            OperationTypeDto.EXPIRED_TABLE_DELETION,
+            FirstFitDecreasingBinPacker.<TotalFilesBinItem>builder()
+                .binItemSupplier(TotalFilesBinItem::new)
                 .build());
   }
 }
