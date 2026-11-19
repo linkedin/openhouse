@@ -680,11 +680,8 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
    * be selected by the query and then explode while loading, which is worse than either matching or
    * skipping it consistently.
    *
-   * <p>The MySQL column collation is case-insensitive, so this behaviour alone cannot tell an
-   * explicit {@code upper(...)} from collation folding; {@code
-   * HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates} proves the normalization is
-   * in the query. No writer can produce such a row: the enum boundary normalizes before the value
-   * reaches the column.
+   * <p>No writer can produce such a row: the enum boundary normalizes before the value reaches the
+   * column.
    */
   @Test
   public void testLegacyNonCanonicalSpellingIsMatchedAndHydrates() {
@@ -1017,12 +1014,7 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
     assertThat(pageTableIds(page1)).containsExactly("match_t05_view");
   }
 
-  /**
-   * Every spelling of VIEW is listed and counted; NULL and garbage are not. Matching here does not
-   * by itself prove {@code upper(...)} under the case-insensitive column collation; {@code
-   * HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates} guards both view queries and
-   * their counts.
-   */
+  /** Every spelling of VIEW is listed and counted; NULL and garbage are not. */
   @Test
   public void testViewQueriesIncludeEverySpellingAndExcludeNullAndGarbage() {
     seedCaseNormalizationRows();
@@ -1129,8 +1121,7 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
    * Pins this exact {@code UNKNOWN} value, which the pinned {@code utf8mb4_0900_ai_ci} column
    * collation does not equate with either type. It is not a universal exclusion of corrupt
    * spellings: that collation still matches an accented spelling Java rejects, which is why the
-   * read paths translate corruption loudly. The typed DELETEs and rename keep {@code upper(...)}
-   * per {@code HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates}.
+   * read paths translate corruption loudly.
    */
   @Test
   public void testTypedDeletesAndTableRenameSkipAnUnknownSpelling() {
