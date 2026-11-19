@@ -1239,6 +1239,69 @@ public class UserTablesServiceTest {
         .containsExactly("matchXview", "match_t01_view");
   }
 
+  /**
+   * The exact-name lookup must not run through SQL {@code LIKE}. There {@code _} is a
+   * single-character wildcard and is never escaped, so {@code match_t01} would also return {@code
+   * matchXt01}. Underscores are ubiquitous in OpenHouse table names, which makes this the common
+   * case for a single-table search rather than a corner case.
+   */
+  @Test
+  public void testTableLookupByNameTreatsUnderscoreAsALiteral() {
+    seedTypedRow(ENTITY_TYPE_DB, "match_t01", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "matchXt01", EntityType.TABLE);
+
+    UserTable byName = UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("match_t01").build();
+
+    assertThat(sortedIds(userTablesService.getAllUserTables(byName))).containsExactly("match_t01");
+    assertThat(pageIds(userTablesService.getAllUserTables(byName, 0, 50, "tableId")))
+        .containsExactly("match_t01");
+  }
+
+  /**
+   * The exact lookup is additive: a {@code %} still selects the pattern path, so the pre-existing
+   * wildcard semantics there are unchanged.
+   */
+  @Test
+  public void testTablePatternQueryKeepsUnderscoreAsASqlWildcard() {
+    seedTypedRow(ENTITY_TYPE_DB, "match_t01", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "matchXt01", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "nomatch", EntityType.TABLE);
+
+    UserTable byPattern = UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("match_%").build();
+
+    assertThat(sortedIds(userTablesService.getAllUserTables(byPattern)))
+        .as("a % query is still a LIKE, where _ matches any single character")
+        .containsExactly("matchXt01", "match_t01");
+  }
+
+  /**
+   * Routing assertion rather than a result assertion: the equality finder and the LIKE finder agree
+   * on most fixtures, so only the call site proves which SQL a query reached.
+   */
+  @Test
+  public void testTableNameLookupAndPatternReachDifferentFinders() {
+    userTablesService.getAllUserTables(
+        UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("exact_name").build(),
+        0,
+        2,
+        "tableId");
+    Mockito.verify(htsRepository)
+        .findAllTablesByFilters(
+            Mockito.eq(ENTITY_TYPE_DB),
+            Mockito.eq("exact_name"),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.any(Pageable.class));
+
+    userTablesService.getAllUserTables(
+        UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("p%").build(), 0, 2, "tableId");
+    Mockito.verify(htsRepository)
+        .findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+            Mockito.eq(ENTITY_TYPE_DB), Mockito.eq("p%"), Mockito.any(Pageable.class));
+  }
+
   @Test
   public void testPagedViewQueryWithoutSortStillPages() {
     seedCanonicalRows("");
