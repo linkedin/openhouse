@@ -76,6 +76,18 @@ public class AbstractCommitStatsPublishOperationTest {
   }
 
   @Test
+  void testPublishesTemporaryTableWithoutOptIn() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    props.put(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1893456000000");
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+
+    Assertions.assertEquals(1, op.publishCount);
+  }
+
+  @Test
   void testDoesNotPublishWhenNoTableUuidEvenIfEnabled() throws Exception {
     Map<String, String> props = new HashMap<>();
     // enabled, but no stable UUID to key on -> factory returns empty
