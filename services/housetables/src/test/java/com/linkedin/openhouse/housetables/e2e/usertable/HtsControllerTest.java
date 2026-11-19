@@ -20,7 +20,6 @@ import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper
 import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -94,8 +93,6 @@ import org.springframework.web.util.UriBuilder;
 public class HtsControllerTest extends HtsDatabaseTestBase {
 
   @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
-
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
@@ -396,14 +393,8 @@ public class HtsControllerTest extends HtsDatabaseTestBase {
   }
 
   @AfterEach
-  public void tearDown() {
+  public void resetTestSpy() {
     Mockito.reset(htsJdbcRepository);
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first;
-    // otherwise converter hydration during teardown poisons the rest of the class.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-    softDeletedHtsJdbcRepository.deleteAll();
   }
 
   @Test

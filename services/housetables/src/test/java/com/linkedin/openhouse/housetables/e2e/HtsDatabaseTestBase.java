@@ -8,11 +8,11 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -36,13 +36,9 @@ import org.testcontainers.containers.MySQLContainer;
  */
 public abstract class HtsDatabaseTestBase {
 
-  public static final String DATABASE = "hts_test";
+  protected static final String DATABASE = "hts_test";
 
   private static final String MYSQL_IMAGE = "mysql:8.4.11";
-
-  private static final List<String> TABLES =
-      Arrays.asList(
-          "user_table_row", "soft_deleted_user_table_row", "job_row", "table_toggle_rule");
 
   /** Started and populated once, before any context builds a datasource; never stopped early. */
   private static final class Holder {
@@ -50,33 +46,9 @@ public abstract class HtsDatabaseTestBase {
 
     private static final String JDBC_URL = CONTAINER.getJdbcUrl();
 
-    static {
-      try (Connection connection =
-          DriverManager.getConnection(JDBC_URL, CONTAINER.getUsername(), CONTAINER.getPassword())) {
-        System.out.println(
-            "HTS test database: image="
-                + CONTAINER.getDockerImageName()
-                + " server="
-                + connection.getMetaData().getDatabaseProductVersion()
-                + " driver="
-                + connection.getMetaData().getDriverVersion());
-      } catch (SQLException e) {
-        throw new IllegalStateException("Could not connect to the HTS MySQL test database", e);
-      }
-    }
-
     private static MySQLContainer<?> startMysql() {
-      MySQLContainer<?> mysql =
-          new MySQLContainer<>(MYSQL_IMAGE)
-              .withDatabaseName(DATABASE)
-              .withCommand(
-                  "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci");
-      try {
-        mysql.start();
-      } catch (RuntimeException e) {
-        throw new IllegalStateException(
-            "Could not start the HTS MySQL test database from " + MYSQL_IMAGE, e);
-      }
+      MySQLContainer<?> mysql = new MySQLContainer<>(MYSQL_IMAGE).withDatabaseName(DATABASE);
+      mysql.start();
       try (Connection connection =
           DriverManager.getConnection(
               mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())) {
@@ -126,23 +98,21 @@ public abstract class HtsDatabaseTestBase {
     }
   }
 
-  @AfterEach
-  public void clearMysqlFixture() throws SQLException {
-    try (Connection connection = mysqlFixtureDataSource.getConnection()) {
-      clear(connection);
-    }
-  }
-
-  /** Refuses to delete anything unless the connection is the disposable HTS test database. */
+  /** Resets every table in the disposable HTS database before each test. */
   private static void clear(Connection connection) throws SQLException {
-    assertThat(connection.getAutoCommit()).as("fixture reset runs outside transactions").isTrue();
     try (Statement statement = connection.createStatement()) {
-      try (ResultSet database = statement.executeQuery("SELECT DATABASE()")) {
-        assertThat(database.next()).isTrue();
-        assertThat(database.getString(1)).as("fixture reset database").isEqualTo(DATABASE);
+      List<String> tables = new ArrayList<>();
+      try (ResultSet result =
+          statement.executeQuery(
+              "SELECT table_name FROM information_schema.tables"
+                  + " WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")) {
+        while (result.next()) {
+          tables.add(result.getString(1));
+        }
       }
-      for (String table : TABLES) {
-        statement.executeUpdate("DELETE FROM " + table);
+      assertThat(tables).as("HTS test database tables").isNotEmpty();
+      for (String table : tables) {
+        statement.execute("TRUNCATE TABLE `" + table.replace("`", "``") + "`");
       }
     }
   }

@@ -95,8 +95,6 @@ tasks.named('processTestResources') {
 }
 
 tasks.named('test') {
-  useJUnitPlatform()
-  // One JVM owns one shared MySQL container whose fixture callbacks reset every table.
+  // Keep one test JVM: cached Spring contexts retain pools and can exceed MySQL max_connections.
   maxParallelForks = 1
-  systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
 }
