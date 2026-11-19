@@ -13,7 +13,6 @@ import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.Advisor;
 import org.springframework.aop.aspectj.AbstractAspectJAdvice;
@@ -42,12 +41,6 @@ public class RepositoryTranslationAspectTest extends HtsDatabaseTestBase {
   @Autowired UserTablesService userTablesService;
 
   @Autowired DataSource dataSource;
-
-  @AfterEach
-  public void tearDown() {
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE database_id = ?", ASPECT_DB);
-  }
 
   /**
    * The interception point itself. Asserted twice over: structurally, that {@code

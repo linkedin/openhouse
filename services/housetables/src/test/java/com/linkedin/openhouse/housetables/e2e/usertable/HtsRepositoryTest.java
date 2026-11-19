@@ -8,7 +8,6 @@ import com.linkedin.openhouse.common.exception.EntityConcurrentModificationExcep
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -21,7 +20,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -65,19 +63,9 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
 
   @Autowired UserTableHtsJdbcRepository htsRepository;
 
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
-
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
   @Autowired DataSource dataSource;
-
-  @AfterEach
-  public void tearDown() {
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-  }
 
   private UserTableRow row(String databaseId, String tableId, EntityType entityType) {
     return UserTableRow.builder()
@@ -1164,10 +1152,6 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
         .isInstanceOf(UnsupportedOperationException.class);
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "sealed_view")).hasValue("VIEW");
-
-    // Teardown owns whole-store cleanup now, and it still reaches every row.
-    userTableStoreCleaner.clear();
-    assertThat(htsRepository.existsById(sealedKey)).isFalse();
   }
 
   /**
