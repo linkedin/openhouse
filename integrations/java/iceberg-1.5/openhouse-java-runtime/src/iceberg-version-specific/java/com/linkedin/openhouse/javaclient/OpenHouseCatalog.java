@@ -197,6 +197,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
     HttpHeaders headers = CatalogRequestHeaders.from(properties, capabilities());
+    ApiClient namespaceClient;
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -206,20 +207,24 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
       }
       this.apiClient = tablesApiClientFactory.createApiClient(uri, token, truststore);
+      namespaceClient = tablesApiClientFactory.createNamespaceApiClient(uri, token, truststore);
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
     }
     if (actionType != null) {
       this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
+      namespaceClient.addDefaultHeader(
+          HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
     }
     headers.toSingleValueMap().forEach(this.apiClient::addDefaultHeader);
+    headers.toSingleValueMap().forEach(namespaceClient::addDefaultHeader);
     log.info("Catalog {} sends configured headers {}", name, headers.keySet());
     this.tableApi = new TableApi(apiClient);
     this.viewApi = new ViewApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
-    this.namespaceApi = new NamespaceApi(apiClient);
+    this.namespaceApi = new NamespaceApi(namespaceClient);
 
     this.fileIO = loadFileIO(properties);
 
@@ -261,6 +266,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     if (token != null && !token.isEmpty()) {
       this.properties.put(AUTH_TOKEN, token);
       this.apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
+      this.namespaceApi
+          .getApiClient()
+          .addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
     }
   }
 
@@ -618,6 +626,11 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
       }
       if (status == HttpStatus.CONFLICT && operation == NamespaceOperation.CREATE) {
         throw new AlreadyExistsException(failure, "Namespace already exists");
+      }
+      if (status == HttpStatus.CONFLICT
+          && (operation == NamespaceOperation.UPDATE || operation == NamespaceOperation.DROP)) {
+        throw new org.apache.iceberg.exceptions.CommitFailedException(
+            failure, "Namespace was concurrently modified");
       }
       throw new RESTException(failure, "Namespace operation failed");
     } catch (RuntimeException failure) {

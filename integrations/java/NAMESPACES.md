@@ -38,6 +38,7 @@ Recognized service rejections map to the Iceberg exceptions callers already use:
 | Invalid namespace or property request | `ValidationException` |
 | Missing metadata during load or update | `NoSuchNamespaceException` |
 | Duplicate create | `AlreadyExistsException` |
+| Concurrent update or drop | `CommitFailedException` |
 | Authentication required | `NotAuthorizedException` |
 | Insufficient permission | `ForbiddenException` |
 | Other transport or service failure | `RESTException` |

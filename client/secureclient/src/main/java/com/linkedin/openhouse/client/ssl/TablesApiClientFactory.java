@@ -52,7 +52,20 @@ public final class TablesApiClientFactory extends WebClientFactory {
    */
   public ApiClient createApiClient(@NonNull String baseUrl, String token, String truststoreLocation)
       throws MalformedURLException, SSLException {
-    WebClient webClient = createWebClient(baseUrl, token, truststoreLocation);
+    return createApiClient(baseUrl, token, truststoreLocation, false);
+  }
+
+  /** Creates a namespace client that does not repeat requests after a connection reset. */
+  public ApiClient createNamespaceApiClient(
+      @NonNull String baseUrl, String token, String truststoreLocation)
+      throws MalformedURLException, SSLException {
+    return createApiClient(baseUrl, token, truststoreLocation, true);
+  }
+
+  private ApiClient createApiClient(
+      String baseUrl, String token, String truststoreLocation, boolean disableRetry)
+      throws MalformedURLException, SSLException {
+    WebClient webClient = createWebClient(baseUrl, token, truststoreLocation, disableRetry);
     ApiClient apiClient = new ApiClient(webClient);
     if (token != null && !token.isEmpty()) {
       apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));

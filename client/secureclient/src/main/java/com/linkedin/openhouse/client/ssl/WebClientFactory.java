@@ -77,6 +77,12 @@ public abstract class WebClientFactory {
   protected WebClient createWebClient(
       @NonNull String baseUrl, String token, String truststoreLocation)
       throws MalformedURLException, SSLException {
+    return createWebClient(baseUrl, token, truststoreLocation, false);
+  }
+
+  protected WebClient createWebClient(
+      @NonNull String baseUrl, String token, String truststoreLocation, boolean disableRetry)
+      throws MalformedURLException, SSLException {
     String transportProtocol = getTransportProtocol(baseUrl);
     HttpClient httpClient = null;
     if (HTTPS.equals(transportProtocol)) {
@@ -86,7 +92,7 @@ public abstract class WebClientFactory {
     } else {
       throw new RuntimeException("The transport protocol must be https/http");
     }
-    return getWebClient(baseUrl, httpClient);
+    return getWebClient(baseUrl, disableRetry ? httpClient.disableRetry(true) : httpClient);
   }
 
   /**

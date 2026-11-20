@@ -23,6 +23,7 @@ import okhttp3.mockwebserver.SocketPolicy;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
@@ -262,14 +263,14 @@ class NamespaceMetadataTest {
         Arguments.of("load", HttpStatus.INTERNAL_SERVER_ERROR, RESTException.class),
         Arguments.of("load", HttpStatus.SERVICE_UNAVAILABLE, RESTException.class),
         Arguments.of("drop", HttpStatus.BAD_REQUEST, NamespaceNotEmptyException.class),
-        Arguments.of("drop", HttpStatus.CONFLICT, RESTException.class),
+        Arguments.of("drop", HttpStatus.CONFLICT, CommitFailedException.class),
         Arguments.of("drop", HttpStatus.FORBIDDEN, ForbiddenException.class),
         Arguments.of("set", HttpStatus.NOT_FOUND, NoSuchNamespaceException.class),
         Arguments.of("set", HttpStatus.BAD_REQUEST, ValidationException.class),
-        Arguments.of("set", HttpStatus.CONFLICT, RESTException.class),
+        Arguments.of("set", HttpStatus.CONFLICT, CommitFailedException.class),
         Arguments.of("set", HttpStatus.UNPROCESSABLE_ENTITY, ValidationException.class),
         Arguments.of("remove", HttpStatus.NOT_FOUND, NoSuchNamespaceException.class),
-        Arguments.of("remove", HttpStatus.CONFLICT, RESTException.class));
+        Arguments.of("remove", HttpStatus.CONFLICT, CommitFailedException.class));
   }
 
   @Test
@@ -295,6 +296,16 @@ class NamespaceMetadataTest {
     RESTException failure =
         assertThrows(RESTException.class, () -> catalog.createNamespace(Namespace.of("namespace")));
     assertNotNull(failure.getCause());
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @Test
+  void connectionResetDoesNotResendMutation() {
+    tableService.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
+    respond(200, "{\"updated\":[\"key\"],\"removed\":[],\"missing\":[]}");
+    assertThrows(
+        RESTException.class,
+        () -> catalog.setProperties(Namespace.of("namespace"), Map.of("key", "value")));
     assertEquals(1, tableService.getRequestCount());
   }
 
