@@ -395,6 +395,33 @@ public class TablesClientTest {
   }
 
   @Test
+  void testGetOrphanTableDirectoriesReadsListingAgainWhenATableIsReadTwice() {
+    mockLiveTables(testTableName);
+    // Soft-deleted tables with the same ID are in no fixed order: the first read gets dropped_1
+    // on both pages, so dropped_2 is missed although 2 rows are read.
+    GetAllSoftDeletedTablesResponseBody firstPage = softDeletedTablesPage(2, 2L, "dropped_1");
+    GetAllSoftDeletedTablesResponseBody repeatedSecondPage =
+        softDeletedTablesPage(2, 2L, "dropped_1");
+    GetAllSoftDeletedTablesResponseBody secondPage = softDeletedTablesPage(2, 2L, "dropped_2");
+    Mockito.when(
+            apiMock.searchSoftDeletedTablesV1(eq(testDbName), isNull(), eq(0), anyInt(), isNull()))
+        .thenReturn(Mono.just(firstPage));
+    Mockito.when(
+            apiMock.searchSoftDeletedTablesV1(eq(testDbName), isNull(), eq(1), anyInt(), isNull()))
+        .thenReturn(Mono.just(repeatedSecondPage))
+        .thenReturn(Mono.just(secondPage));
+    mockTableDirectories(
+        tableDirectoryName(testTableName),
+        tableDirectoryName("dropped_1"),
+        tableDirectoryName("dropped_2"),
+        tableDirectoryName(testOrphanDirectoryName));
+
+    Assertions.assertEquals(
+        Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
+        client.getOrphanTableDirectories(testDbName));
+  }
+
+  @Test
   void testGetOrphanTableDirectoriesAppliesTableFilterOnlyToCandidates() {
     TablesClient filteredClient =
         new TablesClientFactory(
@@ -447,8 +474,10 @@ public class TablesClientTest {
         "liveTablesKeepChangingWhilePaging",
         "liveTablesChangeWhilePagingWithoutChangingRowCount",
         "liveTablesRowCountDoesNotMatchTotal",
+        "liveTableRenamedWhilePaging",
         "softDeletedSearchFails",
         "softDeletedTablesKeepChangingWhilePaging",
+        "softDeletedTableReadTwiceWhilePaging",
         "viewSearchFails",
         "viewSearchReturnsNothing",
         "viewListingNotFound",
@@ -492,6 +521,22 @@ public class TablesClientTest {
       case "liveTablesRowCountDoesNotMatchTotal":
         mockLiveTablesPage(0, liveTablesPage(1, 2L, testTableName));
         break;
+      case "liveTableRenamedWhilePaging":
+        // The table is renamed after page 0 and moves to page 1, so it is read under both names
+        // and another table is missed although 2 rows are read.
+        GetAllTablesResponseBody renamedTablePage =
+            new GetAllTablesResponseBody()
+                .pageResults(
+                    new PageGetTableResponseBody()
+                        .content(
+                            Collections.singletonList(
+                                createTableWithLocationResponseBodyMock(
+                                    testDbName, "renamed", metadataLocation(testTableName))))
+                        .totalPages(2)
+                        .totalElements(2L));
+        mockLiveTablesPage(0, liveTablesPage(2, 2L, testTableName));
+        mockLiveTablesPage(1, renamedTablePage);
+        break;
       case "softDeletedSearchFails":
         Mockito.when(
                 apiMock.searchSoftDeletedTablesV1(
@@ -501,6 +546,10 @@ public class TablesClientTest {
       case "softDeletedTablesKeepChangingWhilePaging":
         mockSoftDeletedTablesPage(0, 2, 2L, "dropped_1");
         mockSoftDeletedTablesPage(1, 1, 1L);
+        break;
+      case "softDeletedTableReadTwiceWhilePaging":
+        mockSoftDeletedTablesPage(0, 2, 2L, "dropped_1");
+        mockSoftDeletedTablesPage(1, 2, 2L, "dropped_1");
         break;
       case "viewSearchFails":
         Mockito.when(viewApiMock.getAllViewsV1(eq(testDbName), any(), any(), isNull()))
