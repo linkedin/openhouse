@@ -260,7 +260,9 @@ class DataLoaderSplit:
                 first = next(timed, None)
                 if first is None:
                     return
-                session = _create_transform_session(self._scan_context.table_id, self._udf_registry, self._batch_size)
+                session = _create_transform_session(
+                    self._scan_context.execution_table_id, self._udf_registry, self._batch_size
+                )
                 yield from _timed_transform(chain([first], timed), split_id, session, self._apply_transform, attributes)
         except BaseException:
             _split_errors.add(1, attributes)
@@ -275,6 +277,6 @@ class DataLoaderSplit:
 
     def _apply_transform(self, session: SessionContext, batch: RecordBatch) -> Iterator[RecordBatch]:
         """Execute the transform SQL against a single RecordBatch."""
-        _bind_batch_table(session, self._scan_context.table_id, batch)
+        _bind_batch_table(session, self._scan_context.execution_table_id, batch)
         df = session.sql(self._transform_sql)  # type: ignore[arg-type]  # caller guarantees not None
         yield from df.collect()

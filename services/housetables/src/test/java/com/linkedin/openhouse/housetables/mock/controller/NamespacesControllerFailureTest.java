@@ -4,6 +4,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
@@ -11,7 +12,6 @@ import com.linkedin.openhouse.common.exception.checked.DuplicateCreationExceptio
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
-import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
 import com.linkedin.openhouse.housetables.controller.NamespacesController;
 import java.util.Collections;
 import java.util.stream.Stream;
@@ -119,6 +119,7 @@ class NamespacesControllerFailureTest {
             .namespaceUuid("identifier")
             .namespaceName("foo")
             .properties(Collections.singletonMap("bar", "one"))
+            .revision("1")
             .build();
     when(handler.createNamespace(any()))
         .thenReturn(
@@ -134,15 +135,10 @@ class NamespacesControllerFailureTest {
                 .httpHeaders(headers)
                 .httpStatus(HttpStatus.ACCEPTED)
                 .build());
-    when(handler.updateNamespaceProperties(eq("foo"), any()))
+    when(handler.updateNamespace(eq("foo"), any()))
         .thenReturn(
-            ApiResponse.<UpdateNamespacePropertiesResponseBody>builder()
-                .responseBody(
-                    UpdateNamespacePropertiesResponseBody.builder()
-                        .updated(Collections.singletonList("bar"))
-                        .removed(Collections.emptyList())
-                        .missing(Collections.emptyList())
-                        .build())
+            ApiResponse.<NamespaceMetadataResponse>builder()
+                .responseBody(metadata)
                 .httpHeaders(headers)
                 .httpStatus(HttpStatus.OK)
                 .build());
@@ -173,12 +169,13 @@ class NamespacesControllerFailureTest {
         .andExpect(jsonPath("$.properties.bar").value("one"));
     mockMvc
         .perform(
-            post("/hts/namespaces/foo/properties")
+            put("/hts/namespaces/foo")
                 .contentType("application/json")
-                .content("{\"updates\":{\"bar\":\"two\"},\"removals\":[]}"))
+                .content(
+                    "{\"namespaceUuid\":\"identifier\",\"namespaceName\":\"foo\",\"properties\":{\"bar\":\"two\"},\"revision\":\"1\"}"))
         .andExpect(status().isOk())
         .andExpect(header().string("X-Namespace", "foo"))
-        .andExpect(jsonPath("$.updated[0]").value("bar"));
+        .andExpect(jsonPath("$.properties.bar").value("one"));
     mockMvc
         .perform(delete("/hts/namespaces/foo"))
         .andExpect(status().isNoContent())

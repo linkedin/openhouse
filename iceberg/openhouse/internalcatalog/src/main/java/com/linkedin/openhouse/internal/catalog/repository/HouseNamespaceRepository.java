@@ -3,9 +3,7 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
-import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import java.util.Map;
-import java.util.Set;
 
 public interface HouseNamespaceRepository {
   NamespaceMetadata create(String namespaceName, Map<String, String> properties)
@@ -15,9 +13,6 @@ public interface HouseNamespaceRepository {
 
   void delete(String namespaceName) throws NotFoundException;
 
-  NamespacePropertyUpdate updateProperties(
-      String namespaceName, Map<String, String> updates, Set<String> removals)
+  NamespaceMetadata update(String namespaceName, NamespaceMetadata document)
       throws NotFoundException;
-
-  boolean containsEntities(String namespaceName);
 }

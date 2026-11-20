@@ -11,6 +11,16 @@ jobs:
       - name: Checkout project sources
         uses: actions/checkout@v6
 
+      # Protect merged migration files before deployment: only additions to the base's directory pass.
+      - name: Check merged optimizer migrations are unchanged
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git diff --exit-code --stat --diff-filter=DMRT "$BASE_SHA" HEAD -- \
+            libs/optimizer/optimizer-common/src/main/resources/db/migration
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:

@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.api.spec.namespace;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -17,15 +16,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateNamespacePropertiesRequest {
-  @NotNull
-  @Builder.Default
-  @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)
+  @NotNull @Builder.Default
   private Map<@NotNull @Size(max = 512) @Pattern(regexp = "\\P{Cs}*") String, @NotNull String>
       updates = Collections.emptyMap();
 
-  @NotNull
-  @Builder.Default
-  @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)
+  @NotNull @Builder.Default
   private Set<@NotNull @Size(max = 512) @Pattern(regexp = "\\P{Cs}*") String> removals =
       Collections.emptySet();
 }

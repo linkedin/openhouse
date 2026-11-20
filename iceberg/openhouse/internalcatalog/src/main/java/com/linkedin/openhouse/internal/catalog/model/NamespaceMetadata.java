@@ -8,4 +8,5 @@ public class NamespaceMetadata {
   String namespaceUuid;
   String namespaceName;
   Map<String, String> properties;
+  String revision;
 }

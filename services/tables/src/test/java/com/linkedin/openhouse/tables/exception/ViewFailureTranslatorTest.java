@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
+import com.linkedin.openhouse.internal.catalog.view.ViewSystemPropertiesMismatchException;
 import java.util.stream.Stream;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.BadRequestException;
@@ -23,6 +24,8 @@ public class ViewFailureTranslatorTest {
 
   static Stream<Arguments> writeFailures() {
     return Stream.of(
+        Arguments.of(
+            new ViewSystemPropertiesMismatchException(), ViewErrorCode.INVALID_VIEW_DEFINITION),
         Arguments.of(
             new CommitStateUnknownException(new RuntimeException("x")),
             ViewErrorCode.COMMIT_STATE_UNKNOWN),

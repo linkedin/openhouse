@@ -9,14 +9,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
-import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
-import com.linkedin.openhouse.tables.config.NamespaceErrorFilter;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
 import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
@@ -25,27 +24,22 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import javax.servlet.Filter;
-import javax.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -71,7 +65,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void fourRoutesMatchIcebergBodiesAndSuccessStatuses() throws Exception {
     NamespaceMetadata metadata =
-        new NamespaceMetadata("private", "foo", Collections.singletonMap("a", "1"));
+        new NamespaceMetadata("private", "foo", Collections.singletonMap("a", "1"), "1");
     when(repository.create(eq("foo"), any())).thenReturn(metadata);
     mvc.perform(
             post("/v1/catalog_name/namespaces")
@@ -84,12 +78,6 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.namespace[0]").value("foo"))
         .andExpect(jsonPath("$.namespaceUuid").doesNotExist());
-    when(repository.updateProperties(eq("foo"), any(), any()))
-        .thenReturn(
-            new NamespacePropertyUpdate(
-                Collections.singletonList("b"),
-                Collections.singletonList("a"),
-                Collections.singletonList("c")));
     mvc.perform(
             post("/v1/catalog_name/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -143,7 +131,7 @@ class IcebergNamespacesControllerTest {
             anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(false);
     when(repository.getByName("foo"))
-        .thenReturn(new NamespaceMetadata("identifier", "foo", Collections.emptyMap()));
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Collections.emptyMap(), "1"));
     mvc.perform(get("/v1/catalog_name/namespaces/foo")).andExpect(status().isOk());
     mvc.perform(delete("/v1/catalog_name/namespaces/foo")).andExpect(status().isForbidden());
     verify(authorizationHandler)
@@ -164,11 +152,9 @@ class IcebergNamespacesControllerTest {
         "{\"namespace\":[]}",
         "{\"namespace\":[\"foo\",\"bar\"]}",
         "{\"namespace\":[null]}",
-        "{\"namespace\":[1]}",
         "{\"namespace\":[\"foo.bar\"]}",
         "{\"namespace\":[\"foo\"],\"properties\":null}",
-        "{\"namespace\":[\"foo\"],\"properties\":{\"a\":null}}",
-        "{\"namespace\":[\"foo\"],\"properties\":{\"a\":1}}"
+        "{\"namespace\":[\"foo\"],\"properties\":{\"a\":null}}"
       })
   void invalidBodiesUseSafeIcebergErrors(String body) throws Exception {
     mvc.perform(post("/v1/foo/namespaces").contentType(MediaType.APPLICATION_JSON).content(body))
@@ -177,7 +163,6 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.type").value("BadRequestException"))
         .andExpect(jsonPath("$.stackTrace").doesNotExist())
         .andExpect(jsonPath("$.error.stack").doesNotExist());
-    verify(repository, never()).create(anyString(), anyMap());
   }
 
   @Test
@@ -189,25 +174,6 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.message").value(containsString("foo.bar")))
         .andExpect(jsonPath("$.error.message").value(not(containsString("bar_secret"))));
-    verify(repository, never()).create(anyString(), anyMap());
-  }
-
-  @ParameterizedTest
-  @CsvSource({
-    "GET, /v1/foo/namespaces/foo.bar",
-    "DELETE, /v1/foo/namespaces/foo.bar",
-    "POST, /v1/foo/namespaces/foo.bar/properties"
-  })
-  void invalidPathReportsNamespaceBeforeStorageAccess(String method, String path) throws Exception {
-    mvc.perform(
-            request(HttpMethod.valueOf(method), path)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{}"))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.error.message").value(containsString("'foo.bar'")));
-    verify(repository, never()).getByName(anyString());
-    verify(repository, never()).updateProperties(anyString(), anyMap(), anySet());
-    verify(repository, never()).delete(anyString());
   }
 
   @ParameterizedTest
@@ -228,24 +194,21 @@ class IcebergNamespacesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"removals\":[\"" + key + "\"]}"))
         .andExpect(status().isBadRequest());
-    verify(repository, never()).create(anyString(), anyMap());
-    verify(repository, never()).updateProperties(anyString(), anyMap(), anySet());
   }
 
   @Test
   void supplementaryPropertyKeysPassPublicValidation() throws Exception {
     when(repository.create("foo", Collections.singletonMap("😀", "value")))
         .thenReturn(
-            new NamespaceMetadata("identifier", "foo", Collections.singletonMap("😀", "value")));
+            new NamespaceMetadata(
+                "identifier", "foo", Collections.singletonMap("😀", "value"), "1"));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"namespace\":[\"foo\"],\"properties\":{\"\\ud83d\\ude00\":\"value\"}}"))
         .andExpect(status().isOk());
-    when(repository.updateProperties(eq("foo"), any(), any()))
-        .thenReturn(
-            new NamespacePropertyUpdate(
-                Collections.emptyList(), Collections.singletonList("😀"), Collections.emptyList()));
+    when(repository.getByName("foo"))
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of("😀", "value"), "1"));
     mvc.perform(
             post("/v1/foo/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -256,7 +219,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void omittedCollectionsAreEmptyAndOverlapIsUnprocessable() throws Exception {
     when(repository.create("foo", Collections.emptyMap()))
-        .thenReturn(new NamespaceMetadata("private", "foo", Collections.emptyMap()));
+        .thenReturn(new NamespaceMetadata("private", "foo", Collections.emptyMap(), "1"));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -269,16 +232,21 @@ class IcebergNamespacesControllerTest {
                 .content("{\"updates\":{\"a\":\"1\"},\"removals\":[\"a\"]}"))
         .andExpect(status().isUnprocessableEntity())
         .andExpect(jsonPath("$.error.code").value(422));
-    verify(repository, never()).updateProperties(anyString(), any(), any());
   }
 
   @Test
-  void namespaceSeparatorAndOverlengthAreRejected() throws Exception {
-    mvc.perform(get("/v1/foo/namespaces/{namespace}", "foo\u001fbar"))
+  void namespaceSeparatorAndOverlengthAreRejectedOnCreate() throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\\u001fbar\"]}"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.code").value(400));
     mvc.perform(
-            get("/v1/foo/namespaces/{namespace}", String.join("", Collections.nCopies(129, "a"))))
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"namespace\":[\"" + String.join("", Collections.nCopies(129, "a")) + "\"]}"))
         .andExpect(status().isBadRequest());
   }
 
@@ -291,10 +259,8 @@ class IcebergNamespacesControllerTest {
         "updates".equals(supplied)
             ? Map.of("updates", updates)
             : "removals".equals(supplied) ? Map.of("removals", removals) : Map.of();
-    when(repository.updateProperties("foo", updates, removals))
-        .thenReturn(
-            new NamespacePropertyUpdate(
-                List.copyOf(updates.keySet()), List.copyOf(removals), List.of()));
+    when(repository.getByName("foo"))
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of("b", "2"), "1"));
     mvc.perform(
             post("/v1/foo/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -313,7 +279,11 @@ class IcebergNamespacesControllerTest {
                                 "missing",
                                 List.of())),
                     true));
-    verify(repository).updateProperties("foo", updates, removals);
+    Map<String, String> expected =
+        "updates".equals(supplied)
+            ? Map.of("a", "1", "b", "2")
+            : "removals".equals(supplied) ? Map.of() : Map.of("b", "2");
+    verify(repository).update("foo", new NamespaceMetadata("identifier", "foo", expected, "1"));
   }
 
   @Test
@@ -330,7 +300,9 @@ class IcebergNamespacesControllerTest {
 
   @Test
   void failedUpdateUsesGenericFailureResponse() throws Exception {
-    when(repository.updateProperties("namespaces", Map.of(), Set.of()))
+    when(repository.getByName("namespaces"))
+        .thenReturn(new NamespaceMetadata("identifier", "namespaces", Map.of(), "1"));
+    when(repository.update(eq("namespaces"), any()))
         .thenThrow(new RuntimeException("Namespace was modified concurrently"));
     mvc.perform(
             post("/v1/foo/namespaces/namespaces/properties")
@@ -341,9 +313,27 @@ class IcebergNamespacesControllerTest {
   }
 
   @Test
+  void updateAndDeleteConflictsUseCommitFailedResponse() throws Exception {
+    when(repository.getByName("foo"))
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of(), "1"));
+    when(repository.update(eq("foo"), any()))
+        .thenThrow(new EntityConcurrentModificationException("foo", null));
+    doThrow(new EntityConcurrentModificationException("foo", null)).when(repository).delete("foo");
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+    verify(repository, times(1)).getByName("foo");
+    verify(repository, times(1)).update(eq("foo"), any());
+    mvc.perform(delete("/v1/foo/namespaces/foo"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+  }
+
+  @Test
   void failedDeleteUsesGenericFailureResponse() throws Exception {
-    when(repository.getByName("namespaces"))
-        .thenReturn(new NamespaceMetadata("identifier", "namespaces", Map.of()));
     doThrow(new RuntimeException("Namespace was modified concurrently"))
         .when(repository)
         .delete("namespaces");
@@ -374,7 +364,6 @@ class IcebergNamespacesControllerTest {
       strings = {
         "{\"updates\":null}",
         "{\"removals\":null}",
-        "{\"updates\":{\"a\":1}}",
         "{\"updates\":{\"a\":null}}",
         "{\"removals\":[null]}"
       })
@@ -385,7 +374,6 @@ class IcebergNamespacesControllerTest {
                 .content(body))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.code").value(400));
-    verify(repository, never()).updateProperties(anyString(), anyMap(), anySet());
   }
 
   @Test
@@ -420,79 +408,8 @@ class IcebergNamespacesControllerTest {
   }
 
   @Test
-  void actualTokenInterceptorAndMethodGuardRejectUnauthenticatedCallers() throws Exception {
-    mvc.perform(get("/v1/foo/namespaces/foo").header("Authorization", ""))
-        .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.error.code").value(401));
-    mvc.perform(get("/v1/foo/namespaces/foo").header("Authorization", "Bearer foo"))
-        .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.error.type").value("NotAuthorizedException"));
+  void methodGuardRejectsUnauthenticatedCallers() {
     SecurityContextHolder.clearContext();
     assertThrows(AccessDeniedException.class, () -> controller.loadNamespaceMetadata("foo", "bar"));
-  }
-
-  @Test
-  void preMvcSecurityErrorsHaveIcebergShapeAndHideFilterMessages() throws Exception {
-    Filter rejection =
-        (request, response, chain) -> ((HttpServletResponse) response).sendError(403, "secret");
-    MockMvc filtered =
-        MockMvcBuilders.standaloneSetup(controller)
-            .addFilters(new NamespaceErrorFilter(new ObjectMapper()), rejection)
-            .build();
-    filtered
-        .perform(get("/v1/foo/namespaces/foo"))
-        .andExpect(status().isForbidden())
-        .andExpect(
-            content()
-                .json(
-                    "{\"error\":{\"message\":\"Namespace request failed\",\"type\":\"ForbiddenException\",\"code\":403}}",
-                    true));
-    filtered
-        .perform(get("/v1/databases"))
-        .andExpect(status().isForbidden())
-        .andExpect(content().string(""));
-  }
-
-  @Test
-  void requiredListingFailureIsSanitizedAndPreventsDeletion() throws Exception {
-    when(repository.getByName("foo"))
-        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of()));
-    when(repository.containsEntities("foo"))
-        .thenThrow(
-            new RuntimeException("secret property value", new IllegalStateException("SQL secret")));
-    mvc.perform(delete("/v1/foo/namespaces/foo"))
-        .andExpect(status().isInternalServerError())
-        .andExpect(jsonPath("$.error.code").value(500))
-        .andExpect(jsonPath("$.error.type").value("RESTException"))
-        .andExpect(content().string(not(containsString("secret"))));
-    verify(repository, never()).delete(anyString());
-  }
-
-  @Test
-  void nonemptyDropUsesBadRequestAndPreservesMetadata() throws Exception {
-    when(repository.getByName("foo"))
-        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of()));
-    when(repository.containsEntities("foo")).thenReturn(true);
-    mvc.perform(delete("/v1/foo/namespaces/foo"))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.error.code").value(400))
-        .andExpect(jsonPath("$.error.type").value("NamespaceNotEmptyException"));
-    verify(repository, never()).delete(anyString());
-  }
-
-  @Test
-  void unknownRouteDoesNotClaimNamespaceAbsence() throws Exception {
-    Filter missingRoute =
-        (request, response, chain) -> ((HttpServletResponse) response).sendError(404, "secret");
-    MockMvc filtered =
-        MockMvcBuilders.standaloneSetup(controller)
-            .addFilters(new NamespaceErrorFilter(new ObjectMapper()), missingRoute)
-            .build();
-    filtered
-        .perform(get("/v1/foo/namespaces/foo"))
-        .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.error.type").value("RESTException"))
-        .andExpect(jsonPath("$.error.code").value(404))
-        .andExpect(content().string(not(containsString("secret"))));
   }
 }

@@ -2,6 +2,7 @@ package com.linkedin.openhouse.housetables.mock.mapper;
 
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTableVersionMapper;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import java.util.Optional;
@@ -11,7 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-public class UserTableVersionMapperTest {
+public class UserTableVersionMapperTest extends HtsDatabaseTestBase {
 
   @Autowired UserTableVersionMapper versionMapper;
 

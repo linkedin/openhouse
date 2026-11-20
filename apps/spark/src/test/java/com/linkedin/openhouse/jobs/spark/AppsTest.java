@@ -138,6 +138,26 @@ public class AppsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testRunRecordsFailedStateAndThrows() throws Exception {
+    final String jobId = "testFailedJobId";
+    final RuntimeException cause = new RuntimeException("commit rejected");
+    StateManager stateManagerMock = Mockito.mock(StateManager.class);
+    BaseSparkApp app =
+        new BaseSparkApp(jobId, stateManagerMock, otelEmitter) {
+          @Override
+          protected void runInner(Operations ops) {
+            throw cause;
+          }
+        };
+    // pre-create spark session configured for local catalog
+    getSparkSession();
+    RuntimeException thrown = Assertions.assertThrows(RuntimeException.class, app::run);
+    Assertions.assertSame(cause, thrown.getCause());
+    Mockito.verify(stateManagerMock).updateState(jobId, JobState.FAILED);
+    Mockito.verify(stateManagerMock, Mockito.never()).updateState(jobId, JobState.SUCCEEDED);
+  }
+
+  @Test
   public void testSnapshotsExpirationSparkAppMaintainsSystemOnlyLockedTable() throws Exception {
     assertFinalStateOnSystemOnlyLockedTable(
         "test_se_system_only_lock",
@@ -192,7 +212,12 @@ public class AppsTest extends OpenHouseSparkITest {
       SparkSession.setActiveSession(spark.newSession());
       StateManager stateManagerMock = Mockito.mock(StateManager.class);
 
-      appFactory.create(jobId, stateManagerMock, fqtn).run();
+      BaseSparkApp app = appFactory.create(jobId, stateManagerMock, fqtn);
+      if (expectedState == JobState.FAILED) {
+        Assertions.assertThrows(RuntimeException.class, app::run);
+      } else {
+        app.run();
+      }
 
       Mockito.verify(stateManagerMock).updateState(jobId, expectedState);
       SparkSession reader = getSparkSession().newSession();

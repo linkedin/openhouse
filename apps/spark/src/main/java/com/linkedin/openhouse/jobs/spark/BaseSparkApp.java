@@ -33,7 +33,7 @@ public abstract class BaseSparkApp extends BaseApp {
   public void run() {
     log.info("Running");
     String className = this.getClass().getSimpleName();
-    boolean isSuccess = true;
+    Throwable failure = null;
     try (Operations ops =
         Operations.withCatalog(sessionBuilder(className).getOrCreate(), otelEmitter)) {
       log.info("Session created");
@@ -42,9 +42,12 @@ public abstract class BaseSparkApp extends BaseApp {
       runValidations(ops);
     } catch (Throwable e) {
       log.error("Run failed, reason: {}", e.getMessage(), e);
-      isSuccess = false;
+      failure = e;
     } finally {
-      onFinished(isSuccess);
+      onFinished(failure == null);
+    }
+    if (failure != null) {
+      throw new RuntimeException(String.format("Job %s failed", jobId), failure);
     }
   }
 

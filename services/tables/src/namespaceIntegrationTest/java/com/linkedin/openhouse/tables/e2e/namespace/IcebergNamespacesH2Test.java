@@ -8,8 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.linkedin.openhouse.HouseTablesSpringApplication;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
-import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
@@ -74,9 +74,7 @@ class IcebergNamespacesH2Test {
     service = new TablesServiceImpl();
     ReflectionTestUtils.setField(service, "authorizationUtils", authorizationUtils);
     ReflectionTestUtils.setField(
-        service,
-        "namespaceRepository",
-        new HouseNamespaceRepositoryImpl(new NamespaceApi(client), new UserTableApi(client)));
+        service, "namespaceRepository", new HouseNamespaceRepositoryImpl(new NamespaceApi(client)));
     mvc =
         MockMvcBuilders.standaloneSetup(new IcebergNamespacesController(service))
             .setControllerAdvice(new NamespaceExceptionHandler())
@@ -120,6 +118,46 @@ class IcebergNamespacesH2Test {
         .andExpect(jsonPath("$.error.type").value("NoSuchNamespaceException"));
   }
 
+  @Test
+  void staleReplacementReturnsConflictWithoutOverwritingConcurrentChange() throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"conflict\"],\"properties\":{\"keep\":\"one\"}}"))
+        .andExpect(status().isOk());
+    doAnswer(
+            invocation -> {
+              NamespaceMetadata original = (NamespaceMetadata) invocation.callRealMethod();
+              namespaceStorage.updateNamespace(
+                  "conflict",
+                  NamespaceMetadata.builder()
+                      .namespaceUuid(original.getNamespaceUuid())
+                      .namespaceName(original.getNamespaceName())
+                      .revision(original.getRevision())
+                      .properties(Map.of("keep", "one", "concurrent", "two"))
+                      .build());
+              return original;
+            })
+        .when(namespaceStorage)
+        .getNamespace("conflict");
+    mvc.perform(
+            post("/v1/foo/namespaces/conflict/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"attempted\":\"three\"}}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+    verify(namespaceStorage, times(1)).getNamespace("conflict");
+    verify(namespaceStorage, times(2)).updateNamespace(eq("conflict"), any());
+    String properties =
+        new JdbcTemplate(dataSource)
+            .queryForObject(
+                "SELECT properties FROM catalog_namespaces WHERE namespace_name = 'conflict'",
+                String.class);
+    assertEquals(
+        Map.of("keep", "one", "concurrent", "two"),
+        new com.fasterxml.jackson.databind.ObjectMapper().readValue(properties, Map.class));
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"create", "update", "drop"})
   void deniedMutationsPreserveStoredMetadata(String operation) throws Exception {
@@ -159,10 +197,9 @@ class IcebergNamespacesH2Test {
             Integer.class));
   }
 
-  @ParameterizedTest
-  @ValueSource(strings = {"TABLE", "VIEW"})
-  void occupiedNamespacesKeepMetadataAndEntityRows(String entityType) throws Exception {
-    String namespace = "occupied_" + entityType;
+  @Test
+  void dropMetadataLeavesExistingTableRow() throws Exception {
+    String namespace = "table_remains";
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -171,14 +208,10 @@ class IcebergNamespacesH2Test {
     JdbcTemplate database = new JdbcTemplate(dataSource);
     database.update(
         "INSERT INTO user_table_row (database_id, table_id, version, metadata_location, entity_type)"
-            + " VALUES (?, 'foo', 0, 'file:///unread-metadata', ?)",
-        namespace,
-        entityType);
-    mvc.perform(delete("/v1/foo/namespaces/" + namespace))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.error.code").value(400))
-        .andExpect(jsonPath("$.error.type").value("NamespaceNotEmptyException"));
-    mvc.perform(get("/v1/foo/namespaces/" + namespace)).andExpect(status().isOk());
+            + " VALUES (?, 'foo', 0, 'file:///unread-metadata', 'TABLE')",
+        namespace);
+    mvc.perform(delete("/v1/foo/namespaces/" + namespace)).andExpect(status().isNoContent());
+    mvc.perform(get("/v1/foo/namespaces/" + namespace)).andExpect(status().isNotFound());
     assertEquals(
         1,
         database.queryForObject(
@@ -210,33 +243,5 @@ class IcebergNamespacesH2Test {
         .andExpect(jsonPath("$.error.code").value(500))
         .andExpect(jsonPath("$.error.type").value("RESTException"))
         .andExpect(jsonPath("$.error.message").value("Namespace operation failed"));
-  }
-
-  @Test
-  void wrongListingRoutePreventsDropWithServiceFailure() throws Exception {
-    mvc.perform(
-            post("/v1/foo/namespaces")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"namespace\":[\"listing_route\"]}"))
-        .andExpect(status().isOk());
-    ApiClient namespaceClient = new ApiClient();
-    namespaceClient.setBasePath("http://localhost:" + port);
-    ApiClient listingClient = new ApiClient();
-    listingClient.setBasePath("http://localhost:" + port + "/foo");
-    ReflectionTestUtils.setField(
-        service,
-        "namespaceRepository",
-        new HouseNamespaceRepositoryImpl(
-            new NamespaceApi(namespaceClient), new UserTableApi(listingClient)));
-    mvc.perform(delete("/v1/foo/namespaces/listing_route"))
-        .andExpect(status().isInternalServerError())
-        .andExpect(jsonPath("$.error.code").value(500))
-        .andExpect(jsonPath("$.error.type").value("RESTException"));
-    assertEquals(
-        1,
-        new JdbcTemplate(dataSource)
-            .queryForObject(
-                "SELECT COUNT(*) FROM catalog_namespaces WHERE namespace_name = 'listing_route'",
-                Integer.class));
   }
 }

@@ -12,6 +12,7 @@ import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.housetables.api.handler.UserTableHtsApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.mock.MockUserTableHtsApiHandler;
 import com.linkedin.openhouse.housetables.model.TestHtsApiConstants;
 import org.junit.jupiter.api.Assertions;
@@ -32,7 +33,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-public class UserHouseTablesControllerTest {
+public class UserHouseTablesControllerTest extends HtsDatabaseTestBase {
 
   @Autowired private MockMvc mvc;
 

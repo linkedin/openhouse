@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.scheduler.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -73,7 +74,14 @@ public class JobsServiceClient {
               .timeout(TIMEOUT)
               .block();
 
-      String jobId = MAPPER.readTree(responseBody).path("jobId").asText(null);
+      JsonNode response = MAPPER.readTree(responseBody);
+      String jobId = response.path("jobId").asText(null);
+      log.info(
+          "Jobs service accepted job '{}': jobId={} executionId={} engineType={}",
+          jobName,
+          jobId,
+          response.path("executionId").asText(null),
+          response.path("engineType").asText(null));
       return Optional.ofNullable(jobId);
     } catch (Exception e) {
       log.error("Failed to submit job '{}': {}", jobName, e.getMessage());
