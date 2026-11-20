@@ -70,6 +70,8 @@ case-insensitive identity, database isolation, table/view collisions and name
 reuse, feature gates, missing bearer authentication, invalid requests, SQL/schema
 byte limits, identifier limits, schema evolution, property snapshots, multiple
 dialects, and namespace metadata pass-through.
+Exhaustive validation permutations remain in `ViewsValidatorTest`; the HTTP
+suite keeps representative rejection cases and distinct persistence boundaries.
 
 Assertions compare Tables responses with typed `/hts/views` and neutral
 `/hts/entities` reads, direct JDBC snapshots of `user_table_row`, and parsed

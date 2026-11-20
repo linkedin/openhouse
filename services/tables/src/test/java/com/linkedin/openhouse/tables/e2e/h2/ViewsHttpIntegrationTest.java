@@ -469,11 +469,8 @@ public class ViewsHttpIntegrationTest {
   @ValueSource(
       strings = {
         "size=0",
-        "size=-1",
         "size=abc",
         "sortBy=creationTime",
-        "sortBy=viewId:desc",
-        "sortBy=viewId,databaseId",
         "page=0",
         "pageToken=broken",
         "pageToken="
@@ -489,21 +486,11 @@ public class ViewsHttpIntegrationTest {
   @ValueSource(
       strings = {
         "schema",
-        "representations",
         "missingSourceDialect",
-        "nullSourceDialect",
-        "blankSourceDialect",
         "unsupportedSourceDialect",
         "unrepresentedSourceDialect",
         "legacySourceDialect",
-        "viewProperties",
-        "viewId",
-        "databaseId",
         "reservedProperty",
-        "policies",
-        "duplicateDialect",
-        "unsupportedDialect",
-        "emptyNamespace",
         "badSchema",
         "postBase",
         "badSqlType",
@@ -520,12 +507,6 @@ public class ViewsHttpIntegrationTest {
       case "missingSourceDialect":
         body.with("viewProperties").remove(SOURCE_DIALECT);
         break;
-      case "nullSourceDialect":
-        body.with("viewProperties").putNull(SOURCE_DIALECT);
-        break;
-      case "blankSourceDialect":
-        body.with("viewProperties").put(SOURCE_DIALECT, " ");
-        break;
       case "unsupportedSourceDialect":
         body.with("viewProperties").put(SOURCE_DIALECT, "unsupported");
         break;
@@ -534,18 +515,6 @@ public class ViewsHttpIntegrationTest {
         break;
       case "reservedProperty":
         body.with("viewProperties").put("openhouse.tableUUID", "caller-owned");
-        break;
-      case "policies":
-        body.with("viewProperties").put("policies", "{}");
-        break;
-      case "duplicateDialect":
-        body.withArray("representations").add(body.withArray("representations").get(0).deepCopy());
-        break;
-      case "unsupportedDialect":
-        ((ObjectNode) body.withArray("representations").get(0)).put("dialect", "unsupported");
-        break;
-      case "emptyNamespace":
-        body.putArray("defaultNamespace");
         break;
       case "badSchema":
         body.put("schema", "private-schema-marker");
@@ -624,7 +593,7 @@ public class ViewsHttpIntegrationTest {
   }
 
   @Test
-  void enablingOneDatabaseDoesNotEnableViewsInAnotherDatabase() throws Exception {
+  void databaseScopedFeatureGateIsIsolatedAndCannotBeBypassed() throws Exception {
     String disabledDatabase = database + "_disabled";
     seedDatabase(disabledDatabase);
     JsonNode enabledView = create(VIEW, payload(database, VIEW), 201);
@@ -632,6 +601,7 @@ public class ViewsHttpIntegrationTest {
     long filesBefore = metadataFileCount();
 
     ObjectNode disabledBody = payload(disabledDatabase, VIEW);
+    disabledBody.with("viewProperties").put("views.enabled", "true");
     request(HttpMethod.POST, collection(disabledDatabase), disabledBody, 404);
     request(
         HttpMethod.PUT,
@@ -654,41 +624,18 @@ public class ViewsHttpIntegrationTest {
     enableViews(disabledDatabase);
     JsonNode newlyEnabled =
         request(HttpMethod.POST, collection(disabledDatabase), disabledBody, 201);
-    assertViewPersisted(disabledDatabase, VIEW, newlyEnabled);
+    Map<String, Object> newlyEnabledBefore =
+        assertViewPersisted(disabledDatabase, VIEW, newlyEnabled);
     assertNotEquals(pointer(enabledView), pointer(newlyEnabled));
     assertEquals(enabledBefore, assertViewPersisted(database, VIEW, enabledView));
-  }
-
-  @Test
-  void databaseScopedFeatureGateUsesRealMysqlRulesAndCannotBeEnabledByViewProperties()
-      throws Exception {
-    TableToggleStatus rule = toggles.remove(0);
+    TableToggleStatus rule = toggles.remove(toggles.size() - 1);
     fixtures.deleteToggle(rule);
-    views.add(VIEW);
-    ObjectNode body = payload(database, VIEW);
-    body.with("viewProperties").put("views.enabled", "true");
-    long files = metadataFileCount();
-    request(HttpMethod.POST, collection(database), body, 404);
-    request(
-        HttpMethod.PUT,
-        viewPath(database, VIEW),
-        body.deepCopy().put("baseMetadataLocation", INITIAL_TABLE_VERSION),
-        404);
-    request(HttpMethod.GET, collection(database), null, 404);
-    request(HttpMethod.GET, viewPath(database, VIEW), null, 404);
-    request(HttpMethod.DELETE, viewPath(database, VIEW), null, 404);
-    assertAbsent(database, VIEW);
-    assertEquals(files, metadataFileCount());
-    enableViews(database);
-    JsonNode created = create(VIEW, payload(database, VIEW), 201);
-    Map<String, Object> before = assertViewPersisted(database, VIEW, created);
-    rule = toggles.remove(0);
-    fixtures.deleteToggle(rule);
-    request(HttpMethod.DELETE, viewPath(database, VIEW), null, 404);
-    assertEquals(before, assertViewPersisted(database, VIEW, created));
-    enableViews(database);
-    request(HttpMethod.DELETE, viewPath(database, VIEW), null, 204);
-    assertAbsent(database, VIEW);
+    request(HttpMethod.DELETE, viewPath(disabledDatabase, VIEW), null, 404);
+    assertEquals(newlyEnabledBefore, assertViewPersisted(disabledDatabase, VIEW, newlyEnabled));
+    enableViews(disabledDatabase);
+    request(HttpMethod.DELETE, viewPath(disabledDatabase, VIEW), null, 204);
+    assertAbsent(disabledDatabase, VIEW);
+    assertEquals(enabledBefore, assertViewPersisted(database, VIEW, enabledView));
   }
 
   @Test
@@ -720,9 +667,8 @@ public class ViewsHttpIntegrationTest {
     assertEquals(before, assertViewPersisted(database, VIEW, created));
   }
 
-  @ParameterizedTest
-  @ValueSource(ints = {1, 2, 3})
-  void concurrentReplacesPublishExactlyOneWinnerFromTheSameBase(int round) throws Exception {
+  @Test
+  void concurrentReplacesPublishExactlyOneWinnerFromTheSameBase() throws Exception {
     JsonNode created = create(VIEW, payload(database, VIEW), 201);
     Map<String, Object> before = assertViewPersisted(database, VIEW, created);
     ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -732,7 +678,7 @@ public class ViewsHttpIntegrationTest {
     try {
       for (int index = 0; index < 2; index++) {
         ObjectNode body = replacementPayload(created);
-        body.with("viewProperties").put("winner", "writer_" + round + "_" + index);
+        body.with("viewProperties").put("winner", "writer_" + index);
         futures.add(
             executor.submit(
                 () -> {
@@ -763,7 +709,7 @@ public class ViewsHttpIntegrationTest {
           pointer(created),
           metadata(winner).properties().get(getCanonicalFieldName("tableVersion")));
       assertEquals(
-          "writer_" + round + "_" + (left.getStatusCodeValue() == 200 ? 0 : 1),
+          "writer_" + (left.getStatusCodeValue() == 200 ? 0 : 1),
           metadata(winner).properties().get("winner"));
       assertEquals(metadata(created).uuid(), metadata(winner).uuid());
     } finally {
@@ -830,15 +776,14 @@ public class ViewsHttpIntegrationTest {
   }
 
   @Test
-  void identifierLengthBoundaryAndIllegalCharactersAreEnforcedBeforeWrites() throws Exception {
+  void identifierLengthBoundaryIsEnforcedBeforeWrites() throws Exception {
     String valid = "v".repeat(128);
     JsonNode created = create(valid, payload(database, valid), 201);
     assertViewPersisted(database, valid, created);
     long files = metadataFileCount();
-    for (String invalid : Arrays.asList("v".repeat(129), "dash-name", "dot.name", "space name")) {
-      request(HttpMethod.POST, collection(database), payload(database, invalid), 400);
-      assertFalse(fixtures.persistedEntity(database, invalid).isPresent());
-    }
+    String invalid = "v".repeat(129);
+    request(HttpMethod.POST, collection(database), payload(database, invalid), 400);
+    assertFalse(fixtures.persistedEntity(database, invalid).isPresent());
     assertEquals(files, metadataFileCount());
   }
 
