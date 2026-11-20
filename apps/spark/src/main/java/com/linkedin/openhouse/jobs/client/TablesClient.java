@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.jobs.client;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
@@ -13,12 +15,15 @@ import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.api.ViewApi;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetViewResponseBody;
 import com.linkedin.openhouse.tables.client.model.History;
 import com.linkedin.openhouse.tables.client.model.PageGetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.PageGetTableResponseBody;
@@ -47,6 +52,7 @@ import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -63,6 +69,10 @@ public class TablesClient {
   private static final String METADATA_FILE_SUFFIX = ".metadata.json";
   private static final int LISTING_PAGE_SIZE = 1000;
   private static final int MAX_LISTING_ATTEMPTS = 3;
+  /** Message of the 404 the tables service returns when views are turned off for a database. */
+  private static final String VIEWS_DISABLED_MESSAGE = "Views are disabled";
+
+  private static final ObjectMapper ERROR_BODY_MAPPER = new ObjectMapper();
   private static final List<String> TABLE_LOCATION_FIELD =
       Collections.singletonList("tableLocation");
   /** OpenHouse names table directories {@code <tableId>-<tableUUID>}. */
@@ -73,6 +83,7 @@ public class TablesClient {
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
+  private final ViewApi viewApi;
   private final DatabaseTableFilter databaseTableFilter;
   @VisibleForTesting private final StorageClient storageClient;
 
@@ -311,7 +322,8 @@ public class TablesClient {
   }
 
   /**
-   * Get the table directories of the given database that no live or soft-deleted table uses.
+   * Get the table directories of the given database that no live or soft-deleted table and no view
+   * uses.
    *
    * <p>Fails closed: the database is skipped (an empty list is returned) if the directories in use
    * cannot be determined completely, or if none of the listed directories is in use, which means
@@ -496,16 +508,19 @@ public class TablesClient {
   }
 
   /**
-   * Returns the names of the directories used by live and soft-deleted tables of the given
-   * database. Throws if any lookup fails or returns an incomplete answer.
+   * Returns the names of the directories used by live and soft-deleted tables and by views of the
+   * given database. Throws if any lookup fails or returns an incomplete answer.
    */
   private Set<String> getTableDirectoryNamesInUse(String dbName) {
     Set<String> directoryNames = getLiveTableDirectoryNames(dbName);
     if (directoryNames.isEmpty()) {
-      // Databases are listed from live tables, so an empty result means the lookup is not reliable.
+      // An empty result means the lookup is not reliable. A database holding only views is skipped
+      // too.
       throw new IllegalStateException("No live tables found for database " + dbName);
     }
     directoryNames.addAll(getSoftDeletedTableDirectoryNames(dbName));
+    // Views are stored like tables, in <viewId>-<viewUUID> directories.
+    directoryNames.addAll(getViewDirectoryNames(dbName));
     // Read live tables again: a table restored while soft-deleted tables were being read is in
     // neither earlier result.
     directoryNames.addAll(getLiveTableDirectoryNames(dbName));
@@ -570,6 +585,74 @@ public class TablesClient {
           toTableDirectoryName(table.getTableLocation(), dbName, table.getTableId()));
     }
     return directoryNames;
+  }
+
+  /**
+   * Returns the names of the directories used by views of the given database, or none if views are
+   * turned off for it. The view listing gives no total to check against, so a view could be missed
+   * if views are dropped between pages: the listing is read until two reads in a row agree.
+   */
+  private Set<String> getViewDirectoryNames(String dbName) {
+    Optional<Set<String>> previous = readViewDirectoryNames(dbName);
+    if (!previous.isPresent()) {
+      return Collections.emptySet();
+    }
+    for (int attempt = 1; attempt <= MAX_LISTING_ATTEMPTS; attempt++) {
+      Optional<Set<String>> current = readViewDirectoryNames(dbName);
+      if (current.isPresent() && current.equals(previous)) {
+        return current.get();
+      }
+      log.warn(
+          "views of database {} changed while being read (attempt {} of {})",
+          dbName,
+          attempt,
+          MAX_LISTING_ATTEMPTS);
+      previous = current;
+    }
+    throw new IllegalStateException(
+        "views of database " + dbName + " kept changing while being read");
+  }
+
+  /** Reads every page of the view listing. Returns empty if views are turned off. */
+  private Optional<Set<String>> readViewDirectoryNames(String dbName) {
+    Set<String> directoryNames = new HashSet<>();
+    String pageToken = null;
+    do {
+      String requestedPageToken = pageToken;
+      GetAllViewsResponseBody response;
+      try {
+        response =
+            retryTemplate.execute(
+                (RetryCallback<GetAllViewsResponseBody, RuntimeException>)
+                    context ->
+                        viewApi
+                            .getAllViewsV1(dbName, requestedPageToken, LISTING_PAGE_SIZE, null)
+                            .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+      } catch (WebClientResponseException.NotFound e) {
+        if (requestedPageToken == null && isViewsDisabled(e)) {
+          return Optional.empty();
+        }
+        throw e;
+      }
+      if (response == null || response.getResults() == null) {
+        throw new IllegalStateException("Cannot read views of database " + dbName);
+      }
+      for (GetViewResponseBody view : response.getResults()) {
+        directoryNames.add(
+            toTableDirectoryName(view.getMetadataLocation(), dbName, view.getViewId()));
+      }
+      pageToken = response.getNextPageToken();
+    } while (pageToken != null);
+    return Optional.of(directoryNames);
+  }
+
+  private static boolean isViewsDisabled(WebClientResponseException.NotFound e) {
+    try {
+      return VIEWS_DISABLED_MESSAGE.equals(
+          ERROR_BODY_MAPPER.readTree(e.getResponseBodyAsString()).path("message").asText());
+    } catch (JsonProcessingException parseFailure) {
+      return false;
+    }
   }
 
   /** One page of a paginated listing. */
