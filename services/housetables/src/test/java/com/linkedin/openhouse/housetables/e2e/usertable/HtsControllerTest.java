@@ -9,14 +9,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
+import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -26,15 +29,24 @@ import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import javax.persistence.PersistenceException;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
@@ -45,44 +57,64 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.web.MockServletContext;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.EntityExchangeResult;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultMatcher;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.MultiValueMapAdapter;
+import org.springframework.web.servlet.FlashMap;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.util.UriBuilder;
 
-@SpringBootTest
+@SpringBootTest(
+    classes = SpringHtsTestApplication.class,
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-@AutoConfigureMockMvc
-public class HtsControllerTest {
+public class HtsControllerTest extends HtsDatabaseTestBase {
 
   @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
-
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
   @Autowired SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
 
-  @Autowired MockMvc mvc;
-
   @Autowired SoftDeletedUserTablesMapper softDeletedTableMapper;
 
   @Autowired DataSource dataSource;
+
+  @LocalServerPort private int port;
+
+  private WebTestClient webTestClient;
+
+  private JdbcTemplate jdbc;
 
   /** Lets a dependency failure be injected where a real one would be raised. */
   @SpyBean UserTableHtsJdbcRepository htsJdbcRepository;
 
   @BeforeEach
   public void setup() {
+    webTestClient = WebTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
+    jdbc = new JdbcTemplate(dataSource);
     // TODO: Use rest API to create the table and test the find/delete user table again.
     // For now manually create the user table upfront.
     UserTableRow testUserTableRow =
@@ -90,15 +122,279 @@ public class HtsControllerTest {
     userTableRawSeeder.seedLegacyRow(testUserTableRow);
   }
 
+  /** Sends existing request/matcher cases over the real port using WebTestClient. */
+  private HttpResultActions performOverHttp(MockHttpServletRequestBuilder requestBuilder)
+      throws Exception {
+    MockHttpServletRequest request = requestBuilder.buildRequest(new MockServletContext());
+    WebTestClient.RequestBodySpec outgoing =
+        webTestClient
+            .method(HttpMethod.valueOf(request.getMethod()))
+            .uri(
+                (UriBuilder builder) -> {
+                  builder.path(request.getRequestURI());
+                  request
+                      .getParameterMap()
+                      .forEach(
+                          (name, values) -> {
+                            Object[] nonNullValues =
+                                Arrays.stream(values).filter(value -> value != null).toArray();
+                            if (nonNullValues.length > 0) {
+                              builder.queryParam(name, nonNullValues);
+                            }
+                          });
+                  return builder.build();
+                });
+    outgoing.headers(
+        headers -> {
+          Enumeration<String> names = request.getHeaderNames();
+          while (names.hasMoreElements()) {
+            String name = names.nextElement();
+            headers.put(name, Collections.list(request.getHeaders(name)));
+          }
+        });
+    EntityExchangeResult<byte[]> result;
+    byte[] requestBody = request.getContentAsByteArray();
+    if (requestBody == null || requestBody.length == 0) {
+      result = outgoing.exchange().expectBody().returnResult();
+    } else {
+      result = outgoing.bodyValue(requestBody).exchange().expectBody().returnResult();
+    }
+
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    response.setStatus(result.getStatus().value());
+    MediaType contentType = result.getResponseHeaders().getContentType();
+    if (contentType != null) {
+      response.setContentType(contentType.toString());
+    }
+    result
+        .getResponseHeaders()
+        .forEach(
+            (name, values) -> {
+              if (!HttpHeaders.CONTENT_TYPE.equalsIgnoreCase(name)) {
+                values.forEach(value -> response.addHeader(name, value));
+              }
+            });
+    byte[] responseBody = result.getResponseBody();
+    if (responseBody != null) {
+      response.getOutputStream().write(responseBody);
+    }
+    return new HttpResultActions(new HttpMvcResult(request, response));
+  }
+
+  private HttpResponse httpExchange(
+      HttpMethod method, String path, Map<String, String> params, Object jsonBody) {
+    WebTestClient.RequestBodySpec outgoing =
+        webTestClient
+            .method(method)
+            .uri(
+                builder -> {
+                  builder.path(path);
+                  params.forEach((name, value) -> builder.queryParam(name, value));
+                  return builder.build();
+                });
+    EntityExchangeResult<String> result;
+    if (jsonBody == null) {
+      result = outgoing.exchange().expectBody(String.class).returnResult();
+    } else {
+      result =
+          outgoing
+              .contentType(MediaType.APPLICATION_JSON)
+              .bodyValue(jsonBody)
+              .exchange()
+              .expectBody(String.class)
+              .returnResult();
+    }
+    return new HttpResponse(result.getStatus().value(), result.getResponseBody());
+  }
+
+  private static JsonNode json(MvcResult result) throws Exception {
+    return new ObjectMapper().readTree(result.getResponse().getContentAsString());
+  }
+
+  private static final class HttpResultActions {
+    private final MvcResult result;
+
+    HttpResultActions(MvcResult result) {
+      this.result = result;
+    }
+
+    HttpResultActions andExpect(ResultMatcher matcher) throws Exception {
+      matcher.match(result);
+      return this;
+    }
+
+    MvcResult andReturn() {
+      return result;
+    }
+  }
+
+  private static final class HttpResponse {
+    private final int status;
+    private final String body;
+
+    HttpResponse(int status, String body) {
+      this.status = status;
+      this.body = body == null ? "" : body;
+    }
+
+    int status() {
+      return status;
+    }
+
+    JsonNode json() throws Exception {
+      return new ObjectMapper().readTree(body);
+    }
+
+    String message() throws Exception {
+      return json().path("message").asText();
+    }
+
+    JsonNode entity() throws Exception {
+      return json().path("entity");
+    }
+  }
+
+  private static Map<String, String> httpParams(String... namesAndValues) {
+    Map<String, String> params = new LinkedHashMap<>();
+    for (int i = 0; i < namesAndValues.length; i += 2) {
+      params.put(namesAndValues[i], namesAndValues[i + 1]);
+    }
+    return params;
+  }
+
+  /** Unique per test and short enough for the archive's 128-character key columns. */
+  private static String databaseId(String suffix) {
+    return "hts_it_" + RUN_ID + "_" + suffix;
+  }
+
+  private HttpResponse putHttpEntity(
+      String kind, String database, String table, String entityType) {
+    UserTable entity =
+        UserTable.builder()
+            .databaseId(database)
+            .tableId(table)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .metadataLocation("/tmp/" + database + "/" + table)
+            .storageType(TEST_DEFAULT_STORAGE_TYPE)
+            .entityType(entityType)
+            .build();
+    String body =
+        CreateUpdateEntityRequestBody.<UserTable>builder().entity(entity).build().toJson();
+    return httpExchange(HttpMethod.PUT, "/hts/" + kind, Collections.emptyMap(), body);
+  }
+
+  private List<JsonNode> queryAllViews(String database) throws Exception {
+    List<JsonNode> views = new java.util.ArrayList<>();
+    for (int page = 0; ; page++) {
+      HttpResponse response =
+          httpExchange(
+              HttpMethod.GET,
+              "/v1/hts/views/query",
+              httpParams(
+                  "databaseId",
+                  database,
+                  "page",
+                  Integer.toString(page),
+                  "size",
+                  "50",
+                  "sortBy",
+                  "tableId"),
+              null);
+      assertThat(response.status()).isEqualTo(200);
+      JsonNode body = response.json();
+      assertThat(body.has("results") && body.get("results").isNull()).isTrue();
+      JsonNode pageResults = body.path("pageResults");
+      assertThat(pageResults.path("number").asInt()).isEqualTo(page);
+      assertThat(pageResults.path("last").isBoolean()).isTrue();
+      JsonNode content = pageResults.path("content");
+      assertThat(content.isArray()).isTrue();
+      content.forEach(views::add);
+      if (pageResults.path("last").asBoolean()) {
+        return views;
+      }
+      assertThat(content).isNotEmpty();
+    }
+  }
+
+  private void cleanupHttpViews(String database) throws Exception {
+    List<JsonNode> views = queryAllViews(database);
+    for (JsonNode view : views) {
+      HttpResponse response =
+          httpExchange(
+              HttpMethod.DELETE,
+              "/hts/views",
+              httpParams("databaseId", database, "tableId", view.path("tableId").asText()),
+              null);
+      assertThat(response.status()).isEqualTo(204);
+    }
+  }
+
+  private static void assertColumn(
+      Map<String, Map<String, Object>> columns, String name, long width) {
+    Map<String, Object> column = columns.get(name);
+    assertThat(column).as("user_table_row.%s", name).isNotNull();
+    assertThat(column.get("type")).as("%s type", name).isEqualTo("varchar");
+    assertThat(((Number) column.get("width")).longValue()).as("%s width", name).isEqualTo(width);
+  }
+
+  private static final class HttpMvcResult implements MvcResult {
+    private final MockHttpServletRequest request;
+    private final MockHttpServletResponse response;
+
+    HttpMvcResult(MockHttpServletRequest request, MockHttpServletResponse response) {
+      this.request = request;
+      this.response = response;
+    }
+
+    @Override
+    public MockHttpServletRequest getRequest() {
+      return request;
+    }
+
+    @Override
+    public MockHttpServletResponse getResponse() {
+      return response;
+    }
+
+    @Override
+    public Object getHandler() {
+      return null;
+    }
+
+    @Override
+    public HandlerInterceptor[] getInterceptors() {
+      return new HandlerInterceptor[0];
+    }
+
+    @Override
+    public ModelAndView getModelAndView() {
+      return null;
+    }
+
+    @Override
+    public Exception getResolvedException() {
+      return null;
+    }
+
+    @Override
+    public FlashMap getFlashMap() {
+      return new FlashMap();
+    }
+
+    @Override
+    public Object getAsyncResult() {
+      return null;
+    }
+
+    @Override
+    public Object getAsyncResult(long timeout) {
+      return null;
+    }
+  }
+
   @AfterEach
-  public void tearDown() {
+  public void resetTestSpy() {
     Mockito.reset(htsJdbcRepository);
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first;
-    // otherwise converter hydration during teardown poisons the rest of the class.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-    softDeletedHtsJdbcRepository.deleteAll();
   }
 
   @Test
@@ -112,7 +408,7 @@ public class HtsControllerTest {
     paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
     paramsInternal.put("tableId", Collections.singletonList("test_table0"));
     MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/query")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -146,7 +442,7 @@ public class HtsControllerTest {
     paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
     paramsInternal.put("tableId", Collections.singletonList("test_table%"));
     MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/query")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -185,7 +481,7 @@ public class HtsControllerTest {
     Map<String, List<String>> paramsInternal = new HashMap<>();
     paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
     MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/query")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -220,7 +516,8 @@ public class HtsControllerTest {
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
 
-    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
+    performOverHttp(
+            MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
         .andExpect(
@@ -245,7 +542,7 @@ public class HtsControllerTest {
 
   @Test
   public void testFindUserTable() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("tableId", TEST_TABLE_ID)
                 .param("databaseId", TEST_DB_ID)
@@ -288,7 +585,7 @@ public class HtsControllerTest {
 
   @Test
   public void testUserTableNotFound() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("tableId", NON_EXISTED_TABLE)
                 .param("databaseId", NON_EXISTED_DB)
@@ -309,7 +606,7 @@ public class HtsControllerTest {
 
   @Test
   public void testDeleteUserTable() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/tables")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", TEST_TABLE_ID))
@@ -319,7 +616,7 @@ public class HtsControllerTest {
 
   @Test
   public void testDeleteNonExistedUserTable() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/tables")
                 .param("databaseId", NON_EXISTED_DB)
                 .param("tableId", NON_EXISTED_TABLE))
@@ -340,7 +637,7 @@ public class HtsControllerTest {
   @Test
   public void testPutUserTable() throws Exception {
     // Ensure the target table to be created, testTuple2_0, not existed yet.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("tableId", TEST_TUPLE_2_0.getTableId())
                 .param("databaseId", TEST_TUPLE_2_0.getDatabaseId())
@@ -348,7 +645,7 @@ public class HtsControllerTest {
         .andExpect(status().isNotFound());
 
     // Create the table and return correct status code
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -375,7 +672,7 @@ public class HtsControllerTest {
             .tableVersion(atVersion)
             .metadataLocation(modifiedMetaLoc)
             .build();
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -394,7 +691,7 @@ public class HtsControllerTest {
 
   @Test
   public void testConflictAtTargetVersion() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -406,7 +703,7 @@ public class HtsControllerTest {
         .andExpect(status().isCreated())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -432,7 +729,7 @@ public class HtsControllerTest {
             .tableId(null)
             .databaseId(TEST_TUPLE_2_0.get_userTable().getDatabaseId())
             .build();
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -448,7 +745,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.message", containsString("metadataLocation cannot be empty")))
         .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", TEST_DB_ID)
                 .accept(MediaType.APPLICATION_JSON))
@@ -457,7 +754,7 @@ public class HtsControllerTest {
 
   @Test
   public void testPutUserTableWithNullStorageType() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("tableId", TEST_TUPLE_1_0.getTableId())
                 .param("databaseId", TEST_TUPLE_1_0.getDatabaseId())
@@ -465,7 +762,7 @@ public class HtsControllerTest {
         .andExpect(status().isNotFound());
 
     // Create the table and return correct status code
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -485,7 +782,7 @@ public class HtsControllerTest {
 
   @Test
   public void testRenameUserTable() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", TEST_DB_ID)
                 .param("fromTableId", TEST_TABLE_ID)
@@ -498,7 +795,7 @@ public class HtsControllerTest {
 
   @Test
   public void testRenameUserTableFails() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", TEST_DB_ID)
                 .param("fromTableId", NON_EXISTED_TABLE)
@@ -508,7 +805,7 @@ public class HtsControllerTest {
         .andExpect(status().isNotFound());
 
     // Currently we don't support renaming a table across databases.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", TEST_DB_ID)
                 .param("fromTableId", TEST_TABLE_ID)
@@ -517,7 +814,7 @@ public class HtsControllerTest {
                 .param("metadataLocation", "mockMetadataLocation"))
         .andExpect(status().isBadRequest());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", TEST_DB_ID)
                 .param("fromTableId", TEST_TABLE_ID)
@@ -527,7 +824,7 @@ public class HtsControllerTest {
         .andExpect(status().isBadRequest());
 
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", TEST_DB_ID)
                 .param("fromTableId", TEST_TABLE_ID)
@@ -541,7 +838,7 @@ public class HtsControllerTest {
   public void testQuerySoftDeletedTables() throws Exception {
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
     // Soft delete the table
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/v1/hts/tables")
                 .param("databaseId", TEST_TUPLE_1_0.getDatabaseId())
                 .param("tableId", TEST_TUPLE_1_0.getTableId())
@@ -552,7 +849,7 @@ public class HtsControllerTest {
     paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
     MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -570,14 +867,14 @@ public class HtsControllerTest {
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/v1/hts/tables")
                 .param("databaseId", TEST_TUPLE_1_0.getDatabaseId())
                 .param("tableId", TEST_TUPLE_1_0.getTableId())
                 .param("isSoftDelete", "true"))
         .andExpect(status().isNoContent());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/v1/hts/tables")
                 .param("databaseId", TEST_TUPLE_2_0.getDatabaseId())
                 .param("tableId", TEST_TUPLE_2_0.getTableId())
@@ -589,7 +886,7 @@ public class HtsControllerTest {
     paramsInternal.put("tableId", Collections.singletonList(TEST_TUPLE_1_0.getTableId()));
     MultiValueMap<String, String> params = new MultiValueMapAdapter(paramsInternal);
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -605,7 +902,7 @@ public class HtsControllerTest {
         TEST_TUPLE_1_0.get_userTableRow().toBuilder().tableId(testTableId).build());
 
     // First, soft delete a table
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/v1/hts/tables")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", testTableId)
@@ -625,7 +922,7 @@ public class HtsControllerTest {
     params = new MultiValueMapAdapter(paramsInternal);
 
     // Should return the soft deleted table due to default purgeAfterMs being 7 days in the future
-    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted").params(params))
+    performOverHttp(MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted").params(params))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pageResults.content", hasSize(1)))
         .andExpect(jsonPath("$.pageResults.content[0].databaseId", is(TEST_DB_ID)))
@@ -638,7 +935,7 @@ public class HtsControllerTest {
     paramsInternal.put("purgeAfterMs", Collections.singletonList(String.valueOf(pastTimestamp)));
     params = new MultiValueMapAdapter(paramsInternal);
 
-    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted").params(params))
+    performOverHttp(MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted").params(params))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pageResults.content", hasSize(0)));
   }
@@ -663,7 +960,7 @@ public class HtsControllerTest {
     softDeletedHtsJdbcRepository.save(softDeletedEntry);
 
     // Restore the soft deleted table
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables/restore")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", tableId)
@@ -675,7 +972,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity.purgeAfterMs").doesNotExist());
 
     // Verify table is now active again
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", tableId))
@@ -688,7 +985,7 @@ public class HtsControllerTest {
     queryParams.put("databaseId", Collections.singletonList(TEST_DB_ID));
     queryParams.put("tableId", Collections.singletonList(tableId));
     MultiValueMap<String, String> params = new MultiValueMapAdapter(queryParams);
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -699,7 +996,7 @@ public class HtsControllerTest {
   @Test
   public void testRestoreNonExistentSoftDeletedTable() throws Exception {
     // Try to recover a non-existent soft deleted table
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables/restore")
                 .param("databaseId", "non_existent_db")
                 .param("tableId", "non_existent_table")
@@ -732,7 +1029,7 @@ public class HtsControllerTest {
     MultiValueMap<String, String> params = new MultiValueMapAdapter(queryParams);
 
     // Purge the soft deleted table
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/tables/purge")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", TEST_TABLE_ID)
@@ -740,7 +1037,7 @@ public class HtsControllerTest {
         .andExpect(status().isNoContent());
 
     // Verify it's no longer in soft deleted tables
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -781,14 +1078,14 @@ public class HtsControllerTest {
     MultiValueMap<String, String> params = new MultiValueMapAdapter(queryParams);
 
     // Purge the soft deleted table
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/tables/purge")
                 .param("databaseId", TEST_DB_ID)
                 .param("tableId", TEST_TABLE_ID))
         .andExpect(status().isNoContent());
 
     // Verify it's no longer in soft deleted tables
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .params(params)
                 .accept(MediaType.APPLICATION_JSON))
@@ -806,6 +1103,13 @@ public class HtsControllerTest {
    */
   private static final String ENTITY_TYPE_DB = "entity_type_db";
 
+  private static final String COLUMN_COLLATION = "utf8mb4_0900_ai_ci";
+
+  private static final String RUN_ID =
+      Long.toString(System.currentTimeMillis(), 36)
+          + "_"
+          + UUID.randomUUID().toString().substring(0, 8);
+
   /**
    * The HTTP contract the tables service actually consumes: a view at a table's key is a 404, the
    * same response an absent row produces, so no client-side check is needed to hide it.
@@ -814,7 +1118,7 @@ public class HtsControllerTest {
   public void testGetUserTableReturnsNotFoundForNonTableRow() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "point_read", EntityType.VIEW);
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "point_read")
@@ -850,7 +1154,7 @@ public class HtsControllerTest {
   }
 
   private void expectTablePointReadAnswersTable() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "point_read")
@@ -936,7 +1240,7 @@ public class HtsControllerTest {
   public void testTableQueriesExcludeViewsAndKeepLegacyRows() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .accept(MediaType.APPLICATION_JSON))
@@ -950,7 +1254,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t03_view"))))
         .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t05_view"))));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t0%"))
                 .accept(MediaType.APPLICATION_JSON))
@@ -970,7 +1274,7 @@ public class HtsControllerTest {
   public void testPaginatedTableQueriesFilterBeforePaging() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/tables/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "0")
@@ -984,7 +1288,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t00_legacy")))
         .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t02_explicit")));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/tables/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "1")
@@ -999,7 +1303,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t06_explicit")));
 
     // Same assertions on the pattern form.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/tables/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t0%"))
                 .param("page", "0")
@@ -1026,7 +1330,7 @@ public class HtsControllerTest {
             .entityType("VIEW")
             .build();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1038,7 +1342,7 @@ public class HtsControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "put_view")
@@ -1065,7 +1369,7 @@ public class HtsControllerTest {
             .metadataLocation("/openhouse/entity_type_db/put_legacy/v0_metadata.json")
             .build();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1077,7 +1381,7 @@ public class HtsControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "put_legacy")
@@ -1103,7 +1407,7 @@ public class HtsControllerTest {
             .entityType("view")
             .build();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1118,7 +1422,7 @@ public class HtsControllerTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_lower_view")).hasValue("VIEW");
 
     // The same spelling on the table route now contradicts the route and is refused.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1147,7 +1451,7 @@ public class HtsControllerTest {
             .entityType("UNKNOWN")
             .build();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1179,7 +1483,7 @@ public class HtsControllerTest {
   public void testEntityTypeQueryParameterIsIgnored() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "entityType", "VIEW"))
                 .accept(MediaType.APPLICATION_JSON))
@@ -1218,7 +1522,7 @@ public class HtsControllerTest {
                 "/openhouse/entity_type_db/occupied_by_view-uuid/00001-candidate.metadata.json")
             .build();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1246,7 +1550,7 @@ public class HtsControllerTest {
     seedTypedRow(ENTITY_TYPE_DB, "table_point", EntityType.TABLE);
     seedLegacyRow(ENTITY_TYPE_DB, "legacy_point");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "view_point")
@@ -1258,7 +1562,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
 
     // Case-insensitive on the key, exactly like the table read.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB.toUpperCase())
                 .param("tableId", "VIEW_POINT")
@@ -1277,7 +1581,7 @@ public class HtsControllerTest {
     seedTypedRow(ENTITY_TYPE_DB, "table_point", EntityType.TABLE);
     seedLegacyRow(ENTITY_TYPE_DB, "legacy_point");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", tableId)
@@ -1296,7 +1600,7 @@ public class HtsControllerTest {
 
   @Test
   public void testGetViewWithInvalidKeyIsBadRequest() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "bad??id")
@@ -1308,7 +1612,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.stacktrace").doesNotExist());
 
     // A missing required parameter is a binding failure, which is also a 400.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .accept(MediaType.APPLICATION_JSON))
@@ -1320,7 +1624,7 @@ public class HtsControllerTest {
   public void testViewQueriesExcludeTablesAndLegacyRows() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .accept(MediaType.APPLICATION_JSON))
@@ -1336,7 +1640,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[*].entityType", everyItem(is("VIEW"))));
 
     // Pattern form.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t0%"))
                 .accept(MediaType.APPLICATION_JSON))
@@ -1348,7 +1652,7 @@ public class HtsControllerTest {
                 containsInAnyOrder("t01_view", "t03_view", "t05_view")));
 
     // Empty filter map: every view, fully identified — not a database-name projection.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query").accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
@@ -1366,7 +1670,8 @@ public class HtsControllerTest {
   public void testEmptyTableQueryStillProjectsDatabaseNames() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
+    performOverHttp(
+            MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.results[*].databaseId", hasItem(ENTITY_TYPE_DB)))
         .andExpect(jsonPath("$.results[*].tableId", everyItem(nullValue())));
@@ -1377,7 +1682,7 @@ public class HtsControllerTest {
   public void testPaginatedViewQueriesFilterBeforePaging() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "0")
@@ -1391,7 +1696,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")))
         .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t03_view")));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "1")
@@ -1404,7 +1709,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t05_view")));
 
     // Same assertions on the pattern form.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t0%"))
                 .param("page", "0")
@@ -1425,7 +1730,7 @@ public class HtsControllerTest {
   public void testPagedViewQueryUsesValidatorAndJdbcSortWithChangedRequestSizes() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "0")
@@ -1437,7 +1742,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")))
         .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t03_view")));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "1")
@@ -1449,7 +1754,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t05_view")))
         .andExpect(jsonPath("$.pageResults.totalElements", is(3)));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "0")
@@ -1467,7 +1772,7 @@ public class HtsControllerTest {
       throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "entityType", entityType))
                 .param("page", "0")
@@ -1485,7 +1790,7 @@ public class HtsControllerTest {
   public void testPagedViewQueryWithAnEmptyFilterMapReturnsEveryView() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .param("sortBy", "tableId")
                 .accept(MediaType.APPLICATION_JSON))
@@ -1513,7 +1818,7 @@ public class HtsControllerTest {
             .build();
 
     // Omitted type on the view route is stamped VIEW.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1529,7 +1834,7 @@ public class HtsControllerTest {
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_view_lifecycle")).hasValue("VIEW");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1551,13 +1856,13 @@ public class HtsControllerTest {
                 is("/openhouse/entity_type_db/put_view_lifecycle/v1_metadata.json")));
 
     // The view is readable through its own point read and absent from the table one.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "put_view_lifecycle")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk());
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "put_view_lifecycle")
@@ -1577,7 +1882,7 @@ public class HtsControllerTest {
             .entityType("VIEW")
             .build();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1595,7 +1900,7 @@ public class HtsControllerTest {
                 is(equalTo("entityType provided: VIEW, but this endpoint serves TABLE only"))))
         .andExpect(jsonPath("$.stacktrace").doesNotExist());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1611,7 +1916,7 @@ public class HtsControllerTest {
                 is(equalTo("entityType provided: TABLE, but this endpoint serves VIEW only"))));
 
     // Unknown values are rejected on the view route too, by the same ingress rule.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1653,7 +1958,7 @@ public class HtsControllerTest {
                     .build())
             .get();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1696,7 +2001,7 @@ public class HtsControllerTest {
   public void testDeleteViewRemovesTheViewAndCreatesNoSoftDeletedRow() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "drop_view"))
@@ -1713,7 +2018,7 @@ public class HtsControllerTest {
                 .isPresent())
         .isFalse();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "drop_view")
@@ -1722,7 +2027,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content", hasSize(0)));
 
     // A second drop is a plain 404.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "drop_view"))
@@ -1736,7 +2041,7 @@ public class HtsControllerTest {
     seedLegacyRow(ENTITY_TYPE_DB, "cross_delete_legacy");
 
     // A view at a table-scoped delete is reported exactly as an absent table is.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "cross_delete_view")
@@ -1755,7 +2060,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.cause", notNullValue()))
         .andExpect(jsonPath("$.stacktrace").doesNotExist());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/v1/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "cross_delete_view")
@@ -1773,7 +2078,7 @@ public class HtsControllerTest {
 
     // And the mirror: the view route reports a table, or a legacy row, as an absent view.
     for (String tableId : new String[] {"cross_delete_table", "cross_delete_legacy"}) {
-      mvc.perform(
+      performOverHttp(
               MockMvcRequestBuilders.delete("/hts/views")
                   .param("databaseId", ENTITY_TYPE_DB)
                   .param("tableId", tableId)
@@ -1797,7 +2102,7 @@ public class HtsControllerTest {
 
   @Test
   public void testDeleteViewWithInvalidKeyIsBadRequest() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/views")
                 .param("databaseId", "db??")
                 .param("tableId", "tb??")
@@ -1816,7 +2121,7 @@ public class HtsControllerTest {
 
   @Test
   public void testViewQueryRejectsInvalidFilters() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", "db%"))
                 .accept(MediaType.APPLICATION_JSON))
@@ -1824,14 +2129,14 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.BAD_REQUEST.name()))));
 
     // A tableId pattern without a database has no scope to apply to.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("tableId", "t0%"))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest());
 
     // Only databaseId and tableId are supported filters.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "creationTime", "123"))
                 .accept(MediaType.APPLICATION_JSON))
@@ -1842,28 +2147,28 @@ public class HtsControllerTest {
   public void testPaginatedViewQueryRejectsInvalidPagingAndAppliesDefaults() throws Exception {
     seedCanonicalRows("");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("page", "-1")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .param("size", "0")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", "db%"))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest());
 
     // No page or size supplied: the first page of fifty.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .accept(MediaType.APPLICATION_JSON))
@@ -1885,7 +2190,7 @@ public class HtsControllerTest {
     seedTypedRow(ENTITY_TYPE_DB, "neutral_table", EntityType.TABLE);
     seedLegacyRow(ENTITY_TYPE_DB, "neutral_legacy");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "neutral_view")
@@ -1895,7 +2200,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity.tableId", is("neutral_view")))
         .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "neutral_table")
@@ -1904,7 +2209,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
 
     // A legacy null is reported as TABLE, because that is what the data means.
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "neutral_legacy")
@@ -1916,7 +2221,7 @@ public class HtsControllerTest {
 
   @Test
   public void testNeutralEntityReadReportsAbsenceAndInvalidKeysDistinctly() throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "neutral_absent")
@@ -1931,7 +2236,7 @@ public class HtsControllerTest {
                             .replace("$ent", "Entity")
                             .replace("$id", ENTITY_TYPE_DB + ".neutral_absent")))));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "bad??id")
@@ -1948,14 +2253,14 @@ public class HtsControllerTest {
   public void testCorruptDiscriminatorIsServerErrorOnNeutralReadAndPut() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_row", "UNKNOWN");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "corrupt_row")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isInternalServerError());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -1982,7 +2287,7 @@ public class HtsControllerTest {
   public void testCorruptDiscriminatorResponseCarriesColumnDiagnostic() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_diagnostic", "UNKNOWN");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "corrupt_diagnostic")
@@ -2001,14 +2306,16 @@ public class HtsControllerTest {
   }
 
   /**
-   * Regression: {@code TABLE_ROW_PREDICATE} excludes an unrecognized spelling before hydration, so
-   * a corrupt row is simply absent from the table point read under H2. Unchanged from base.
+   * Regression: {@code TABLE_ROW_PREDICATE} excludes this unrecognized {@code UNKNOWN} spelling
+   * before hydration, so the row is simply absent from the table point read. That holds for this
+   * value, not for every corrupt spelling: an accented one passes the predicate and fails
+   * conversion. Unchanged from base.
    */
   @Test
   public void testCorruptRowIsExcludedFromTheTablePointReadRatherThanFailing() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_table_point", "UNKNOWN");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "corrupt_table_point")
@@ -2021,8 +2328,9 @@ public class HtsControllerTest {
   /**
    * The table reads now cross the same boundary as the view reads, so corruption reaching one
    * produces the column-and-value diagnostic rather than the ORM {@code toString()}. This is the
-   * one intended behavioural change to the table path. Injected, because under a folding collation
-   * — not under H2 — the predicate would match a spelling Java rejects.
+   * one intended behavioural change to the table path. Injected to pin the handler boundary for any
+   * repository failure of this kind; the natural accent-insensitive match that Java rejects is
+   * exercised over real HTTP by {@code testCorruptEntityTypeValuesSplitIntoTwoFailureModes}.
    */
   @Test
   public void testCorruptDiscriminatorOnTheTablePointReadCarriesColumnDiagnostic()
@@ -2031,7 +2339,7 @@ public class HtsControllerTest {
         .when(htsJdbcRepository)
         .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "corrupt_table_point")
@@ -2049,14 +2357,14 @@ public class HtsControllerTest {
   }
 
   /**
-   * Restore's occupancy read is neutral, so it is the one table path on which a genuinely corrupt
-   * row hydrates under H2. It must fail loudly rather than report the key as free and clobber it.
+   * Restore's occupancy read is neutral, carrying no type predicate, so a corrupt occupant hydrates
+   * there on any backend. It must fail loudly rather than report the key as free and clobber it.
    */
   @Test
   public void testCorruptOccupantMakesRestoreFailRatherThanOverwrite() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_restore_target", "UNKNOWN");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables/restore")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "corrupt_restore_target")
@@ -2084,7 +2392,7 @@ public class HtsControllerTest {
         .when(htsJdbcRepository)
         .findAllTablesByFilters(anyString(), any(), any(), any(), any(), any(), any());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get(route)
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .accept(MediaType.APPLICATION_JSON))
@@ -2109,7 +2417,7 @@ public class HtsControllerTest {
         .when(htsJdbcRepository)
         .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "any_table")
@@ -2125,19 +2433,19 @@ public class HtsControllerTest {
   public void testCorruptDiscriminatorIsNotFoundOnTypedDeleteAndRename() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_mutate", "UNKNOWN");
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "corrupt_mutate"))
         .andExpect(status().isNotFound());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "corrupt_mutate"))
         .andExpect(status().isNotFound());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", ENTITY_TYPE_DB)
                 .param("fromTableId", "corrupt_mutate")
@@ -2155,8 +2463,8 @@ public class HtsControllerTest {
 
   /**
    * A handler that swallowed the failure into an empty result would answer 200 with no rows, so the
-   * absence of any payload is asserted alongside the status. The failure is injected because H2
-   * cannot select a corrupt row through the view predicate.
+   * absence of any payload is asserted alongside the status. The failure is injected deliberately
+   * at the repository boundary so both view route shapes are pinned against the same exception.
    */
   @ParameterizedTest
   @CsvSource({"/hts/views,          point", "/v1/hts/views/query, paged"})
@@ -2165,7 +2473,7 @@ public class HtsControllerTest {
     seedTypedRow(ENTITY_TYPE_DB, "healthy_view", EntityType.VIEW);
     injectViewReadFailure(shape, corruptWrapper());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get(route)
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "point".equals(shape) ? "healthy_view" : null)
@@ -2196,7 +2504,7 @@ public class HtsControllerTest {
     seedTypedRow(ENTITY_TYPE_DB, "healthy_view", EntityType.VIEW);
     injectViewReadFailure(shape, new DataAccessResourceFailureException("datasource down"));
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get(route)
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "point".equals(shape) ? "healthy_view" : null)
@@ -2220,7 +2528,7 @@ public class HtsControllerTest {
         .when(htsJdbcRepository)
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.get("/hts/entities")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "any_key")
@@ -2238,7 +2546,7 @@ public class HtsControllerTest {
         .when(htsJdbcRepository)
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -2270,7 +2578,7 @@ public class HtsControllerTest {
         new DataAccessResourceFailureException("datasource down");
     Mockito.doThrow(raw).when(htsJdbcRepository).save(any());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -2305,7 +2613,7 @@ public class HtsControllerTest {
         new DataAccessResourceFailureException("datasource down");
     Mockito.doThrow(raw).when(htsJdbcRepository).deleteViewById(any());
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.delete("/hts/views")
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "drop_when_down")
@@ -2352,7 +2660,7 @@ public class HtsControllerTest {
   public void testRenameTableRefusesToMoveAView() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "rename_view_src", EntityType.VIEW);
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", ENTITY_TYPE_DB)
                 .param("fromTableId", "rename_view_src")
@@ -2381,7 +2689,7 @@ public class HtsControllerTest {
     seedLegacyRow(ENTITY_TYPE_DB, "rename_legacy_src");
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_legacy_src")).isEmpty();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", ENTITY_TYPE_DB)
                 .param("fromTableId", "rename_legacy_src")
@@ -2405,7 +2713,7 @@ public class HtsControllerTest {
     seedTypedRow(ENTITY_TYPE_DB, "rename_src_table", EntityType.TABLE);
     insertRawEntityType(ENTITY_TYPE_DB, destinationTableId, storedSpelling);
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", ENTITY_TYPE_DB)
                 .param("fromTableId", "rename_src_table")
@@ -2426,7 +2734,7 @@ public class HtsControllerTest {
   @ParameterizedTest
   @ValueSource(strings = {"/hts/tables", "/hts/views"})
   public void testPutWithNullEntityIsBadRequest(String route) throws Exception {
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put(route)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -2457,7 +2765,7 @@ public class HtsControllerTest {
             .metadataLocation("/openhouse/entity_type_db/put_over_legacy/v1_metadata.json")
             .build();
 
-    mvc.perform(
+    performOverHttp(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -2474,5 +2782,304 @@ public class HtsControllerTest {
                 is("/openhouse/entity_type_db/put_over_legacy/v1_metadata.json")));
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).hasValue("TABLE");
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // MySQL-backed HTTP regressions that are not covered by the controller contract tests above.
+  // ---------------------------------------------------------------------------------------------
+
+  @Test
+  public void testUsesCanonicalMysqlSchema() throws SQLException {
+    assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).isEqualTo(DATABASE);
+
+    Map<String, Map<String, Object>> columns =
+        jdbc
+            .queryForList(
+                "SELECT column_name AS name, data_type AS type,"
+                    + " character_maximum_length AS width, is_nullable AS nullable,"
+                    + " collation_name AS collation FROM information_schema.columns"
+                    + " WHERE table_schema = DATABASE() AND table_name = 'user_table_row'")
+            .stream()
+            .collect(
+                Collectors.toMap(
+                    row -> String.valueOf(row.get("name")).toLowerCase(Locale.ROOT), row -> row));
+    assertColumn(columns, "entity_type", 128);
+    assertThat(columns.get("entity_type").get("nullable")).isEqualTo("YES");
+    assertThat(columns.get("entity_type").get("collation")).isEqualTo(COLUMN_COLLATION);
+    for (String key : Arrays.asList("database_id", "table_id", "metadata_location")) {
+      assertColumn(columns, key, 255);
+    }
+
+    List<String> keyExpressions =
+        jdbc.queryForList(
+            "SELECT expression FROM information_schema.statistics WHERE table_schema = DATABASE()"
+                + " AND table_name = 'user_table_row'"
+                + " AND index_name = 'idx_user_table_upper_db_table' ORDER BY seq_in_index",
+            String.class);
+    assertThat(keyExpressions).hasSizeGreaterThanOrEqualTo(2);
+    assertThat(
+            keyExpressions.subList(0, 2).stream()
+                .map(expression -> expression.replace("`", "").toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList()))
+        .as("the canonical functional index leads with the UPPER key expressions")
+        .containsExactly("upper(database_id)", "upper(table_id)");
+  }
+
+  @Test
+  public void testViewPaginationAndCleanupCoverMultiplePages() throws Exception {
+    String database = databaseId("view_pages");
+    Set<String> expected =
+        IntStream.range(0, 51)
+            .mapToObj(number -> String.format(Locale.ROOT, "v_%03d", number))
+            .collect(Collectors.toCollection(TreeSet::new));
+    for (String view : expected) {
+      HttpResponse response = putHttpEntity("views", database, view, "VIEW");
+      assertThat(response.status()).isEqualTo(201);
+      assertThat(response.entity().path("entityType").asText()).isEqualTo("VIEW");
+    }
+    assertThat(putHttpEntity("tables", database, "t_table", "TABLE").status()).isEqualTo(201);
+
+    HttpResponse tablePage =
+        httpExchange(
+            HttpMethod.GET,
+            "/v1/hts/tables/query",
+            httpParams("databaseId", database, "page", "0", "size", "50", "sortBy", "tableId"),
+            null);
+    assertThat(tablePage.status()).isEqualTo(200);
+    assertThat(tablePage.json().has("results") && tablePage.json().get("results").isNull())
+        .isTrue();
+    assertThat(tablePage.json().path("pageResults").path("content").get(0).path("tableId").asText())
+        .isEqualTo("t_table");
+
+    HttpResponse legacyTableQuery =
+        httpExchange(HttpMethod.GET, "/hts/tables/query", httpParams("databaseId", database), null);
+    assertThat(legacyTableQuery.status()).isEqualTo(200);
+    assertThat(
+            legacyTableQuery.json().has("pageResults")
+                && legacyTableQuery.json().get("pageResults").isNull())
+        .isTrue();
+    assertThat(legacyTableQuery.json().path("results").get(0).path("tableId").asText())
+        .isEqualTo("t_table");
+
+    List<JsonNode> views = queryAllViews(database);
+    assertThat(views).as("every page, no duplicates").hasSize(expected.size());
+    Set<String> actual =
+        views.stream()
+            .map(view -> view.path("tableId").asText())
+            .collect(Collectors.toCollection(TreeSet::new));
+    assertThat(actual).isEqualTo(expected);
+
+    cleanupHttpViews(database);
+    assertThat(
+            httpExchange(
+                    HttpMethod.DELETE,
+                    "/hts/tables",
+                    httpParams("databaseId", database, "tableId", "t_table"),
+                    null)
+                .status())
+        .isEqualTo(204);
+
+    assertThat(queryAllViews(database))
+        .as("cleanup must delete views beyond the first page")
+        .isEmpty();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM user_table_row WHERE database_id = ?", Long.class, database))
+        .as("no live rows remain in this database after HTTP cleanup")
+        .isZero();
+  }
+
+  @Test
+  public void testRestoreStampsTheTableDiscriminator() throws Exception {
+    String database = databaseId("restore_discriminator");
+    HttpResponse created = putHttpEntity("tables", database, "t_sd", "TABLE");
+    assertThat(created.status()).isEqualTo(201);
+    assertThat(readRawEntityType(database, "t_sd")).hasValue("TABLE");
+
+    HttpResponse deleted =
+        httpExchange(
+            HttpMethod.DELETE,
+            "/v1/hts/tables",
+            httpParams("databaseId", database, "tableId", "t_sd", "isSoftDelete", "true"),
+            null);
+    assertThat(deleted.status()).isEqualTo(204);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM user_table_row WHERE database_id = ? AND table_id = ?",
+                Long.class,
+                database,
+                "t_sd"))
+        .isZero();
+
+    HttpResponse archive =
+        httpExchange(
+            HttpMethod.GET,
+            "/hts/tables/querySoftDeleted",
+            httpParams("databaseId", database, "tableId", "t_sd"),
+            null);
+    assertThat(archive.status()).isEqualTo(200);
+    JsonNode archivedRow = archive.json().path("pageResults").path("content").get(0);
+    assertThat(archivedRow.has("entityType") && archivedRow.get("entityType").isNull()).isTrue();
+    long deletedAtMs = archivedRow.path("deletedAtMs").asLong();
+
+    HttpResponse restored =
+        httpExchange(
+            HttpMethod.PUT,
+            "/hts/tables/restore",
+            httpParams(
+                "databaseId",
+                database,
+                "tableId",
+                "t_sd",
+                "deletedAtMs",
+                Long.toString(deletedAtMs)),
+            null);
+    assertThat(restored.status()).isEqualTo(200);
+    assertThat(restored.entity().path("entityType").asText()).isEqualTo("TABLE");
+    assertThat(readRawEntityType(database, "t_sd")).hasValue("TABLE");
+  }
+
+  @Test
+  public void testCorruptEntityTypeValuesSplitIntoTwoFailureModes() throws Exception {
+    String database = databaseId("corrupt");
+    Map<String, Integer> cases = new LinkedHashMap<>();
+    cases.put("TABLE", 200);
+    cases.put("T\u00c1BLE", 500);
+    cases.put("TABLE ", 404);
+    cases.put(" TABLE", 404);
+    cases.put("", 404);
+    cases.put("   ", 404);
+    Map<String, String> tables = new LinkedHashMap<>();
+    int index = 0;
+    for (String stored : cases.keySet()) {
+      tables.put(stored, "t_case" + index++);
+    }
+
+    try (Connection connection = openInspectionConnection()) {
+      JdbcOperations inspection =
+          new JdbcTemplate(new SingleConnectionDataSource(connection, true));
+      inspection.execute("SET NAMES utf8mb4 COLLATE " + COLUMN_COLLATION);
+      assertThat(inspection.queryForObject("SELECT DATABASE()", String.class)).isEqualTo(DATABASE);
+      assertThat(inspection.queryForObject("SELECT @@collation_connection", String.class))
+          .as("the inspection session compares under NO PAD, not PAD SPACE")
+          .isEqualTo(COLUMN_COLLATION);
+      assertThat(
+              inspection.queryForObject(
+                  "SELECT collation_name FROM information_schema.columns"
+                      + " WHERE table_schema = DATABASE() AND table_name = 'user_table_row'"
+                      + " AND column_name = 'entity_type'",
+                  String.class))
+          .as("the expectations below assume an accent-insensitive NO PAD column")
+          .isEqualTo(COLUMN_COLLATION);
+      try {
+        for (Map.Entry<String, String> planted : tables.entrySet()) {
+          UserTableRawSeeder.seedStoredEntityType(
+              inspection, rawRow(database, planted.getValue()), planted.getKey());
+        }
+
+        for (Map.Entry<String, Integer> corruptCase : cases.entrySet()) {
+          String stored = corruptCase.getKey();
+          int expectedStatus = corruptCase.getValue();
+          String table = tables.get(stored);
+          String what = "entity_type '" + stored + "'";
+
+          assertThat(
+                  inspection.queryForObject(
+                      "SELECT entity_type = 'TABLE' FROM user_table_row"
+                          + " WHERE database_id = ? AND table_id = ?",
+                      Integer.class,
+                      database,
+                      table))
+              .as("the database's own comparison for %s", what)
+              .isEqualTo(expectedStatus == 404 ? 0 : 1);
+
+          HttpResponse typed =
+              httpExchange(
+                  HttpMethod.GET,
+                  "/hts/tables",
+                  httpParams("databaseId", database, "tableId", table),
+                  null);
+          assertThat(typed.status()).as("GET /hts/tables on " + what).isEqualTo(expectedStatus);
+          if (expectedStatus == 500) {
+            assertCorruptValueDiagnostic(typed, stored, "GET /hts/tables on " + what);
+          }
+          if (!"TABLE".equals(stored)) {
+            HttpResponse neutral =
+                httpExchange(
+                    HttpMethod.GET,
+                    "/hts/entities",
+                    httpParams("databaseId", database, "tableId", table),
+                    null);
+            assertThat(neutral.status()).isEqualTo(500);
+            assertCorruptValueDiagnostic(neutral, stored, "GET /hts/entities on " + what);
+          }
+        }
+
+        HttpResponse typedTrailingSpace =
+            httpExchange(
+                HttpMethod.GET,
+                "/hts/tables",
+                httpParams("databaseId", database, "tableId", tables.get("TABLE ")),
+                null);
+        HttpResponse neutralTrailingSpace =
+            httpExchange(
+                HttpMethod.GET,
+                "/hts/entities",
+                httpParams("databaseId", database, "tableId", tables.get("TABLE ")),
+                null);
+        assertThat(Arrays.asList(typedTrailingSpace.status(), neutralTrailingSpace.status()))
+            .as("NO PAD trailing-space disagreement")
+            .containsExactly(404, 500);
+
+        HttpResponse listing =
+            httpExchange(
+                HttpMethod.GET, "/hts/tables/query", httpParams("databaseId", database), null);
+        assertThat(listing.status()).isEqualTo(500);
+        assertThat(listing.message()).contains("user_table_row.entity_type");
+      } finally {
+        inspection.update("DELETE FROM user_table_row WHERE database_id = ?", database);
+        inspection.update(
+            "DELETE FROM soft_deleted_user_table_row WHERE database_id = ?", database);
+      }
+    }
+  }
+
+  private static void assertCorruptValueDiagnostic(
+      HttpResponse response, String stored, String what) throws Exception {
+    assertThat(response.message())
+        .as(
+            "%s: the diagnostic must name the column and quote the value. status=%s body=%s",
+            what, response.status(), response.body)
+        .contains("user_table_row.entity_type")
+        .contains("'" + stored + "'");
+  }
+
+  private UserTableRow rawRow(String database, String table) {
+    return UserTableRow.builder()
+        .databaseId(database)
+        .tableId(table)
+        .metadataLocation("/tmp/legacy.json")
+        .storageType("hdfs")
+        .build();
+  }
+
+  @Test
+  public void testMissingRequiredParametersAreBadRequest() {
+    List<HttpResponse> responses =
+        Arrays.asList(
+            httpExchange(HttpMethod.GET, "/hts/tables", Collections.emptyMap(), null),
+            httpExchange(HttpMethod.GET, "/hts/views", Collections.emptyMap(), null),
+            httpExchange(HttpMethod.GET, "/hts/entities", Collections.emptyMap(), null),
+            httpExchange(
+                HttpMethod.GET, "/hts/tables/querySoftDeleted", Collections.emptyMap(), null),
+            httpExchange(HttpMethod.PATCH, "/hts/tables/rename", Collections.emptyMap(), null),
+            httpExchange(
+                HttpMethod.DELETE,
+                "/v1/hts/tables",
+                httpParams("databaseId", "d", "tableId", "t"),
+                null));
+    assertThat(responses)
+        .hasSize(6)
+        .allSatisfy(response -> assertThat(response.status()).isEqualTo(400));
   }
 }

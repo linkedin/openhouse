@@ -791,11 +791,8 @@ public final class Operations implements AutoCloseable {
     Table table = getTable(fqtn);
 
     try {
-      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(spark, table);
       return tableStatsCollector.collectTableStats();
-    } catch (IOException e) {
-      log.error("Unable to initialize file system for table stats collection", e);
-      return null;
     } catch (Exception e) {
       log.error("Failed to collect table stats for table: {}", fqtn, e);
       return null;
@@ -812,11 +809,8 @@ public final class Operations implements AutoCloseable {
     Table table = getTable(fqtn);
 
     try {
-      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(spark, table);
       return tableStatsCollector.collectCommitEventTable();
-    } catch (IOException e) {
-      log.error("Unable to initialize file system for commit events collection", e);
-      return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect commit events for table: {}", fqtn, e);
       return Collections.emptyList();
@@ -837,11 +831,8 @@ public final class Operations implements AutoCloseable {
     Table table = getTable(fqtn);
 
     try {
-      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(spark, table);
       return tableStatsCollector.collectCommitEventTablePartitions();
-    } catch (IOException e) {
-      log.error("Unable to initialize file system for partition events collection", e);
-      return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect partition events for table: {}", fqtn, e);
       return Collections.emptyList();
@@ -877,11 +868,8 @@ public final class Operations implements AutoCloseable {
     Table table = getTable(fqtn);
 
     try {
-      TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
+      TableStatsCollector tableStatsCollector = new TableStatsCollector(spark, table);
       return tableStatsCollector.collectCommitEventTablePartitionStats();
-    } catch (IOException e) {
-      log.error("Unable to initialize file system for partition stats collection", e);
-      return Collections.emptyList();
     } catch (Exception e) {
       log.error("Failed to collect partition stats for table: {}", fqtn, e);
       return Collections.emptyList();

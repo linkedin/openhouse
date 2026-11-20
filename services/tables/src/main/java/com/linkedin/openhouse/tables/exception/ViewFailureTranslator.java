@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.exception;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
+import com.linkedin.openhouse.internal.catalog.view.ViewSystemPropertiesMismatchException;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -32,6 +33,12 @@ public final class ViewFailureTranslator {
     if (e instanceof ViewSourceDialectMismatchException) {
       return new ViewApiException(
           ViewErrorCode.INVALID_VIEW_DEFINITION, "sourceDialect must match the current view", e);
+    }
+    if (e instanceof ViewSystemPropertiesMismatchException) {
+      return new ViewApiException(
+          ViewErrorCode.INVALID_VIEW_DEFINITION,
+          "System view properties cannot be added, changed or removed",
+          e);
     }
     if (e instanceof AlreadyExistsException) {
       return new ViewApiException(ViewErrorCode.VIEW_ALREADY_EXISTS, "View already exists", e);

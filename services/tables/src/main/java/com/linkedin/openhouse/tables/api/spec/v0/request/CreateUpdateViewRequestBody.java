@@ -76,7 +76,12 @@ public class CreateUpdateViewRequestBody {
       example = "[\"my_database\"]")
   private List<String> defaultNamespace;
 
-  @Schema(nullable = true, description = "View properties", example = "{\"key\": \"value\"}")
+  @Schema(
+      nullable = true,
+      description =
+          "Complete desired view properties. Updates must echo stored system properties unchanged;"
+              + " omitted user properties are removed.",
+      example = "{\"key\": \"value\"}")
   private Map<String, String> viewProperties;
 
   /**
