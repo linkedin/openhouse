@@ -118,10 +118,30 @@ public final class SparkJobUtil {
                       : now.toLocalDateTime().minus(count, timeUnitGranularity));
       return Expressions.lessThan(columnName, formattedCutoffDate);
     } else {
-      ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
       long formattedCutoffDate =
-          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000; // microsecond
+          truncatedCutoff(now, timeUnitGranularity, count).toEpochSecond()
+              * 1000
+              * 1000; // microsecond
       return Expressions.lessThan(columnName, formattedCutoffDate);
+    }
+  }
+
+  /**
+   * Start of the granularity unit that holds {@code now} minus {@code count} units. This matches
+   * {@code date_trunc(granularity, now - INTERVAL count granularity)} in {@link
+   * #createDeleteStatement}. {@link ZonedDateTime#truncatedTo} only accepts units up to DAYS, and
+   * the Duration of MONTHS and YEARS is an estimate, so those two use calendar arithmetic.
+   */
+  private static ZonedDateTime truncatedCutoff(
+      ZonedDateTime now, ChronoUnit timeUnitGranularity, int count) {
+    switch (timeUnitGranularity) {
+      case MONTHS:
+        return now.minusMonths(count).truncatedTo(ChronoUnit.DAYS).withDayOfMonth(1);
+      case YEARS:
+        return now.minusYears(count).truncatedTo(ChronoUnit.DAYS).withDayOfYear(1);
+      default:
+        return now.minus(timeUnitGranularity.getDuration().multipliedBy(count))
+            .truncatedTo(timeUnitGranularity);
     }
   }
 

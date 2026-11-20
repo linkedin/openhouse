@@ -62,6 +62,27 @@ public class SparkJobUtilTest {
     Assertions.assertEquals(predicate.literal().value(), expectedCutoffDate);
   }
 
+  @ParameterizedTest
+  @CsvSource({
+    "2024-03-15T10:00Z,MONTH,1,2024-02-01T00:00Z",
+    "2024-03-31T10:00Z,MONTH,1,2024-02-01T00:00Z",
+    "2024-01-10T10:00Z,MONTH,3,2023-10-01T00:00Z",
+    "2024-02-29T10:00Z,YEAR,1,2023-01-01T00:00Z",
+    "2024-03-15T10:00Z,DAY,2,2024-03-13T00:00Z",
+    "2024-03-15T10:30Z,HOUR,5,2024-03-15T05:00Z"
+  })
+  void testCreateDeleteFilterWithoutColumnPatternTruncatesToGranularity(
+      String evaluationTime, String granularity, int count, String expectedCutoff) {
+    UnboundPredicate<?> predicate =
+        (UnboundPredicate<?>)
+            SparkJobUtil.createDeleteFilter(
+                "ts", "", granularity, count, ZonedDateTime.parse(evaluationTime));
+    Assertions.assertEquals(Expression.Operation.LT, predicate.op());
+    Assertions.assertEquals(
+        ZonedDateTime.parse(expectedCutoff).toEpochSecond() * 1000 * 1000,
+        predicate.literal().value());
+  }
+
   @Test
   public void testCreateDeleteFilterWithColumnPattern() {
     ZonedDateTime now = ZonedDateTime.now();
