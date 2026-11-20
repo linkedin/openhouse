@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -548,7 +549,8 @@ public class TablesClient {
                       pageResults.getContent(),
                       pageResults.getTotalElements(),
                       pageResults.getTotalPages());
-            });
+            },
+            table -> toTableDirectoryName(table.getTableLocation(), dbName, table.getTableId()));
     Set<String> directoryNames = new HashSet<>();
     for (GetTableResponseBody table : tables) {
       directoryNames.add(
@@ -578,7 +580,8 @@ public class TablesClient {
                       pageResults.getContent(),
                       pageResults.getTotalElements(),
                       pageResults.getTotalPages());
-            });
+            },
+            table -> toTableDirectoryName(table.getTableLocation(), dbName, table.getTableId()));
     Set<String> directoryNames = new HashSet<>();
     for (GetSoftDeletedTableResponseBody table : tables) {
       directoryNames.add(
@@ -664,13 +667,16 @@ public class TablesClient {
   }
 
   /**
-   * Reads every page of a listing. Rows added or removed between pages shift the remaining pages,
-   * so a row could be missed: a listing that changes while being read is read again, and the read
-   * fails if it keeps changing.
+   * Reads every page of a listing. Rows added, removed or moved between pages shift the remaining
+   * pages, so a row could be missed: a listing that changes while being read is read again, and the
+   * read fails if it keeps changing.
+   *
+   * @param toDirectoryName returns the table directory name of a row, which no two rows share
    */
-  private static <T> List<T> readAllPages(String listing, IntFunction<ListingPage<T>> readPage) {
+  private static <T> List<T> readAllPages(
+      String listing, IntFunction<ListingPage<T>> readPage, Function<T, String> toDirectoryName) {
     for (int attempt = 1; attempt <= MAX_LISTING_ATTEMPTS; attempt++) {
-      Optional<List<T>> rows = tryReadAllPages(listing, readPage);
+      Optional<List<T>> rows = tryReadAllPages(listing, readPage, toDirectoryName);
       if (rows.isPresent()) {
         return rows.get();
       }
@@ -680,9 +686,9 @@ public class TablesClient {
     throw new IllegalStateException(listing + " kept changing while being read");
   }
 
-  /** Returns empty if rows were added or removed while the pages were read. */
+  /** Returns empty if rows were added, removed or moved while the pages were read. */
   private static <T> Optional<List<T>> tryReadAllPages(
-      String listing, IntFunction<ListingPage<T>> readPage) {
+      String listing, IntFunction<ListingPage<T>> readPage, Function<T, String> toDirectoryName) {
     List<T> rows = new ArrayList<>();
     Long expectedTotal = null;
     int page = 0;
@@ -704,7 +710,21 @@ public class TablesClient {
       totalPages = pageResults.getTotalPages();
       page++;
     } while (page < totalPages);
-    return rows.size() == expectedTotal ? Optional.of(rows) : Optional.empty();
+    if (rows.size() != expectedTotal) {
+      return Optional.empty();
+    }
+    // A matching row count does not show that a row moved to another page: one row is then read
+    // twice and another is missed. Pages are sorted by table ID, so a renamed table moves, and
+    // soft-deleted tables with the same ID are in no fixed order.
+    Set<String> directoryNames = new HashSet<>();
+    for (T row : rows) {
+      String directoryName = toDirectoryName.apply(row);
+      if (!directoryNames.add(directoryName)) {
+        log.warn("{}: table directory {} was read twice", listing, directoryName);
+        return Optional.empty();
+      }
+    }
+    return Optional.of(rows);
   }
 
   /**
