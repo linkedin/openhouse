@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.exception;
 
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
@@ -34,6 +35,12 @@ public class NamespaceExceptionHandler {
   @ExceptionHandler(DuplicateCreationException.class)
   public ResponseEntity<NamespaceErrorResponse> handleDuplicate() {
     return respond(HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists");
+  }
+
+  @ExceptionHandler(EntityConcurrentModificationException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleConcurrentModification() {
+    return respond(
+        HttpStatus.CONFLICT, "CommitFailedException", "Namespace was concurrently modified");
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)

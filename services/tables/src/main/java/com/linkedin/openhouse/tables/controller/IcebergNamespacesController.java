@@ -100,7 +100,13 @@ public class IcebergNamespacesController {
   }
 
   @Operation(tags = "Namespace", summary = "Update namespace properties")
-  @ApiResponse(responseCode = "200", description = "Properties updated")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Properties updated"),
+    @ApiResponse(
+        responseCode = "409",
+        description = "Namespace was concurrently modified",
+        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
+  })
   @PostMapping("/{namespace}/properties")
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public UpdateNamespacePropertiesResponse updateNamespaceProperties(
@@ -119,7 +125,13 @@ public class IcebergNamespacesController {
   }
 
   @Operation(tags = "Namespace", summary = "Drop namespace metadata")
-  @ApiResponse(responseCode = "204", description = "Namespace dropped")
+  @ApiResponses({
+    @ApiResponse(responseCode = "204", description = "Namespace dropped"),
+    @ApiResponse(
+        responseCode = "409",
+        description = "Namespace was concurrently modified",
+        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
+  })
   @DeleteMapping("/{namespace}")
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public ResponseEntity<Void> dropNamespace(

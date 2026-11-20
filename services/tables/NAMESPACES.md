@@ -39,8 +39,10 @@ Creation, property updates, removals, and drop require `SYSTEM_ADMIN`. Loading m
 
 Invalid requests return 400 or 422. Authentication failures return 401, insufficient privileges
 return 403, and a missing namespace returns 404. Consumers may treat 404 as having no defaults.
-Other failures return 500 and may leave a write outcome uncertain. Read current metadata before
-submitting another write. Tables Service submits each HouseTables namespace request once.
+Concurrent update or drop conflicts return 409 with `CommitFailedException`. Tables Service reads
+the current document once, merges the sparse request, and submits one conditional replacement.
+It does not retry conflicts. Other failures return 500 and may leave a write outcome uncertain.
+Read current metadata before submitting another write.
 
 ## Drop and table independence
 

@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
@@ -48,7 +50,7 @@ class HouseNamespaceRepositoryImplTest {
             .setResponseCode(201)
             .addHeader("Content-Type", "application/json")
             .setBody(
-                "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{\"a\":\"1\"}}"));
+                "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{\"a\":\"1\"},\"revision\":\"0\"}"));
     assertEquals(
         "foo", repository.create("bar", Collections.singletonMap("a", "1")).getNamespaceUuid());
     RecordedRequest create = server.takeRequest();
@@ -62,23 +64,27 @@ class HouseNamespaceRepositoryImplTest {
         new MockResponse()
             .addHeader("Content-Type", "application/json")
             .setBody(
-                "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{\"a\":\"1\"}}"));
+                "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{\"a\":\"1\"},\"revision\":\"0\"}"));
     assertEquals("1", repository.getByName("bar").getProperties().get("a"));
     assertEquals("/hts/namespaces/bar", server.takeRequest().getPath());
 
     server.enqueue(
         new MockResponse()
             .addHeader("Content-Type", "application/json")
-            .setBody("{\"updated\":[\"b\"],\"removed\":[\"a\"],\"missing\":[]}"));
+            .setBody(
+                "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{\"b\":\"2\"},\"revision\":\"1\"}"));
     assertEquals(
-        Collections.singletonList("a"),
+        "1",
         repository
-            .updateProperties("bar", Collections.singletonMap("b", "2"), Collections.singleton("a"))
-            .getRemoved());
+            .update("bar", new NamespaceMetadata("foo", "bar", Map.of("b", "2"), "0"))
+            .getRevision());
     RecordedRequest update = server.takeRequest();
-    assertEquals("/hts/namespaces/bar/properties", update.getPath());
+    assertEquals("PUT", update.getMethod());
+    assertEquals("/hts/namespaces/bar", update.getPath());
     assertEquals(
-        new ObjectMapper().readTree("{\"updates\":{\"b\":\"2\"},\"removals\":[\"a\"]}"),
+        new ObjectMapper()
+            .readTree(
+                "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{\"b\":\"2\"},\"revision\":\"0\"}"),
         new ObjectMapper().readTree(update.getBody().readUtf8()));
 
     server.enqueue(new MockResponse().setResponseCode(204));
@@ -110,7 +116,7 @@ class HouseNamespaceRepositoryImplTest {
     NotFoundException exception =
         assertThrows(
             NotFoundException.class,
-            () -> repository.updateProperties("foo", Map.of(), Collections.emptySet()));
+            () -> repository.update("foo", new NamespaceMetadata("id", "foo", Map.of(), "0")));
     assertInstanceOf(WebClientResponseException.NotFound.class, exception.getCause());
     assertEquals(1, server.getRequestCount());
   }
@@ -125,11 +131,36 @@ class HouseNamespaceRepositoryImplTest {
   }
 
   @Test
+  void updateAndDeleteConflictsRemainCommitConflicts() {
+    server.enqueue(errorResponse(409));
+    EntityConcurrentModificationException update =
+        assertThrows(
+            EntityConcurrentModificationException.class,
+            () -> repository.update("foo", new NamespaceMetadata("id", "foo", Map.of(), "0")));
+    assertInstanceOf(WebClientResponseException.Conflict.class, update.getCause());
+    server.enqueue(errorResponse(409));
+    EntityConcurrentModificationException deletion =
+        assertThrows(EntityConcurrentModificationException.class, () -> repository.delete("foo"));
+    assertInstanceOf(WebClientResponseException.Conflict.class, deletion.getCause());
+    assertEquals(2, server.getRequestCount());
+  }
+
+  @Test
   void otherHttpFailuresKeepTheirGeneratedTypeAndOneAttempt() {
     server.enqueue(errorResponse(503));
     assertThrows(
         WebClientResponseException.ServiceUnavailable.class,
-        () -> repository.updateProperties("foo", Map.of(), Collections.emptySet()));
+        () -> repository.update("foo", new NamespaceMetadata("id", "foo", Map.of(), "0")));
+    assertEquals(1, server.getRequestCount());
+  }
+
+  @Test
+  void malformedMetadataDoesNotBecomeAConflict() {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"namespaceUuid\":\"id\",\"namespaceName\":\"foo\",\"properties\":{}}"));
+    assertThrows(NullPointerException.class, () -> repository.getByName("foo"));
     assertEquals(1, server.getRequestCount());
   }
 

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.linkedin.openhouse.HouseTablesSpringApplication;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
@@ -115,6 +116,46 @@ class IcebergNamespacesH2Test {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.error.code").value(404))
         .andExpect(jsonPath("$.error.type").value("NoSuchNamespaceException"));
+  }
+
+  @Test
+  void staleReplacementReturnsConflictWithoutOverwritingConcurrentChange() throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"conflict\"],\"properties\":{\"keep\":\"one\"}}"))
+        .andExpect(status().isOk());
+    doAnswer(
+            invocation -> {
+              NamespaceMetadata original = (NamespaceMetadata) invocation.callRealMethod();
+              namespaceStorage.updateNamespace(
+                  "conflict",
+                  NamespaceMetadata.builder()
+                      .namespaceUuid(original.getNamespaceUuid())
+                      .namespaceName(original.getNamespaceName())
+                      .revision(original.getRevision())
+                      .properties(Map.of("keep", "one", "concurrent", "two"))
+                      .build());
+              return original;
+            })
+        .when(namespaceStorage)
+        .getNamespace("conflict");
+    mvc.perform(
+            post("/v1/foo/namespaces/conflict/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"attempted\":\"three\"}}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+    verify(namespaceStorage, times(1)).getNamespace("conflict");
+    verify(namespaceStorage, times(2)).updateNamespace(eq("conflict"), any());
+    String properties =
+        new JdbcTemplate(dataSource)
+            .queryForObject(
+                "SELECT properties FROM catalog_namespaces WHERE namespace_name = 'conflict'",
+                String.class);
+    assertEquals(
+        Map.of("keep", "one", "concurrent", "two"),
+        new com.fasterxml.jackson.databind.ObjectMapper().readValue(properties, Map.class));
   }
 
   @ParameterizedTest

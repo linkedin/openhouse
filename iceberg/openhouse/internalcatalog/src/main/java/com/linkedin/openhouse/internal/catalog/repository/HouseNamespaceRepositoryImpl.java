@@ -1,18 +1,16 @@
 package com.linkedin.openhouse.internal.catalog.repository;
 
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.client.model.NamespaceMetadataResponse;
-import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesRequestBody;
-import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesResponseBody;
+import com.linkedin.openhouse.housetables.client.model.UpdateNamespaceRequestBody;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
-import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -46,8 +44,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
     } catch (WebClientResponseException.Conflict exception) {
       throw new DuplicateCreationException("Namespace already exists", exception);
     }
-    return new NamespaceMetadata(
-        result.getNamespaceUuid(), result.getNamespaceName(), Map.copyOf(result.getProperties()));
+    return metadata(result);
   }
 
   @Override
@@ -58,8 +55,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
     } catch (WebClientResponseException.NotFound exception) {
       throw new NotFoundException("Namespace does not exist", exception);
     }
-    return new NamespaceMetadata(
-        result.getNamespaceUuid(), result.getNamespaceName(), Map.copyOf(result.getProperties()));
+    return metadata(result);
   }
 
   @Override
@@ -68,31 +64,41 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
       execute(() -> namespaceApi.deleteNamespace(namespaceName), WRITE_TIMEOUT);
     } catch (WebClientResponseException.NotFound exception) {
       throw new NotFoundException("Namespace does not exist", exception);
+    } catch (WebClientResponseException.Conflict exception) {
+      throw new EntityConcurrentModificationException(namespaceName, exception);
     }
   }
 
   @Override
-  public NamespacePropertyUpdate updateProperties(
-      String namespaceName, Map<String, String> updates, Set<String> removals)
+  public NamespaceMetadata update(String namespaceName, NamespaceMetadata document)
       throws NotFoundException {
-    UpdateNamespacePropertiesResponseBody result;
+    NamespaceMetadataResponse result;
     try {
       result =
           execute(
               () ->
-                  namespaceApi.updateNamespaceProperties(
+                  namespaceApi.updateNamespace(
                       namespaceName,
-                      new UpdateNamespacePropertiesRequestBody()
-                          .updates(updates)
-                          .removals(removals)),
+                      new UpdateNamespaceRequestBody()
+                          .namespaceUuid(document.getNamespaceUuid())
+                          .namespaceName(document.getNamespaceName())
+                          .properties(document.getProperties())
+                          .revision(document.getRevision())),
               WRITE_TIMEOUT);
     } catch (WebClientResponseException.NotFound exception) {
       throw new NotFoundException("Namespace does not exist", exception);
+    } catch (WebClientResponseException.Conflict exception) {
+      throw new EntityConcurrentModificationException(namespaceName, exception);
     }
-    return new NamespacePropertyUpdate(
-        List.copyOf(result.getUpdated()),
-        List.copyOf(result.getRemoved()),
-        List.copyOf(result.getMissing()));
+    return metadata(result);
+  }
+
+  private NamespaceMetadata metadata(NamespaceMetadataResponse response) {
+    return new NamespaceMetadata(
+        Objects.requireNonNull(response.getNamespaceUuid()),
+        Objects.requireNonNull(response.getNamespaceName()),
+        Map.copyOf(response.getProperties()),
+        Objects.requireNonNull(response.getRevision()));
   }
 
   private <T> T execute(Supplier<Mono<T>> request, Duration timeout) {

@@ -9,10 +9,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
-import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -65,7 +65,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void fourRoutesMatchIcebergBodiesAndSuccessStatuses() throws Exception {
     NamespaceMetadata metadata =
-        new NamespaceMetadata("private", "foo", Collections.singletonMap("a", "1"));
+        new NamespaceMetadata("private", "foo", Collections.singletonMap("a", "1"), "1");
     when(repository.create(eq("foo"), any())).thenReturn(metadata);
     mvc.perform(
             post("/v1/catalog_name/namespaces")
@@ -78,12 +78,6 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.namespace[0]").value("foo"))
         .andExpect(jsonPath("$.namespaceUuid").doesNotExist());
-    when(repository.updateProperties(eq("foo"), any(), any()))
-        .thenReturn(
-            new NamespacePropertyUpdate(
-                Collections.singletonList("b"),
-                Collections.singletonList("a"),
-                Collections.singletonList("c")));
     mvc.perform(
             post("/v1/catalog_name/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -137,7 +131,7 @@ class IcebergNamespacesControllerTest {
             anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(false);
     when(repository.getByName("foo"))
-        .thenReturn(new NamespaceMetadata("identifier", "foo", Collections.emptyMap()));
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Collections.emptyMap(), "1"));
     mvc.perform(get("/v1/catalog_name/namespaces/foo")).andExpect(status().isOk());
     mvc.perform(delete("/v1/catalog_name/namespaces/foo")).andExpect(status().isForbidden());
     verify(authorizationHandler)
@@ -206,16 +200,15 @@ class IcebergNamespacesControllerTest {
   void supplementaryPropertyKeysPassPublicValidation() throws Exception {
     when(repository.create("foo", Collections.singletonMap("😀", "value")))
         .thenReturn(
-            new NamespaceMetadata("identifier", "foo", Collections.singletonMap("😀", "value")));
+            new NamespaceMetadata(
+                "identifier", "foo", Collections.singletonMap("😀", "value"), "1"));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"namespace\":[\"foo\"],\"properties\":{\"\\ud83d\\ude00\":\"value\"}}"))
         .andExpect(status().isOk());
-    when(repository.updateProperties(eq("foo"), any(), any()))
-        .thenReturn(
-            new NamespacePropertyUpdate(
-                Collections.emptyList(), Collections.singletonList("😀"), Collections.emptyList()));
+    when(repository.getByName("foo"))
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of("😀", "value"), "1"));
     mvc.perform(
             post("/v1/foo/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -226,7 +219,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void omittedCollectionsAreEmptyAndOverlapIsUnprocessable() throws Exception {
     when(repository.create("foo", Collections.emptyMap()))
-        .thenReturn(new NamespaceMetadata("private", "foo", Collections.emptyMap()));
+        .thenReturn(new NamespaceMetadata("private", "foo", Collections.emptyMap(), "1"));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -266,10 +259,8 @@ class IcebergNamespacesControllerTest {
         "updates".equals(supplied)
             ? Map.of("updates", updates)
             : "removals".equals(supplied) ? Map.of("removals", removals) : Map.of();
-    when(repository.updateProperties("foo", updates, removals))
-        .thenReturn(
-            new NamespacePropertyUpdate(
-                List.copyOf(updates.keySet()), List.copyOf(removals), List.of()));
+    when(repository.getByName("foo"))
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of("b", "2"), "1"));
     mvc.perform(
             post("/v1/foo/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -288,7 +279,11 @@ class IcebergNamespacesControllerTest {
                                 "missing",
                                 List.of())),
                     true));
-    verify(repository).updateProperties("foo", updates, removals);
+    Map<String, String> expected =
+        "updates".equals(supplied)
+            ? Map.of("a", "1", "b", "2")
+            : "removals".equals(supplied) ? Map.of() : Map.of("b", "2");
+    verify(repository).update("foo", new NamespaceMetadata("identifier", "foo", expected, "1"));
   }
 
   @Test
@@ -305,7 +300,9 @@ class IcebergNamespacesControllerTest {
 
   @Test
   void failedUpdateUsesGenericFailureResponse() throws Exception {
-    when(repository.updateProperties("namespaces", Map.of(), Set.of()))
+    when(repository.getByName("namespaces"))
+        .thenReturn(new NamespaceMetadata("identifier", "namespaces", Map.of(), "1"));
+    when(repository.update(eq("namespaces"), any()))
         .thenThrow(new RuntimeException("Namespace was modified concurrently"));
     mvc.perform(
             post("/v1/foo/namespaces/namespaces/properties")
@@ -313,6 +310,26 @@ class IcebergNamespacesControllerTest {
                 .content("{}"))
         .andExpect(status().isInternalServerError())
         .andExpect(jsonPath("$.error.type").value("RESTException"));
+  }
+
+  @Test
+  void updateAndDeleteConflictsUseCommitFailedResponse() throws Exception {
+    when(repository.getByName("foo"))
+        .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of(), "1"));
+    when(repository.update(eq("foo"), any()))
+        .thenThrow(new EntityConcurrentModificationException("foo", null));
+    doThrow(new EntityConcurrentModificationException("foo", null)).when(repository).delete("foo");
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+    verify(repository, times(1)).getByName("foo");
+    verify(repository, times(1)).update(eq("foo"), any());
+    mvc.perform(delete("/v1/foo/namespaces/foo"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
   }
 
   @Test

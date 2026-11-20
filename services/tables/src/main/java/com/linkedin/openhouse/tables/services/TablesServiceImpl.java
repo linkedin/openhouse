@@ -39,11 +39,13 @@ import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -96,7 +98,29 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
     if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new InvalidPropertyUpdateException("Updates and removals must use disjoint keys");
     }
-    return namespaceRepository.updateProperties(namespace, updates, removals);
+    NamespaceMetadata current = namespaceRepository.getByName(namespace);
+    List<String> removed =
+        removals.stream()
+            .filter(current.getProperties()::containsKey)
+            .sorted()
+            .collect(Collectors.toList());
+    List<String> missing =
+        removals.stream()
+            .filter(key -> !current.getProperties().containsKey(key))
+            .sorted()
+            .collect(Collectors.toList());
+    Map<String, String> properties = new HashMap<>(current.getProperties());
+    properties.keySet().removeAll(removals);
+    properties.putAll(updates);
+    namespaceRepository.update(
+        namespace,
+        new NamespaceMetadata(
+            current.getNamespaceUuid(),
+            current.getNamespaceName(),
+            properties,
+            current.getRevision()));
+    return new NamespacePropertyUpdate(
+        updates.keySet().stream().sorted().collect(Collectors.toList()), removed, missing);
   }
 
   @Override
