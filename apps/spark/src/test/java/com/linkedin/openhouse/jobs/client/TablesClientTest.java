@@ -12,13 +12,16 @@ import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.api.ViewApi;
 import com.linkedin.openhouse.tables.client.model.ClusteringColumn;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetViewResponseBody;
 import com.linkedin.openhouse.tables.client.model.History;
 import com.linkedin.openhouse.tables.client.model.PageGetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.PageGetTableResponseBody;
@@ -50,9 +53,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
+import org.mockito.stubbing.OngoingStubbing;
+import org.springframework.http.HttpHeaders;
 import org.springframework.retry.RetryPolicy;
 import org.springframework.retry.policy.NeverRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 @SuppressWarnings("unchecked")
@@ -79,6 +85,7 @@ public class TablesClientTest {
   private TableApi apiMock;
   private TablesClient client;
   private DatabaseApi dbApiMock;
+  private ViewApi viewApiMock;
   private StorageClient storageClient;
   private final String testRootPath = "/data/openhouse";
   private static final List<String> TABLE_LOCATION_FIELD =
@@ -125,6 +132,9 @@ public class TablesClientTest {
   void setup() {
     apiMock = Mockito.mock(TableApi.class);
     dbApiMock = Mockito.mock(DatabaseApi.class);
+    viewApiMock = Mockito.mock(ViewApi.class);
+    Mockito.when(viewApiMock.getAllViewsV1(any(), any(), any(), any()))
+        .thenReturn(Mono.error(viewListingNotFound("Views are disabled")));
     storageClient = Mockito.mock(StorageClient.class);
     Mockito.when(storageClient.getRootPath()).thenReturn(testRootPath);
     RetryPolicy retryPolicy = new NeverRetryPolicy();
@@ -135,6 +145,7 @@ public class TablesClientTest {
                 RetryTemplate.builder().customPolicy(retryPolicy).build(),
                 apiMock,
                 dbApiMock,
+                viewApiMock,
                 storageClient));
   }
 
@@ -284,6 +295,43 @@ public class TablesClientTest {
         client.getOrphanTableDirectories(testDbName));
     Mockito.verify(storageClient).getSubDirectoriesWithOwners(new Path(testRootPath, testDbName));
     Mockito.verify(apiMock, Mockito.never()).getTableV1(any(), any());
+    // Views are turned off for the database, so the view listing is requested once.
+    Mockito.verify(viewApiMock).getAllViewsV1(eq(testDbName), isNull(), any(), isNull());
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesProtectsViews() {
+    mockLiveTables(testTableName);
+    mockNoSoftDeletedTables();
+    mockViewsPage(null, viewsPage("page_2", "view_1"));
+    mockViewsPage("page_2", viewsPage(null, "view_2"));
+    mockTableDirectories(
+        tableDirectoryName(testTableName),
+        tableDirectoryName("view_1"),
+        tableDirectoryName("view_2"),
+        tableDirectoryName(testOrphanDirectoryName));
+
+    Assertions.assertEquals(
+        Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
+        client.getOrphanTableDirectories(testDbName));
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesReadsViewsAgainWhenTheyChange() {
+    mockLiveTables(testTableName);
+    mockNoSoftDeletedTables();
+    // dropped_view is dropped while the first read moves to the second page, so view_1 moves to
+    // the first page and is missed. Later reads agree.
+    mockViewsPage(null, viewsPage("page_2", "dropped_view"), viewsPage(null, "view_1"));
+    mockViewsPage("page_2", viewsPage(null));
+    mockTableDirectories(
+        tableDirectoryName(testTableName),
+        tableDirectoryName("view_1"),
+        tableDirectoryName(testOrphanDirectoryName));
+
+    Assertions.assertEquals(
+        Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName))),
+        client.getOrphanTableDirectories(testDbName));
   }
 
   @Test
@@ -359,6 +407,7 @@ public class TablesClientTest {
                 RetryTemplate.builder().customPolicy(new NeverRetryPolicy()).build(),
                 apiMock,
                 dbApiMock,
+                viewApiMock,
                 storageClient);
     mockLiveTables(testTableName);
     mockNoSoftDeletedTables();
@@ -400,6 +449,12 @@ public class TablesClientTest {
         "liveTablesRowCountDoesNotMatchTotal",
         "softDeletedSearchFails",
         "softDeletedTablesKeepChangingWhilePaging",
+        "viewSearchFails",
+        "viewSearchReturnsNothing",
+        "viewListingNotFound",
+        "viewsDisabledWhilePaging",
+        "viewsKeepChangingWhileRead",
+        "viewLocationIsInvalid",
         "noListedDirectoryInUse"
       })
   void testGetOrphanTableDirectoriesSkipsDatabaseWhenLookupIsUnreliable(String failure) {
@@ -446,6 +501,35 @@ public class TablesClientTest {
       case "softDeletedTablesKeepChangingWhilePaging":
         mockSoftDeletedTablesPage(0, 2, 2L, "dropped_1");
         mockSoftDeletedTablesPage(1, 1, 1L);
+        break;
+      case "viewSearchFails":
+        Mockito.when(viewApiMock.getAllViewsV1(eq(testDbName), any(), any(), isNull()))
+            .thenReturn(Mono.error(new RuntimeException("search failed")));
+        break;
+      case "viewSearchReturnsNothing":
+        Mockito.when(viewApiMock.getAllViewsV1(eq(testDbName), any(), any(), isNull()))
+            .thenReturn(Mono.empty());
+        break;
+      case "viewListingNotFound":
+        // e.g. a tables service without the view API
+        Mockito.when(viewApiMock.getAllViewsV1(eq(testDbName), any(), any(), isNull()))
+            .thenReturn(Mono.error(viewListingNotFound("")));
+        break;
+      case "viewsDisabledWhilePaging":
+        mockViewsPage(null, viewsPage("page_2", "view_1"));
+        break;
+      case "viewsKeepChangingWhileRead":
+        mockViewsPage(
+            null,
+            viewsPage(null, "view_1"),
+            viewsPage(null, "view_2"),
+            viewsPage(null, "view_1"),
+            viewsPage(null, "view_2"));
+        break;
+      case "viewLocationIsInvalid":
+        GetAllViewsResponseBody views = viewsPage(null, "view_1");
+        Mockito.when(views.getResults().get(0).getMetadataLocation()).thenReturn(null);
+        mockViewsPage(null, views);
         break;
       case "noListedDirectoryInUse":
         mockTableDirectories(
@@ -919,6 +1003,44 @@ public class TablesClientTest {
 
   private void mockNoSoftDeletedTables() {
     mockSoftDeletedTablesPage(0, 0, 0L);
+  }
+
+  private GetAllViewsResponseBody viewsPage(String nextPageToken, String... viewNames) {
+    List<GetViewResponseBody> views = new ArrayList<>();
+    for (String viewName : viewNames) {
+      GetViewResponseBody view = Mockito.mock(GetViewResponseBody.class);
+      Mockito.when(view.getViewId()).thenReturn(viewName);
+      Mockito.when(view.getMetadataLocation()).thenReturn(metadataLocation(viewName));
+      views.add(view);
+    }
+    GetAllViewsResponseBody response = Mockito.mock(GetAllViewsResponseBody.class);
+    Mockito.when(response.getResults()).thenReturn(views);
+    Mockito.when(response.getNextPageToken()).thenReturn(nextPageToken);
+    return response;
+  }
+
+  /** Stubs the view page with the given token to return the responses in order. */
+  private void mockViewsPage(String pageToken, GetAllViewsResponseBody... responses) {
+    Mono<GetAllViewsResponseBody> request =
+        pageToken == null
+            ? viewApiMock.getAllViewsV1(eq(testDbName), isNull(), any(), isNull())
+            : viewApiMock.getAllViewsV1(eq(testDbName), eq(pageToken), any(), isNull());
+    OngoingStubbing<Mono<GetAllViewsResponseBody>> stubbing = Mockito.when(request);
+    for (GetAllViewsResponseBody response : responses) {
+      stubbing = stubbing.thenReturn(Mono.just(response));
+    }
+  }
+
+  private static WebClientResponseException viewListingNotFound(String message) {
+    String body =
+        String.format(
+            "{\"status\":\"NOT_FOUND\",\"error\":\"Not Found\",\"message\":\"%s\"}", message);
+    return WebClientResponseException.create(
+        404,
+        "Not Found",
+        HttpHeaders.EMPTY,
+        body.getBytes(StandardCharsets.UTF_8),
+        StandardCharsets.UTF_8);
   }
 
   private DirectoryMetadata directoryMetadata(String directoryName) {
