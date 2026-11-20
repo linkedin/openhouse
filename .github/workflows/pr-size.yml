@@ -1,0 +1,32 @@
+# PR size: fails pull requests that are too large to review well (counted lines and walls of new code).
+# Over budget: split the PR (see "Pull Request Size" in CONTRIBUTING.md), or add a "Why this can't be
+# split" section to the PR description and ask a maintainer to add the `size-exception` label.
+name: PR size
+
+on:
+  pull_request:
+    # labeled/unlabeled/edited re-evaluate the size-exception label and the PR description.
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-size:
+    name: PR size
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The default ref is the PR merge commit; its first parent is the base branch (for a stacked PR,
+      # the layer below), so HEAD^1..HEAD is exactly what this PR adds.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Check PR size
+        run: python3 .github/scripts/pr_size_check.py --base HEAD^1 --head HEAD
