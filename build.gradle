@@ -107,6 +107,8 @@ allprojects {
 
     tasks.withType(Test).configureEach {
       useJUnitPlatform()
+      // Every Testcontainers MySQL in the build uses this one version (gradle.properties).
+      systemProperty 'openhouse.test.mysql.version', mysqlTestVersion
 
       testLogging {
         // use these options for analyzing results: --console=plain > output.log 2>&1

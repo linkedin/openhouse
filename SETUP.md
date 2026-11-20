@@ -41,71 +41,19 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
-## HouseTables database and query-contract tests
+## HouseTables tests
 
-**Java 17 and Docker are required** for the database-backed HouseTables (HTS) tests; no
-preinstalled database server, staging access or Spark is needed. Container or schema
-initialization failures fail the tests rather than falling back to H2 or skipping them.
-
-- Spring integration tests share a disposable MySQL Testcontainers instance. The schema comes
-  from all canonical `services/housetables/ddl/*.sql` files in filename order, not
-  Hibernate-generated tables. Shared fixtures reset data between tests.
-- `HtsControllerTest` starts Spring Boot on a random port and sends actual HTTP requests with
-  `WebTestClient`. It covers table/view behavior, pagination, soft-delete/restore/purge, and
-  legacy or invalid entity types. These tests run in ordinary Gradle `test`/`build` and CI.
-- Query-contract unit tests and controller-routing tests also run by default. They verify typed
-  repository predicates, case normalization, legacy `NULL` handling, and that representative
-  endpoint parameters reach the intended persistence handler. They do not execute SQL or assert
-  database optimizer plans.
-
-These in-JVM tests do not validate the packaged JAR/image, entrypoint, Compose startup,
-deployed configuration/credentials, or the application's SQL bootstrap scripts.
-
-### Running the tests
+**Java 17 and Docker are required** for the HouseTables (HTS) tests. They share one disposable
+MySQL Testcontainers instance per test JVM, built from the canonical
+`services/housetables/ddl/*.sql` files in filename order; data is reset before each test. A
+container or schema failure fails the tests; there is no H2 fallback. The MySQL version is
+`mysqlTestVersion` in `gradle.properties`, shared with the optimizer tests.
 
 ```bash
-# All HTS tests (Docker required for the Spring integration tests).
 ./gradlew :services:housetables:test
-
-# Real-HTTP behavioral tests only (Docker required).
-./gradlew :services:housetables:test --tests '*HtsControllerTest'
-
-# Index unit contracts and controller routing (Docker-free).
-./gradlew :services:housetables:test \
-  --tests '*HtsIndexUnitTest' \
-  --tests '*HtsEndpointIndexRoutingTest'
-
 ```
 
-The tests use MySQL 8.4.11. JUnit reports are under `build/housetables/reports/tests/`.
-
-### Endpoint coverage
-
-The HTTP behavior and controller-routing tests cover these routes. The routing tests check
-parameter binding and handler dispatch; they do not enforce database access plans.
-
-| Endpoint | Coverage |
-|---|---|
-| `GET /hts/tables` | Mixed-case table lookup |
-| `GET /hts/tables/query` | Database, exact table, prefix and leading-wildcard queries |
-| `GET /v1/hts/tables/query` | Paginated queries and counts |
-| `GET /hts/tables/querySoftDeleted` | Deleted-version listing and expiry filters |
-| `PUT /hts/tables` | Create and update |
-| `DELETE /hts/tables` | Conditional delete |
-| `DELETE /v1/hts/tables` | Hard and soft delete |
-| `PATCH /hts/tables/rename` | Rename and entity-type checks |
-| `PUT /hts/tables/restore` | Restore and live-key conflicts |
-| `DELETE /hts/tables/purge` | All-version and expiry-bounded purge |
-| `GET /hts/jobs` | Job lookup |
-| `PUT /hts/jobs` | Job create and update |
-| `DELETE /hts/jobs` | Job delete |
-| `GET /hts/jobs/query` | Job search and listing |
-| `GET /hts/togglestatuses` | Feature lookup and wildcard rules |
-| `GET /hts/entities` | Type-neutral table/view lookup |
-| `GET /hts/views` | View-scoped lookup |
-| `GET /v1/hts/views/query` | Paginated database/pattern queries and counts |
-| `PUT /hts/views` | View create and update |
-| `DELETE /hts/views` | View-scoped delete |
+JUnit reports are under `build/housetables/reports/tests/`.
 
 ## Available Recipes
 
