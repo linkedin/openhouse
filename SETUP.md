@@ -507,6 +507,13 @@ not declare (X-Client-Name: trino, User-Agent: ..., X-OpenHouse-Client-Capabilit
 client that declares column-defaults in X-OpenHouse-Client-Capabilities.` It does not mention the
 escape hatch.
 
+On an opted-in table, a commit fails with HTTP **400** if it changes or removes the default of a
+column that has one: once set, a default is fixed while its column exists. Rewrites store the
+default as a value in the files they write, so a new one would read differently in rewritten and
+untouched files. A column without a default can still get one. A changed default is refused with
+`COLUMN_DEFAULT_CHANGED: db.tbl has a column default on country (field-id 2), and this commit
+changes it. ...`, and a removed one with `COLUMN_DEFAULT_REMOVED`.
+
 A commit fails with HTTP **400** if a column default it declares does not fit the column's type in
 every schema version of the table: clients apply a default to every schema version, including the
 older ones time travel reads, so one that does not fit would fail every load. For example, once an
@@ -521,8 +528,8 @@ The default-off escape hatch is the request header
 the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
 request header. It bypasses only column-default policy checks: the `column-defaults` capability (no
 other capability), the rule that a committed `required-capability.column-defaults=true` cannot be
-changed or removed, and the checks that a commit keeps a column's default, that its defaults fit
-every schema version, and that a snapshot commit comes from a client that declares
+changed or removed, and the checks that a commit keeps a column's default unchanged, that its
+defaults fit every schema version, and that a snapshot commit comes from a client that declares
 `column-defaults`. Incorrect reads or writes may result.
 Authentication, authorization and default resolution still apply, and `initial-default` is still
 stripped from writes. JARs without `header.` catalog properties need an upgrade/backport to send it.
