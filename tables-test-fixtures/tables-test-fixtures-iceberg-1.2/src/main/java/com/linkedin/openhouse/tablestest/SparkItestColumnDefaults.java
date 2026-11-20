@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tablestest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.IntNode;
+import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
@@ -17,12 +18,15 @@ import org.springframework.context.annotation.Configuration;
  * Test-only configuration that supplies column defaults. Used by Spark catalog itests that validate
  * ReadBridge end to end with a stubbed {@link ColumnDefaultsSource}. Scoped to {@link #DATABASE} so
  * other catalog tests stay on empty maps. Stamps {@code country} and {@code tier} at any depth,
- * including fields of structs inside list elements and map values.
+ * including fields of structs inside list elements and map values, and a long column named {@code
+ * wide} with {@link #WIDE_DEFAULT}, which no int can hold.
  */
 @Configuration
 public class SparkItestColumnDefaults {
 
   public static final String DATABASE = "d1_column_default";
+
+  private static final long WIDE_DEFAULT = 8_000_000_000L;
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -55,6 +59,8 @@ public class SparkItestColumnDefaults {
         out.put(id, TextNode.valueOf("US"));
       } else if ("tier".equals(name)) {
         out.put(id, IntNode.valueOf(1));
+      } else if ("wide".equals(name) && "long".equals(field.path("type").asText())) {
+        out.put(id, LongNode.valueOf(WIDE_DEFAULT));
       }
     }
     return out;

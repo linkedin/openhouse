@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
@@ -22,6 +23,7 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -415,6 +417,33 @@ public class ReadBridgeStripProtectionTest {
             .getCause());
   }
 
+  /**
+   * Clients apply a default to every schema version that has its column. One that does not fit the
+   * column's type in an older version would fail every load of the table.
+   */
+  @Test
+  public void defaultThatDoesNotFitAnOlderSchemaVersion_rejected() {
+    ReadBridgeStripProtection protection =
+        protection(tableDto -> Collections.singletonMap(2, LongNode.valueOf(8_000_000_000L)));
+
+    CommitRejectedException thrown =
+        Assertions.assertThrows(
+            CommitRejectedException.class, () -> commitOnPromotedColumn(protection));
+    Assertions.assertTrue(thrown.getMessage().startsWith("COLUMN_DEFAULT_UNUSABLE: "));
+    Assertions.assertTrue(
+        thrown.getMessage().contains("db.tbl (TYPE_MISMATCH, column n, field ID 2)"));
+    Assertions.assertTrue(
+        thrown.getMessage().contains("int, the column's type in schema version 0"));
+  }
+
+  @Test
+  public void defaultThatFitsEverySchemaVersion_allowed() {
+    ReadBridgeStripProtection protection =
+        protection(tableDto -> Collections.singletonMap(2, LongNode.valueOf(9L)));
+
+    Assertions.assertDoesNotThrow(() -> commitOnPromotedColumn(protection));
+  }
+
   private static String schema(String resourceName) {
     try {
       return ResourceIoHelper.getSchemaJsonFromResource(
@@ -447,21 +476,54 @@ public class ReadBridgeStripProtectionTest {
             metadata(prepared),
             ImmutableMap.copyOf(prepared.getTableProperties()),
             prepared.getJsonSnapshots() != null),
-        new ClientCapabilityGate(
-            new CatalogRequestContext() {
-              @Override
-              public Optional<String> clientName() {
-                return Optional.of("spark");
-              }
-
-              @Override
-              public Set<String> clientCapabilities() {
-                return defaultAwareClient
-                    ? Collections.singleton(ClientCapabilityGate.COLUMN_DEFAULTS)
-                    : Collections.emptySet();
-              }
-            }));
+        sparkClient(defaultAwareClient));
     return prepared;
+  }
+
+  /**
+   * Commits, from a default-aware client, to a table whose column {@code n} (field 2) is an int in
+   * schema version 0 and a long in schema version 1, the current one.
+   */
+  private static void commitOnPromotedColumn(ReadBridgeStripProtection protection) {
+    Schema intColumn =
+        new Schema(
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "n", Types.IntegerType.get()));
+    Schema promoted =
+        new Schema(
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "n", Types.LongType.get()));
+    TableMetadata metadata =
+        TableMetadata.buildFrom(
+                TableMetadata.newTableMetadata(
+                    intColumn,
+                    PartitionSpec.unpartitioned(),
+                    "file:/data/openhouse/db/tbl-uuid",
+                    optIn()))
+            .setCurrentSchema(promoted, promoted.highestFieldId())
+            .build();
+    protection.enforce(
+        new PendingCommit(
+            TABLE, Optional.of(metadata), metadata, ImmutableMap.copyOf(optIn()), false),
+        sparkClient(true));
+  }
+
+  /** A Spark client that declares the {@code column-defaults} capability or declares nothing. */
+  private static ClientCapabilityGate sparkClient(boolean defaultAwareClient) {
+    return new ClientCapabilityGate(
+        new CatalogRequestContext() {
+          @Override
+          public Optional<String> clientName() {
+            return Optional.of("spark");
+          }
+
+          @Override
+          public Set<String> clientCapabilities() {
+            return defaultAwareClient
+                ? Collections.singleton(ClientCapabilityGate.COLUMN_DEFAULTS)
+                : Collections.emptySet();
+          }
+        });
   }
 
   /** {@code table} as catalog metadata: the current version, or the one a commit proposes. */

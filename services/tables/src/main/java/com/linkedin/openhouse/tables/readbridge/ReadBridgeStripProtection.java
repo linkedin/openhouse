@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
@@ -41,6 +42,10 @@ import org.apache.iceberg.types.Types;
  * rewrites data or is new at all, so the check needs nothing from the table's existing snapshots. A
  * client that is not default-aware cannot append, overwrite, move refs or expire snapshots on such
  * a table. See https://github.com/linkedin/openhouse/issues/693.
+ *
+ * <p>A declared default must also fit its column's type in every schema version of the table, the
+ * versions time travel, branches and tags read with: clients overlay it on all of them, and one it
+ * does not fit fails every load of the table.
  *
  * <p>A request with the column-default policy bypass ({@link
  * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips the rules and the default
@@ -84,14 +89,15 @@ public class ReadBridgeStripProtection {
 
   /**
    * Checks {@code commit} against the table's current version: the defaults the base declares, then
-   * the ones the commit declares, must be usable, and the commit must pass Type 1 and Type 2. A
-   * commit that creates the table only has its declared defaults checked.
+   * the ones the commit declares, must be usable, the commit's defaults must fit every schema
+   * version, and the commit must pass Type 1 and Type 2. A commit that creates the table only has
+   * its declared defaults checked.
    *
    * @param clients the gate that says whether the commit's client declares the {@code
    *     column-defaults} capability and words the rejection
    * @throws TableConfigUnavailableException if a default the base declares cannot be applied
-   * @throws CommitRejectedException if a default the commit declares cannot be applied, or the
-   *     commit breaks Type 1 or Type 2
+   * @throws CommitRejectedException if a default the commit declares cannot be applied or does not
+   *     fit a schema version, or the commit breaks Type 1 or Type 2
    */
   public void enforce(PendingCommit commit, ClientCapabilityGate clients) {
     TableIdentifier table = commit.getTableIdentifier();
@@ -108,6 +114,7 @@ public class ReadBridgeStripProtection {
         bridged
             ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
+    rejectDefaultsThatDoNotFit(table, declared, commit.getMetadata().schemas());
     if (base != null) {
       rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
       rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
@@ -120,6 +127,38 @@ public class ReadBridgeStripProtection {
       return resolver.incomingColumnDefaults(committed);
     } catch (ColumnDefaultException e) {
       throw new CommitRejectedException(e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Each declared default must fit its column's type in every schema version that has the column,
+   * parsed as clients parse it when they overlay it.
+   */
+  private static void rejectDefaultsThatDoNotFit(
+      TableIdentifier table, Map<Integer, String> declared, List<Schema> versions) {
+    for (Schema version : versions) {
+      for (Map.Entry<Integer, String> entry : declared.entrySet()) {
+        Types.NestedField field = version.findField(entry.getKey());
+        if (field == null) {
+          continue;
+        }
+        try {
+          SingleValueParser.fromJson(field.type(), entry.getValue());
+        } catch (RuntimeException e) {
+          throw new CommitRejectedException(
+              String.format(
+                  "COLUMN_DEFAULT_UNUSABLE: OpenHouse cannot apply the column defaults declared on"
+                      + " %s (TYPE_MISMATCH, column %s, field ID %d). The default does not fit %s,"
+                      + " the column's type in schema version %d. Defaults apply to every schema"
+                      + " version, so declare a default that fits every type the column has had.",
+                  table,
+                  version.findColumnName(field.fieldId()),
+                  field.fieldId(),
+                  field.type(),
+                  version.schemaId()),
+              e);
+        }
+      }
     }
   }
 

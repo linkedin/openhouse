@@ -190,9 +190,19 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     }
   }
 
+  /**
+   * A default that does not bind is a {@code COLUMN_DEFAULT_UNUSABLE} failure, worded as the server
+   * words it. The other kinds are config or metadata OpenHouse produced and cannot read.
+   */
   private Tasks.UnrecoverableException unrecoverableBridge(ReadBridgeException e) {
-    return new Tasks.UnrecoverableException(
-        "read-bridge: unusable config for table " + tableName(), e);
+    String message =
+        e.getKind() == ReadBridgeException.Kind.CANNOT_BIND
+            ? "COLUMN_DEFAULT_UNUSABLE: OpenHouse cannot apply the column defaults declared on "
+                + tableName()
+                + " "
+                + e.getMessage()
+            : "read-bridge: unusable config for table " + tableName();
+    return new Tasks.UnrecoverableException(message, e);
   }
 
   @Override

@@ -144,6 +144,42 @@ class ReadBridgeTest {
     assertEquals(ReadBridgeException.Kind.CANNOT_BIND, thrown.getKind());
   }
 
+  /** A default that fits the promoted type, but not the type the column had before, cannot bind. */
+  @Test
+  void applyNamesTheSchemaVersionADefaultDoesNotFit() {
+    Schema v0 =
+        new Schema(
+            0,
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "n", Types.IntegerType.get()));
+    Schema v1 =
+        new Schema(
+            1,
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "n", Types.LongType.get()));
+    TableMetadata raw =
+        TableMetadata.buildFrom(
+                TableMetadata.newTableMetadata(
+                    v0,
+                    PartitionSpec.unpartitioned(),
+                    "file:/tmp/rb-promoted",
+                    Collections.emptyMap()))
+            .addSchema(v1, 2)
+            .setCurrentSchema(1)
+            .build();
+    Map<String, String> config = Collections.singletonMap(PREFIX + "2", "8000000000");
+
+    ReadBridgeException thrown =
+        assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config).apply(raw));
+
+    assertEquals(ReadBridgeException.Kind.CANNOT_BIND, thrown.getKind());
+    assertTrue(
+        thrown.getMessage().contains("(TYPE_MISMATCH, column n, field ID 2)"), thrown.getMessage());
+    assertTrue(
+        thrown.getMessage().contains("int, the column's type in schema version 0"),
+        thrown.getMessage());
+  }
+
   @Test
   void applySetsDefaultOnNestedStructField() throws ReadBridgeException {
     Schema schema =
