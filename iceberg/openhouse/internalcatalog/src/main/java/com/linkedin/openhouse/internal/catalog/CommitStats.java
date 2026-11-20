@@ -35,10 +35,9 @@ public class CommitStats {
   String tableUuid;
 
   /**
-   * What kind of commit produced these stats ({@link CommitType#CREATE}, {@link CommitType#UPDATE},
-   * or {@link CommitType#RENAME}). Lets the publisher react per kind — e.g. a {@link
-   * CommitType#RENAME} carries the new identity so the stats row is re-keyed to the new name. Never
-   * null.
+   * What kind of commit produced these stats (never {@link CommitType#DROP}, which carries no
+   * stats). Lets the publisher react per kind — e.g. a {@link CommitType#CATALOG_UPDATE} (rename)
+   * carries the new identity so the stats row is re-keyed to the new name. Never null.
    */
   CommitType commitType;
 

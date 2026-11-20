@@ -1,18 +1,16 @@
 package com.linkedin.openhouse.internal.catalog;
 
 /**
- * The kind of catalog change a successful commit represents, as seen by the post-commit path.
+ * The kind of durable catalog change a post-commit operation is reacting to.
  *
- * <p>Derived in {@code OpenHouseInternalTableOperations.doCommit} from signals available in-process
- * at commit time — whether a base metadata existed, whether the committed properties changed the
- * table's identity, and whether the commit produced a new snapshot — and carried through {@link
- * PostCommitContext} and {@link CommitStats} so post-commit operations can react differently per
- * kind without re-deriving it. The chief intended consumer is the optimizer, which uses it to
- * decide what (if anything) a commit should trigger.
- *
- * <p>Note that table drops do NOT flow through this enum: a drop never produces a committed {@link
- * org.apache.iceberg.TableMetadata} and is dispatched on the separate {@link PostDropOperation}
- * seam instead.
+ * <p>For Iceberg commits it is derived in {@code OpenHouseInternalTableOperations.doCommit} from
+ * signals available in-process at commit time — whether a base metadata existed, whether the
+ * committed properties changed the table's identity, and whether the commit produced a new
+ * snapshot. A table drop is not an Iceberg commit, but it is a durable catalog change, so {@code
+ * OpenHouseInternalCatalog.dropTable} dispatches it through the same post-commit path as {@link
+ * #DROP}. The type is carried through {@link PostCommitContext} and {@link CommitStats} so
+ * post-commit operations can react differently per kind without re-deriving it. The chief intended
+ * consumer is the optimizer, which uses it to decide what (if anything) a change should trigger.
  */
 public enum CommitType {
   /**
@@ -38,9 +36,18 @@ public enum CommitType {
   METADATA_UPDATE,
 
   /**
-   * A commit that changed the table's database and/or table name (a rename). A special
-   * metadata-only commit: no data changed; the stats row is re-keyed to the new identity by its
-   * stable table UUID.
+   * A commit that changed only the table's catalog entry, not its data or Iceberg metadata — today,
+   * a rename of the database and/or table name. The stats row is re-keyed to the new identity by
+   * its stable table UUID.
    */
-  RENAME
+  CATALOG_UPDATE,
+
+  /**
+   * The table was dropped: its catalog entry was removed (and, with purge, its files deleted). Not
+   * an Iceberg commit — there is no committed metadata, so {@link
+   * PostCommitContext#getCommittedMetadata()} is {@code null} and the table is identified by {@link
+   * PostCommitContext#getTableUuid()}. Lets operations clean up any state they hold for the table;
+   * it never warrants analysis.
+   */
+  DROP
 }

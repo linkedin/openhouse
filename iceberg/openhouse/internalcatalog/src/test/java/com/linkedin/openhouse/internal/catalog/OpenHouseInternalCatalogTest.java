@@ -136,7 +136,7 @@ public class OpenHouseInternalCatalogTest {
   }
 
   @Test
-  void dropTableDispatchesPostDropOperationsWithTableUuid() {
+  void dropTableDispatchesDropThroughPostCommitPathWithTableUuid() {
     HouseTableRepository repo = mock(HouseTableRepository.class);
     HouseTable row =
         HouseTable.builder()
@@ -156,14 +156,16 @@ public class OpenHouseInternalCatalogTest {
 
     Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true));
 
-    ArgumentCaptor<PostDropContext> captor = ArgumentCaptor.forClass(PostDropContext.class);
-    verify(runner).runAllOnDrop(captor.capture());
-    Assertions.assertEquals("uuid-123", captor.getValue().getTableUUID());
+    ArgumentCaptor<PostCommitContext> captor = ArgumentCaptor.forClass(PostCommitContext.class);
+    verify(runner).runAll(captor.capture());
+    Assertions.assertEquals(CommitType.DROP, captor.getValue().getCommitType());
+    Assertions.assertEquals("uuid-123", captor.getValue().getTableUuid());
     Assertions.assertEquals(IDENTIFIER, captor.getValue().getTableIdentifier());
+    Assertions.assertNull(captor.getValue().getCommittedMetadata());
   }
 
   @Test
-  void dropTableSwallowsPostDropDispatchFailure() {
+  void dropTableSwallowsPostCommitDispatchFailure() {
     HouseTableRepository repo = mock(HouseTableRepository.class);
     HouseTable row =
         HouseTable.builder()
@@ -178,7 +180,7 @@ public class OpenHouseInternalCatalogTest {
     PostCommitOperationRunner runner = mock(PostCommitOperationRunner.class);
     when(runner.isEnabled()).thenReturn(true);
     // A failure dispatching post-drop work must never fail the (already durable) drop.
-    org.mockito.Mockito.doThrow(new RuntimeException("boom")).when(runner).runAllOnDrop(any());
+    org.mockito.Mockito.doThrow(new RuntimeException("boom")).when(runner).runAll(any());
     OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
     catalog.houseTableRepository = repo;
     catalog.postCommitOperationRunner = runner;

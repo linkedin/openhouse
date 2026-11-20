@@ -114,10 +114,10 @@ public class CommitStatsFactoryTest {
                 "newdb",
                 getCanonicalFieldName("tableId"),
                 "newtbl"));
-    CommitStats cs = CommitStatsFactory.extract(ID, md, CommitType.RENAME).orElseThrow();
+    CommitStats cs = CommitStatsFactory.extract(ID, md, CommitType.CATALOG_UPDATE).orElseThrow();
     Assertions.assertEquals("newdb", cs.getDatabaseName());
     Assertions.assertEquals("newtbl", cs.getTableName());
-    Assertions.assertEquals(CommitType.RENAME, cs.getCommitType());
+    Assertions.assertEquals(CommitType.CATALOG_UPDATE, cs.getCommitType());
   }
 
   @Test

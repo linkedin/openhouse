@@ -210,27 +210,22 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
             "Drop table is supported only with a fileIO instance that SupportsPrefixOperations");
       }
     }
-    runPostDropOperations(identifier, houseTable);
+    // The drop is now durable. It is not an Iceberg commit (no metadata), but it is a catalog
+    // change, so dispatch it through the post-commit path as DROP, best-effort and async, so
+    // operations can clean up state they hold for the table. Never fails the drop; Exception
+    // (not Throwable) so an Error such as OOM still propagates.
+    if (postCommitOperationRunner != null && postCommitOperationRunner.isEnabled()) {
+      try {
+        postCommitOperationRunner.runAll(
+            new PostCommitContext(identifier, null, CommitType.DROP, houseTable.getTableUUID()));
+      } catch (Exception e) {
+        log.error(
+            "Failed to dispatch post-commit operations for dropped table {} (nonfatal)",
+            identifier,
+            e);
+      }
+    }
     return true;
-  }
-
-  /**
-   * Fires best-effort post-drop operations for a successfully dropped table, gated by the same
-   * server-side switch as post-commit operations. Never throws: the drop has already durably
-   * succeeded and post-drop work (e.g. purging the optimizer's per-table rows) must not affect its
-   * outcome. Unlike a commit, a drop produces no {@link org.apache.iceberg.TableMetadata}, so the
-   * dropped table's identity and UUID are carried directly.
-   */
-  private void runPostDropOperations(TableIdentifier identifier, HouseTable houseTable) {
-    if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
-      return;
-    }
-    try {
-      postCommitOperationRunner.runAllOnDrop(
-          new PostDropContext(identifier, houseTable.getTableUUID()));
-    } catch (Throwable t) {
-      log.error("Failed to dispatch post-drop operations for table {} (nonfatal)", identifier, t);
-    }
   }
 
   /**

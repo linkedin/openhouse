@@ -565,7 +565,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                   && !properties
                       .get(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
                       .equalsIgnoreCase(this.tableIdentifier.namespace().toString()))) {
-        commitType = CommitType.RENAME;
+        commitType = CommitType.CATALOG_UPDATE;
         houseTableRepository.rename(
             this.tableIdentifier.namespace().toString(),
             this.tableIdentifier.name(),
@@ -796,10 +796,15 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       committedMetadata.ifPresent(
           metadata ->
               postCommitOperationRunner.runAll(
-                  new PostCommitContext(tableIdentifier, metadata, commitType)));
-    } catch (Throwable t) {
+                  new PostCommitContext(
+                      tableIdentifier,
+                      metadata,
+                      commitType,
+                      metadata.properties().get(CatalogConstants.OPENHOUSE_UUID_KEY))));
+    } catch (Exception e) {
+      // Exception, not Throwable: an Error such as OOM must propagate rather than be swallowed.
       log.error(
-          "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);
+          "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, e);
     }
   }
 

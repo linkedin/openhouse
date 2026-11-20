@@ -12,10 +12,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 import javax.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -54,7 +52,6 @@ public class PostCommitOperationRunner {
   static final String TAG_RESULT = "result";
 
   private final List<PostCommitOperation> operations;
-  private final List<PostDropOperation> dropOperations;
   private final MeterRegistry meterRegistry;
   private final ThreadPoolExecutor executor;
   private final ScheduledExecutorService timeoutScheduler;
@@ -64,7 +61,6 @@ public class PostCommitOperationRunner {
   @Autowired
   public PostCommitOperationRunner(
       List<PostCommitOperation> operations,
-      List<PostDropOperation> dropOperations,
       MeterRegistry meterRegistry,
       @Value("${cluster.tables.postcommit.enabled:false}") boolean enabled,
       @Value("${cluster.tables.postcommit.max-threads:4}") int maxThreads,
@@ -74,7 +70,6 @@ public class PostCommitOperationRunner {
       @Value("${cluster.tables.postcommit.reclaim-idle-threads:true}") boolean reclaimIdleThreads,
       @Value("${cluster.tables.postcommit.operation-timeout-ms:10000}") long operationTimeoutMs) {
     this.operations = operations == null ? Collections.emptyList() : operations;
-    this.dropOperations = dropOperations == null ? Collections.emptyList() : dropOperations;
     this.meterRegistry = meterRegistry;
     this.enabled = enabled;
     // Clamp operator-supplied config to safe minimums. Floor the per-op timeout at 1000ms so a
@@ -110,16 +105,10 @@ public class PostCommitOperationRunner {
         Executors.newSingleThreadScheduledExecutor(daemonThreadFactory("post-commit-timeout"));
 
     log.info(
-        "PostCommitOperationRunner initialized (enabled={}) with {} commit operation(s): {} and {} drop operation(s): {} (maxThreads={}, queueCapacity={}, idleThreadKeepAliveSeconds={}, reclaimIdleThreads={}, operationTimeoutMs={})",
+        "PostCommitOperationRunner initialized (enabled={}) with {} operation(s): {} (maxThreads={}, queueCapacity={}, idleThreadKeepAliveSeconds={}, reclaimIdleThreads={}, operationTimeoutMs={})",
         enabled,
         this.operations.size(),
-        this.operations.stream()
-            .map(PostCommitOperation::getName)
-            .collect(Collectors.joining(", ")),
-        this.dropOperations.size(),
-        this.dropOperations.stream()
-            .map(PostDropOperation::getName)
-            .collect(Collectors.joining(", ")),
+        operationNames(),
         poolSize,
         queueSize,
         keepAliveSeconds,
@@ -136,54 +125,22 @@ public class PostCommitOperationRunner {
   }
 
   /**
-   * Submits every registered commit operation for asynchronous, best-effort execution. Returns
+   * Submits every registered operation for asynchronous, best-effort execution. Returns
    * immediately; never throws.
    *
    * @param context committed table context
    */
   public void runAll(PostCommitContext context) {
-    if (!enabled || context == null || operations.isEmpty()) {
+    if (!enabled || operations.isEmpty()) {
       return;
     }
-    operations.forEach(
-        operation ->
-            submit(
-                operation.getName(),
-                () -> operation.execute(context),
-                context.getTableIdentifier()));
+    operations.forEach(operation -> submit(operation, context));
   }
 
-  /**
-   * Submits every registered drop operation for asynchronous, best-effort execution after a table
-   * drop. Returns immediately; never throws. Shares the commit path's bounded pool, timeout, and
-   * metrics so a drop operation can never destabilize the caller that performed the drop.
-   *
-   * @param context dropped table context
-   */
-  public void runAllOnDrop(PostDropContext context) {
-    if (!enabled || context == null || dropOperations.isEmpty()) {
-      return;
-    }
-    dropOperations.forEach(
-        operation ->
-            submit(
-                operation.getName(),
-                () -> operation.execute(context),
-                context.getTableIdentifier()));
-  }
-
-  /**
-   * A post-commit or post-drop operation body that may throw and must respond to interruption. Used
-   * so the commit and drop seams share one bounded, timeout-guarded submit/execute envelope.
-   */
-  @FunctionalInterface
-  private interface InterruptibleOperation {
-    void run() throws Exception;
-  }
-
-  private void submit(String name, InterruptibleOperation operation, TableIdentifier tableId) {
+  private void submit(PostCommitOperation operation, PostCommitContext context) {
+    final String name = operation.getName();
     try {
-      Future<?> future = executor.submit(() -> execute(name, operation, tableId));
+      Future<?> future = executor.submit(() -> execute(operation, context));
       count(name, "submitted");
       timeoutScheduler.schedule(
           () -> {
@@ -195,7 +152,7 @@ public class PostCommitOperationRunner {
                   "Post-commit operation '{}' timed out after {} ms for table {}",
                   name,
                   operationTimeoutMs,
-                  tableId);
+                  context.getTableIdentifier());
             }
           },
           operationTimeoutMs,
@@ -204,17 +161,21 @@ public class PostCommitOperationRunner {
       // Queue full: drop rather than block the committer or grow memory unbounded. This is an
       // expected best-effort outcome under load and is also tracked by the "rejected" counter.
       count(name, "rejected");
-      log.warn("Post-commit operation '{}' rejected (pool saturated) for table {}", name, tableId);
+      log.warn(
+          "Post-commit operation '{}' rejected (pool saturated) for table {}",
+          name,
+          context.getTableIdentifier());
     } catch (Exception submitFailure) {
-      // Unexpected, but nonfatal: the commit/drop has already durably succeeded and is unaffected.
+      // Unexpected, but nonfatal: the commit has already durably succeeded and is unaffected.
       count(name, "rejected");
       log.warn("Failed to submit post-commit operation '{}' (nonfatal)", name, submitFailure);
     }
   }
 
-  private void execute(String name, InterruptibleOperation operation, TableIdentifier tableId) {
+  private void execute(PostCommitOperation operation, PostCommitContext context) {
+    final String name = operation.getName();
     try {
-      operation.run();
+      operation.execute(context);
       count(name, "success");
     } catch (InterruptedException interrupted) {
       // Cancelled by the timeout scheduler (timeout already recorded there); restore the flag and
@@ -226,7 +187,11 @@ public class PostCommitOperationRunner {
         return;
       }
       count(name, "failed");
-      log.warn("Post-commit operation '{}' failed for table {}", name, tableId, failure);
+      log.warn(
+          "Post-commit operation '{}' failed for table {}",
+          name,
+          context.getTableIdentifier(),
+          failure);
     }
   }
 
@@ -236,6 +201,17 @@ public class PostCommitOperationRunner {
     } catch (Exception ignored) {
       // Metrics must never break best-effort execution.
     }
+  }
+
+  private String operationNames() {
+    StringBuilder sb = new StringBuilder();
+    for (PostCommitOperation operation : operations) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(operation.getName());
+    }
+    return sb.toString();
   }
 
   private static ThreadFactory daemonThreadFactory(String prefix) {
