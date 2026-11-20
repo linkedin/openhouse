@@ -178,7 +178,8 @@ public class TablesController {
         @ApiResponse(responseCode = "401", description = "Table POST: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Table POST: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "Table POST: DB_NOT_FOUND"),
-        @ApiResponse(responseCode = "409", description = "Table POST: TBL_EXISTS")
+        @ApiResponse(responseCode = "409", description = "Table POST: TBL_EXISTS"),
+        @ApiResponse(responseCode = "422", description = "Table POST: DATABASE_TABLE_LIMIT_REACHED")
       })
   @PostMapping(
       value = {"/v0/databases/{databaseId}/tables", "/v1/databases/{databaseId}/tables"},
@@ -214,7 +215,8 @@ public class TablesController {
         @ApiResponse(responseCode = "400", description = "Table PUT: BAD_REQUEST"),
         @ApiResponse(responseCode = "401", description = "Table PUT: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Table PUT: FORBIDDEN"),
-        @ApiResponse(responseCode = "404", description = "Table PUT: DB_NOT_FOUND")
+        @ApiResponse(responseCode = "404", description = "Table PUT: DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "422", description = "Table PUT: DATABASE_TABLE_LIMIT_REACHED")
       })
   @PutMapping(
       value = {
@@ -559,6 +561,9 @@ public class TablesController {
             description = "Soft Deleted Table RESTORE: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Soft Deleted Table RESTORE: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "Soft Deleted Table RESTORE: NOT FOUND"),
+        @ApiResponse(
+            responseCode = "422",
+            description = "Soft Deleted Table RESTORE: DATABASE_TABLE_LIMIT_REACHED"),
         @ApiResponse(
             responseCode = "500",
             description = "Soft Deleted Table RESTORE: INTERNAL SERVER ERROR")

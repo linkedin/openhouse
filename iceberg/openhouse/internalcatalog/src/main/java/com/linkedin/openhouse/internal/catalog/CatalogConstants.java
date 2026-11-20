@@ -34,6 +34,9 @@ public final class CatalogConstants {
 
   public static final String RTAS_ENABLED_TABLE_PROP = "replace.enabled";
 
+  public static final String RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP =
+      "replace.partition-column-drop.enabled";
+
   public static final String WAP_ENABLED_TABLE_PROP = "write.wap.enabled";
 
   public static final String FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP =

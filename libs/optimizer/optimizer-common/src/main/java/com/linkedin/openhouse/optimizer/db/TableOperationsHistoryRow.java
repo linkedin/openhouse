@@ -42,6 +42,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class TableOperationsHistoryRow {
 
+  /** Column bound for {@code failure_reason}; callers must truncate to this before persisting. */
+  public static final int FAILURE_REASON_MAX_LENGTH = 1024;
+
   /** Same UUID as the originating live-operations row. Set by the caller; not generated. */
   @Id
   @Column(name = "id", nullable = false, length = 36)
@@ -65,11 +68,18 @@ public class TableOperationsHistoryRow {
   private OperationType operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
-  @Column(name = "completed_at", nullable = false)
+  @Column(name = "completed_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
   private Instant completedAt;
 
   /** Terminal outcome: {@link HistoryStatus#SUCCESS} or {@link HistoryStatus#FAILED}. */
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
   private HistoryStatus status;
+
+  /**
+   * Why a FAILED operation failed, as {@code ExceptionClass: message} (truncated), as reported by
+   * the executor; {@code null} for SUCCESS. The full stack trace lives in the executor logs.
+   */
+  @Column(name = "failure_reason", length = FAILURE_REASON_MAX_LENGTH, nullable = true)
+  private String failureReason;
 }

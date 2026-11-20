@@ -333,6 +333,54 @@ public class OpenHouseViewOperationsTest {
   }
 
   @Test
+  public void testUpdateForwardsSourceDialectWithoutReplacingIt() {
+    ViewApi viewApi = mock(ViewApi.class);
+    when(viewApi.updateViewV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.just(new GetViewResponseBody()));
+    OpenHouseViewOperations ops = viewOps(viewApi);
+    ViewMetadata base = mock(ViewMetadata.class);
+    Map<String, String> properties =
+        Collections.singletonMap("openhouse.view.sourceDialect", "trino");
+    ops.doCommit(base, singleSqlViewMetadata("spark", properties));
+    ArgumentCaptor<CreateUpdateViewRequestBody> captor =
+        ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
+    verify(viewApi).updateViewV1(eq("db"), eq("v"), captor.capture());
+    Assertions.assertEquals(
+        "trino", captor.getValue().getViewProperties().get("openhouse.view.sourceDialect"));
+  }
+
+  @Test
+  public void testUpdateDoesNotRestoreRemovedSourceDialect() {
+    ViewApi viewApi = mock(ViewApi.class);
+    when(viewApi.updateViewV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.just(new GetViewResponseBody()));
+    OpenHouseViewOperations ops = viewOps(viewApi);
+    ops.doCommit(mock(ViewMetadata.class), singleSqlViewMetadata("spark", Collections.emptyMap()));
+    ArgumentCaptor<CreateUpdateViewRequestBody> captor =
+        ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
+    verify(viewApi).updateViewV1(eq("db"), eq("v"), captor.capture());
+    Assertions.assertFalse(
+        captor.getValue().getViewProperties().containsKey("openhouse.view.sourceDialect"));
+  }
+
+  @Test
+  public void testCreateDoesNotOverwriteSuppliedDialectAlias() {
+    ViewApi viewApi = mock(ViewApi.class);
+    when(viewApi.createViewV1(anyString(), any())).thenReturn(Mono.just(new GetViewResponseBody()));
+    OpenHouseViewOperations ops = viewOps(viewApi);
+    ops.doCommit(
+        null,
+        singleSqlViewMetadata(
+            "spark", Collections.singletonMap("OpenHouse.View.SourceDialect", "trino")));
+    ArgumentCaptor<CreateUpdateViewRequestBody> captor =
+        ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
+    verify(viewApi).createViewV1(eq("db"), captor.capture());
+    Assertions.assertEquals(
+        Collections.singletonMap("OpenHouse.View.SourceDialect", "trino"),
+        captor.getValue().getViewProperties());
+  }
+
+  @Test
   public void testDoCommitCreateDoesNotMutateCallerProperties() {
     ViewApi viewApi = mock(ViewApi.class);
     when(viewApi.createViewV1(anyString(), any())).thenReturn(Mono.just(new GetViewResponseBody()));

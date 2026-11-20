@@ -7,11 +7,12 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
-import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.housetables.model.NamespaceRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
@@ -21,7 +22,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -33,17 +33,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.persistence.EntityManager;
-import javax.persistence.OptimisticLockException;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.test.context.ContextConfiguration;
@@ -53,7 +51,7 @@ import org.springframework.transaction.support.DefaultTransactionStatus;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-class NamespacesServiceTest {
+class NamespacesServiceTest extends HtsDatabaseTestBase {
   @Autowired private NamespacesService namespacesService;
   @Autowired private DataSource dataSource;
   @Autowired private PlatformTransactionManager transactionManager;
@@ -108,17 +106,17 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testSparseUpdatePreservesIdentityAndOmittedProperties() throws Exception {
+  void testReplacementPreservesIdentityAndRejectsStaleRevision() throws Exception {
     NamespaceMetadata created =
         namespacesService.createNamespace(
             "Namespace_Foo", Map.of("foo", "one", "bar", "two", "keep", "three", "FOO", "four"));
     long version = repository.findById(created.getNamespaceUuid()).orElseThrow().getVersion();
-    NamespacePropertyUpdate response =
-        namespacesService.updateNamespaceProperties(
-            "NAMESPACE_FOO", Map.of("foo", "five", "baz", "six"), Set.of("bar", "missing"));
-    assertThat(response.getUpdated()).containsExactly("baz", "foo");
-    assertThat(response.getRemoved()).containsExactly("bar");
-    assertThat(response.getMissing()).containsExactly("missing");
+    NamespaceMetadata response =
+        namespacesService.updateNamespace(
+            "NAMESPACE_FOO",
+            document(created, Map.of("foo", "five", "baz", "six", "keep", "three", "FOO", "four")));
+    assertThat(response.getRevision()).isNotEqualTo(created.getRevision());
+    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(response);
     assertThat(namespacesService.getNamespace("namespace_foo").getNamespaceUuid())
         .isEqualTo(created.getNamespaceUuid());
     assertThat(namespacesService.getNamespace("namespace_foo").getNamespaceName())
@@ -128,35 +126,35 @@ class NamespacesServiceTest {
             Map.of("foo", "five", "baz", "six", "keep", "three", "FOO", "four"));
     assertThat(repository.findById(created.getNamespaceUuid()).orElseThrow().getVersion())
         .isGreaterThan(version);
-    NamespacePropertyUpdate repeated =
-        namespacesService.updateNamespaceProperties(
-            "namespace_foo", Map.of("foo", "five"), Set.of("bar"));
-    assertThat(repeated.getUpdated()).containsExactly("foo");
-    assertThat(repeated.getRemoved()).isEmpty();
-    assertThat(repeated.getMissing()).containsExactly("bar");
+    assertThatThrownBy(() -> namespacesService.updateNamespace("namespace_foo", created))
+        .isInstanceOf(EntityConcurrentModificationException.class);
+    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(response);
   }
 
   @Test
   void testEmptyUpdatePreservesMetadata() throws Exception {
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
-    NamespacePropertyUpdate response =
-        namespacesService.updateNamespaceProperties("namespace_foo", Map.of(), Set.of());
-    assertThat(response.getUpdated()).isEmpty();
-    assertThat(response.getRemoved()).isEmpty();
-    assertThat(response.getMissing()).isEmpty();
-    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
+    NamespaceMetadata response = namespacesService.updateNamespace("namespace_foo", created);
+    assertThat(response.getProperties()).isEqualTo(created.getProperties());
+    assertThat(response.getRevision()).isNotEqualTo(created.getRevision());
+    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(response);
+    assertThatThrownBy(() -> namespacesService.updateNamespace("namespace_foo", created))
+        .isInstanceOf(EntityConcurrentModificationException.class);
   }
 
   @Test
   void testEmptyDocumentPersistsAcrossPropertyChanges() throws Exception {
     NamespaceMetadata created = namespacesService.createNamespace("namespace_foo", Map.of());
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
-    namespacesService.updateNamespaceProperties("namespace_foo", Map.of("foo", "one"), Set.of());
+    NamespaceMetadata updated =
+        namespacesService.updateNamespace("namespace_foo", document(created, Map.of("foo", "one")));
     assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
         .containsExactlyInAnyOrderEntriesOf(Map.of("foo", "one"));
-    namespacesService.updateNamespaceProperties("namespace_foo", Map.of(), Set.of("foo"));
-    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
+    NamespaceMetadata empty =
+        namespacesService.updateNamespace("namespace_foo", document(updated, Map.of()));
+    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(empty);
+    assertThat(empty.getProperties()).isEmpty();
   }
 
   @Test
@@ -189,14 +187,15 @@ class NamespacesServiceTest {
         .isInstanceOf(NotFoundException.class);
     assertThatThrownBy(
             () ->
-                namespacesService.updateNamespaceProperties(
-                    "namespace_metadata_foo", Map.of("foo", "two"), Set.of()))
+                namespacesService.updateNamespace(
+                    "namespace_metadata_foo", document(created, Map.of("foo", "two"))))
         .isInstanceOf(NotFoundException.class);
-    assertThat(
-            namespacesService
-                .createNamespace("namespace_metadata_foo", Collections.emptyMap())
-                .getNamespaceUuid())
-        .isNotEqualTo(created.getNamespaceUuid());
+    NamespaceMetadata recreated =
+        namespacesService.createNamespace("namespace_metadata_foo", Collections.emptyMap());
+    assertThat(recreated.getNamespaceUuid()).isNotEqualTo(created.getNamespaceUuid());
+    assertThatThrownBy(() -> namespacesService.updateNamespace("namespace_metadata_foo", created))
+        .isInstanceOf(EntityConcurrentModificationException.class);
+    assertThat(namespacesService.getNamespace("namespace_metadata_foo")).isEqualTo(recreated);
   }
 
   @Test
@@ -268,10 +267,10 @@ class NamespacesServiceTest {
               () ->
                   assertThatThrownBy(
                           () -> namespacesService.deleteNamespace("namespace_metadata_foo"))
-                      .isInstanceOf(OptimisticLockingFailureException.class));
+                      .isInstanceOf(EntityConcurrentModificationException.class));
       assertThat(deleteLoaded.await(10, TimeUnit.SECONDS)).isTrue();
-      namespacesService.updateNamespaceProperties(
-          "namespace_metadata_foo", Map.of("foo", "two", "bar", "three"), Set.of());
+      namespacesService.updateNamespace(
+          "namespace_metadata_foo", document(created, Map.of("foo", "two", "bar", "three")));
       updateCommitted.countDown();
       deletion.get(10, TimeUnit.SECONDS);
     } finally {
@@ -300,8 +299,8 @@ class NamespacesServiceTest {
           .isInstanceOf(IllegalStateException.class);
       assertThatThrownBy(
               () ->
-                  namespacesService.updateNamespaceProperties(
-                      "namespace_foo", Map.of("foo", "two"), Set.of()))
+                  namespacesService.updateNamespace(
+                      "namespace_foo", document(created, Map.of("foo", "two"))))
           .isInstanceOf(IllegalStateException.class);
       assertThatThrownBy(() -> namespacesService.deleteNamespace("namespace_foo"))
           .isInstanceOf(IllegalStateException.class);
@@ -321,8 +320,8 @@ class NamespacesServiceTest {
     doThrow(new DataAccessResourceFailureException("storage unavailable")).when(repository).flush();
     assertThatThrownBy(
             () ->
-                namespacesService.updateNamespaceProperties(
-                    "namespace_foo", Map.of("baz", "three"), Set.of("foo")))
+                namespacesService.updateNamespace(
+                    "namespace_foo", document(created, Map.of("baz", "three"))))
         .isInstanceOf(DataAccessResourceFailureException.class);
     reset(repository);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
@@ -363,8 +362,9 @@ class NamespacesServiceTest {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void testConcurrentDocumentMutationsRejectLostUpdate(boolean emptyUpdates) throws Exception {
+  @CsvSource({"false,false", "true,true", "true,false", "false,true"})
+  void testConcurrentDocumentMutationsRejectLostUpdate(boolean firstNoOp, boolean secondNoOp)
+      throws Exception {
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("keep", "one"));
     CyclicBarrier readers = new CyclicBarrier(2);
@@ -385,19 +385,27 @@ class NamespacesServiceTest {
           Arrays.asList(
               () -> {
                 try {
-                  namespacesService.updateNamespaceProperties(
-                      "namespace_foo", emptyUpdates ? Map.of() : Map.of("foo", "two"), Set.of());
+                  namespacesService.updateNamespace(
+                      "namespace_foo",
+                      document(
+                          created,
+                          firstNoOp ? Map.of("keep", "one") : Map.of("keep", "one", "foo", "two")));
                   return Optional.empty();
-                } catch (OptimisticLockException | OptimisticLockingFailureException exception) {
+                } catch (EntityConcurrentModificationException exception) {
                   return Optional.of(exception.getClass());
                 }
               },
               () -> {
                 try {
-                  namespacesService.updateNamespaceProperties(
-                      "namespace_foo", emptyUpdates ? Map.of() : Map.of("bar", "three"), Set.of());
+                  namespacesService.updateNamespace(
+                      "namespace_foo",
+                      document(
+                          created,
+                          secondNoOp
+                              ? Map.of("keep", "one")
+                              : Map.of("keep", "one", "bar", "three")));
                   return Optional.empty();
-                } catch (OptimisticLockException | OptimisticLockingFailureException exception) {
+                } catch (EntityConcurrentModificationException exception) {
                   return Optional.of(exception.getClass());
                 }
               });
@@ -412,15 +420,21 @@ class NamespacesServiceTest {
       assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
       reset(repository);
     }
-    if (emptyUpdates) {
-      assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
-          .containsExactlyInAnyOrderEntriesOf(Map.of("keep", "one"));
-    } else {
-      assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
-          .containsExactlyInAnyOrderEntriesOf(
-              firstOutcome.isEmpty()
-                  ? Map.of("keep", "one", "foo", "two")
-                  : Map.of("keep", "one", "bar", "three"));
-    }
+    Map<String, String> expected =
+        firstOutcome.isEmpty()
+            ? (firstNoOp ? Map.of("keep", "one") : Map.of("keep", "one", "foo", "two"))
+            : (secondNoOp ? Map.of("keep", "one") : Map.of("keep", "one", "bar", "three"));
+    assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
+        .containsExactlyInAnyOrderEntriesOf(expected);
+  }
+
+  private static NamespaceMetadata document(
+      NamespaceMetadata source, Map<String, String> properties) {
+    return NamespaceMetadata.builder()
+        .namespaceUuid(source.getNamespaceUuid())
+        .namespaceName(source.getNamespaceName())
+        .revision(source.getRevision())
+        .properties(properties)
+        .build();
   }
 }

@@ -331,6 +331,7 @@ class OpenHouseDataLoader:
                 column_names=[f.name for f in table.schema().fields],
             )
             optimized_sql = plan.sql
+            sql_table_id = plan.sql_table
             row_filter = _to_pyiceberg(plan.row_filter)
             scan_kwargs["selected_fields"] = tuple(plan.source_columns)
             logger.info(
@@ -342,6 +343,7 @@ class OpenHouseDataLoader:
             )
         else:
             optimized_sql = None
+            sql_table_id = None
             row_filter = _to_pyiceberg(self._filters)
             if self._columns:
                 scan_kwargs["selected_fields"] = tuple(self._columns)
@@ -360,6 +362,7 @@ class OpenHouseDataLoader:
             table_id=self._table_id,
             worker_jvm_args=self._context.jvm_config.worker_args if self._context.jvm_config else None,
             metric_attributes=self._resolved_metric_attributes,
+            sql_table_id=sql_table_id,
         )
 
         # plan_files() materializes all tasks at once (PyIceberg doesn't support streaming)

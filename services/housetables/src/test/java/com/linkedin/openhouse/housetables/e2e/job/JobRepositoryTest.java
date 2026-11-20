@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.dto.mapper.JobMapper;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.JobRow;
 import com.linkedin.openhouse.housetables.model.JobRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
@@ -18,7 +19,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class JobRepositoryTest {
+public class JobRepositoryTest extends HtsDatabaseTestBase {
 
   private final JobRow testJobRow =
       JobRow.builder()

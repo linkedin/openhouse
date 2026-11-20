@@ -16,4 +16,7 @@ public class NamespaceMetadataResponse {
 
   @Schema(description = "Namespace properties with case-sensitive keys.", required = true)
   Map<String, String> properties;
+
+  @Schema(description = "Opaque revision for conditional replacement.", required = true)
+  String revision;
 }

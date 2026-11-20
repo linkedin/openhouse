@@ -5,7 +5,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
+import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespaceRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
@@ -13,8 +15,8 @@ import com.linkedin.openhouse.housetables.services.NamespacesServiceImpl;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import javax.persistence.EntityManager;
+import javax.persistence.OptimisticLockException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -44,9 +46,7 @@ class NamespacesServiceFailureTest {
         .isInstanceOf(IllegalStateException.class);
     assertThatThrownBy(() -> namespacesService.deleteNamespace("foo"))
         .isInstanceOf(IllegalStateException.class);
-    assertThatThrownBy(
-            () ->
-                namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
+    assertThatThrownBy(() -> namespacesService.updateNamespace("foo", null))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -100,8 +100,8 @@ class NamespacesServiceFailureTest {
   void testNamespaceNameConstraintDuringUpdateBecomesStorageFailure() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-    when(repository.findByNamespaceName("foo"))
-        .thenReturn(Optional.of(new NamespaceRow("foo", Map.of())));
+    NamespaceRow row = new NamespaceRow("foo", Map.of());
+    when(repository.findByNamespaceName("foo")).thenReturn(Optional.of(row));
     DataIntegrityViolationException failure =
         new DataIntegrityViolationException(
             "constraint failed",
@@ -109,9 +109,7 @@ class NamespacesServiceFailureTest {
                 "constraint failed", new SQLException(), "uq_namespace_name"));
     doThrow(failure).when(repository).flush();
 
-    assertThatThrownBy(
-            () ->
-                namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
+    assertThatThrownBy(() -> namespacesService.updateNamespace("foo", document(row)))
         .isSameAs(failure);
     verify(transactionManager).rollback(any());
   }
@@ -214,14 +212,29 @@ class NamespacesServiceFailureTest {
   @Test
   void updateCommitFailurePreservesCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-    when(repository.findByNamespaceName("foo"))
-        .thenReturn(Optional.of(new NamespaceRow("foo", Map.of())));
+    NamespaceRow row = new NamespaceRow("foo", Map.of());
+    when(repository.findByNamespaceName("foo")).thenReturn(Optional.of(row));
     TransactionSystemException failure = new TransactionSystemException("foo");
     doThrow(failure).when(transactionManager).commit(any());
-    assertThatThrownBy(
-            () ->
-                namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
+    assertThatThrownBy(() -> namespacesService.updateNamespace("foo", document(row)))
         .isSameAs(failure);
+  }
+
+  @Test
+  void updateAndDeleteCommitRacesBecomeConflicts() {
+    when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    NamespaceRow row = new NamespaceRow("foo", Map.of());
+    when(repository.findByNamespaceName("foo")).thenReturn(Optional.of(row));
+    TransactionSystemException failure =
+        new TransactionSystemException("commit failed", new OptimisticLockException("stale"));
+    doThrow(failure).when(transactionManager).commit(any());
+
+    assertThatThrownBy(() -> namespacesService.updateNamespace("foo", document(row)))
+        .isInstanceOf(EntityConcurrentModificationException.class)
+        .hasCause(failure);
+    assertThatThrownBy(() -> namespacesService.deleteNamespace("foo"))
+        .isInstanceOf(EntityConcurrentModificationException.class)
+        .hasCause(failure);
   }
 
   @Test
@@ -242,10 +255,7 @@ class NamespacesServiceFailureTest {
     TransactionSystemException failure = new TransactionSystemException("foo");
     doThrow(failure).when(transactionManager).commit(any());
 
-    assertThatThrownBy(
-            () ->
-                namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
-        .isSameAs(failure);
+    assertThatThrownBy(() -> namespacesService.updateNamespace("foo", null)).isSameAs(failure);
     verify(entityManager, never()).lock(any(), any());
   }
 
@@ -269,5 +279,14 @@ class NamespacesServiceFailureTest {
     when(repository.findByNamespaceName("foo")).thenThrow(failure);
     assertThatThrownBy(() -> namespacesService.getNamespace("foo")).isSameAs(failure);
     verify(transactionManager).rollback(any());
+  }
+
+  private static NamespaceMetadata document(NamespaceRow row) {
+    return NamespaceMetadata.builder()
+        .namespaceUuid(row.getNamespaceUuid())
+        .namespaceName(row.getNamespaceName())
+        .revision(Long.toString(row.getVersion()))
+        .properties(Map.of("bar", "one"))
+        .build();
   }
 }

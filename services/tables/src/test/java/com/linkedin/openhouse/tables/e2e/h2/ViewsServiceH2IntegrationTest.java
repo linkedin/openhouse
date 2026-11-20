@@ -10,6 +10,7 @@ import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
+import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -17,6 +18,9 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
+import com.linkedin.openhouse.tables.audit.model.OperationStatus;
+import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
+import com.linkedin.openhouse.tables.audit.model.ViewOperationType;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -29,6 +33,9 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.view.ViewMetadata;
 import org.apache.iceberg.view.ViewMetadataParser;
@@ -37,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -77,6 +85,7 @@ public class ViewsServiceH2IntegrationTest {
   @Autowired private OpenHouseInternalRepository openHouseInternalRepository;
   @Autowired private HouseTableRepository houseTableRepository;
   @MockBean private ViewsFeatureGate viewsFeatureGate;
+  @MockBean private AuditHandler<ViewAuditEvent> viewAuditHandler;
   @SpyBean private StorageSelector storageSelector;
 
   private String jwtAccessToken;
@@ -213,6 +222,9 @@ public class ViewsServiceH2IntegrationTest {
                         ViewModelConstants.fullyPopulatedRequest()
                             .toBuilder()
                             .baseMetadataLocation(baseMetadataLocation)
+                            .viewProperties(
+                                replacementProperties(
+                                    baseMetadataLocation, ViewModelConstants.VIEW_PROPERTIES))
                             .representations(
                                 java.util.Collections.singletonList(
                                     com.linkedin.openhouse.tables.api.spec.v0.request.components
@@ -258,6 +270,13 @@ public class ViewsServiceH2IntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNoContent());
+
+    ArgumentCaptor<ViewAuditEvent> events = ArgumentCaptor.forClass(ViewAuditEvent.class);
+    Mockito.verify(viewAuditHandler, Mockito.times(3)).audit(events.capture());
+    List<ViewAuditEvent> audited = events.getAllValues();
+    assertOperationAudit(audited.get(0), ViewOperationType.CREATE, baseMetadataLocation);
+    assertOperationAudit(audited.get(1), ViewOperationType.REPLACE, replacementMetadataLocation);
+    assertOperationAudit(audited.get(2), ViewOperationType.DROP, null);
   }
 
   @Test
@@ -315,7 +334,8 @@ public class ViewsServiceH2IntegrationTest {
                   .content(
                       changed
                           .toBuilder()
-                          .viewProperties(ViewModelConstants.VIEW_PROPERTIES)
+                          .viewProperties(
+                              replacementProperties(pointer, ViewModelConstants.VIEW_PROPERTIES))
                           .representations(
                               java.util.Collections.singletonList(
                                   ViewRepresentation.builder()
@@ -330,6 +350,105 @@ public class ViewsServiceH2IntegrationTest {
           .andExpect(status().isOk());
       org.junit.jupiter.api.Assertions.assertNotEquals(
           pointer, findViewRow(viewId).getTableLocation());
+    } finally {
+      deleteViewIfPresent(viewId);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"add", "change", "remove"})
+  public void replaceRejectsSystemPropertyEditsWithoutChangingThePointer(String edit)
+      throws Exception {
+    String viewId = "system_property_view";
+    createView(viewId);
+    try {
+      String pointer = findViewRow(viewId).getTableLocation();
+      Map<String, String> properties =
+          replacementProperties(pointer, ViewModelConstants.VIEW_PROPERTIES);
+      if ("remove".equals(edit)) {
+        properties.remove("openhouse.tableUUID");
+      } else {
+        properties.put(
+            "add".equals(edit) ? "openhouse.extra" : "openhouse.tableUUID", "private-system-value");
+      }
+      CreateUpdateViewRequestBody request =
+          ViewModelConstants.fullyPopulatedRequest()
+              .toBuilder()
+              .viewId(viewId)
+              .baseMetadataLocation(pointer)
+              .viewProperties(properties)
+              .build();
+      mvc.perform(
+              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(request.toJson())
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isBadRequest())
+          .andExpect(
+              jsonPath("$.message")
+                  .value("System view properties cannot be added, changed or removed"))
+          .andExpect(jsonPath("$.cause").doesNotExist())
+          .andExpect(jsonPath("$.stacktrace").doesNotExist());
+      org.junit.jupiter.api.Assertions.assertEquals(
+          pointer, findViewRow(viewId).getTableLocation());
+
+      mvc.perform(
+              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      request.toBuilder().baseMetadataLocation("stale-pointer").build().toJson())
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isConflict());
+    } finally {
+      deleteViewIfPresent(viewId);
+    }
+  }
+
+  @Test
+  public void existingViewPutUsesCompleteUserPropertySnapshot() throws Exception {
+    String viewId = "complete_property_view";
+    Map<String, String> initial = new LinkedHashMap<>(ViewModelConstants.VIEW_PROPERTIES);
+    initial.put("remove-me", "old");
+    initial.put("keep-me", "yes");
+    mvc.perform(
+            MockMvcRequestBuilders.post(VIEWS_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    ViewModelConstants.createRequestWithoutBaseVersion()
+                        .toBuilder()
+                        .viewId(viewId)
+                        .viewProperties(initial)
+                        .build()
+                        .toJson())
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isCreated());
+    try {
+      String pointer = findViewRow(viewId).getTableLocation();
+      Map<String, String> desired = replacementProperties(pointer, initial);
+      desired.remove("remove-me");
+      desired.put("keep-me", "updated");
+      mvc.perform(
+              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      ViewModelConstants.createRequestWithoutBaseVersion()
+                          .toBuilder()
+                          .viewId(viewId)
+                          .baseMetadataLocation(pointer)
+                          .viewProperties(desired)
+                          .build()
+                          .toJson())
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isOk());
+      Map<String, String> persisted =
+          replacementProperties(
+              findViewRow(viewId).getTableLocation(), java.util.Collections.emptyMap());
+      org.junit.jupiter.api.Assertions.assertFalse(persisted.containsKey("remove-me"));
+      org.junit.jupiter.api.Assertions.assertEquals("updated", persisted.get("keep-me"));
+      org.junit.jupiter.api.Assertions.assertEquals(
+          "false", persisted.get("replace.drop-dialect.allowed"));
+      org.junit.jupiter.api.Assertions.assertEquals(
+          "spark", persisted.get("openhouse.view.sourceDialect"));
     } finally {
       deleteViewIfPresent(viewId);
     }
@@ -467,7 +586,14 @@ public class ViewsServiceH2IntegrationTest {
           mvc.perform(
                   MockMvcRequestBuilders.put(viewPath)
                       .contentType(MediaType.APPLICATION_JSON)
-                      .content(changed.toBuilder().baseMetadataLocation(base).build().toJson())
+                      .content(
+                          changed
+                              .toBuilder()
+                              .baseMetadataLocation(base)
+                              .viewProperties(
+                                  replacementProperties(base, changed.getViewProperties()))
+                              .build()
+                              .toJson())
                       .accept(MediaType.APPLICATION_JSON)
                       .header("Authorization", "Bearer " + replacerToken))
               .andExpect(status().isOk())
@@ -483,7 +609,14 @@ public class ViewsServiceH2IntegrationTest {
           mvc.perform(
                   MockMvcRequestBuilders.put(viewPath)
                       .contentType(MediaType.APPLICATION_JSON)
-                      .content(changed.toBuilder().baseMetadataLocation(replaced).build().toJson())
+                      .content(
+                          changed
+                              .toBuilder()
+                              .baseMetadataLocation(replaced)
+                              .viewProperties(
+                                  replacementProperties(replaced, changed.getViewProperties()))
+                              .build()
+                              .toJson())
                       .accept(MediaType.APPLICATION_JSON)
                       .header("Authorization", "Bearer " + replacerToken))
               .andExpect(status().isOk())
@@ -512,6 +645,18 @@ public class ViewsServiceH2IntegrationTest {
 
   private static String responseBody(MvcResult result) throws Exception {
     return result.getResponse().getContentAsString();
+  }
+
+  private static Map<String, String> replacementProperties(
+      String pointer, Map<String, String> requested) throws Exception {
+    Map<String, String> properties =
+        new LinkedHashMap<>(
+            ViewMetadataParser.fromJson(
+                    pointer,
+                    new String(Files.readAllBytes(Paths.get(URI.create(pointer).getPath())), UTF_8))
+                .properties());
+    properties.putAll(requested);
+    return properties;
   }
 
   private static long readLong(MvcResult result, String path) throws Exception {
@@ -659,6 +804,21 @@ public class ViewsServiceH2IntegrationTest {
                 .tableId(viewId)
                 .build())
         .orElseThrow(() -> new AssertionError("Expected view row to exist"));
+  }
+
+  /** A successful handler-level event: concrete operation, response pointer, server identity. */
+  private void assertOperationAudit(
+      ViewAuditEvent event, ViewOperationType operationType, String responsePointer) {
+    org.junit.jupiter.api.Assertions.assertEquals(
+        OperationStatus.SUCCESS, event.getOperationStatus());
+    org.junit.jupiter.api.Assertions.assertEquals(operationType, event.getOperationType());
+    org.junit.jupiter.api.Assertions.assertEquals(
+        ViewModelConstants.DATABASE_ID, event.getDatabaseName());
+    org.junit.jupiter.api.Assertions.assertEquals(ViewModelConstants.VIEW_ID, event.getViewName());
+    org.junit.jupiter.api.Assertions.assertEquals("DUMMY_ANONYMOUS_USER", event.getUser());
+    org.junit.jupiter.api.Assertions.assertEquals(
+        clusterProperties.getClusterName(), event.getClusterName());
+    org.junit.jupiter.api.Assertions.assertEquals(responsePointer, event.getNewMetadataLocation());
   }
 
   private long metadataFileCount() throws Exception {

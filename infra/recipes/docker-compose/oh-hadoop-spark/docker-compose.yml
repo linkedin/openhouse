@@ -1,5 +1,6 @@
 version: "3.3"
 x-optimizer-environment: &optimizer-environment
+  OPTIMIZER_DB_URL: jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false
   OPTIMIZER_DB_USER: oh_user
   OPTIMIZER_DB_PASSWORD: oh_password
 
@@ -68,8 +69,6 @@ services:
     extends:
       file: ../common/oh-services.yml
       service: openhouse-optimizer
-    volumes:
-      - ./:/var/config/
     environment: *optimizer-environment
     depends_on:
       - mysql
@@ -78,11 +77,7 @@ services:
     extends:
       file: ../common/oh-services.yml
       service: openhouse-optimizer-analyzer
-    volumes:
-      - ./:/var/config/
-    environment:
-      <<: *optimizer-environment
-      SPRING_SQL_INIT_MODE: never
+    environment: *optimizer-environment
     depends_on:
       - openhouse-optimizer
     profiles:
@@ -92,11 +87,8 @@ services:
     extends:
       file: ../common/oh-services.yml
       service: openhouse-optimizer-scheduler
-    volumes:
-      - ./:/var/config/
     environment:
       <<: *optimizer-environment
-      SPRING_SQL_INIT_MODE: never
       JOBS_BASE_URI: http://openhouse-jobs:8080
       SCHEDULER_RESULTS_ENDPOINT: http://openhouse-optimizer:8080
     depends_on:

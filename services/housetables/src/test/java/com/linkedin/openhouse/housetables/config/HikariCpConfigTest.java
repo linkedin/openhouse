@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.config;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.zaxxer.hikari.HikariDataSource;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Assertions;
@@ -13,7 +14,7 @@ import org.springframework.test.context.TestPropertySource;
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @TestPropertySource(properties = {"spring.datasource.hikari.maximum-pool-size=20"})
-public class HikariCpConfigTest {
+public class HikariCpConfigTest extends HtsDatabaseTestBase {
 
   @Autowired private DataSource dataSource;
 

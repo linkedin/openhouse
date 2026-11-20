@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -20,8 +21,14 @@ import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
+import org.apache.iceberg.view.ViewMetadataParser;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -125,7 +132,11 @@ public class ViewsDualStorageH2IntegrationTest {
                 MockMvcRequestBuilders.put(viewsPath + "/" + VIEW_ID)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
-                        request(databaseId, base, "SELECT id FROM my_database.my_table").toJson())
+                        request(databaseId, base, "SELECT id FROM my_database.my_table")
+                            .toBuilder()
+                            .viewProperties(replacementProperties(base))
+                            .build()
+                            .toJson())
                     .accept(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + jwtAccessToken))
             .andExpect(status().isOk())
@@ -190,5 +201,16 @@ public class ViewsDualStorageH2IntegrationTest {
         .findViewById(
             HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(VIEW_ID).build())
         .orElseThrow(() -> new AssertionError("Expected view row to exist"));
+  }
+
+  private Map<String, String> replacementProperties(String pointer) throws Exception {
+    Map<String, String> properties =
+        new LinkedHashMap<>(
+            ViewMetadataParser.fromJson(
+                    pointer,
+                    new String(Files.readAllBytes(Paths.get(URI.create(pointer).getPath())), UTF_8))
+                .properties());
+    properties.putAll(ViewModelConstants.VIEW_PROPERTIES);
+    return properties;
   }
 }
