@@ -3,6 +3,7 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '7.1.2'
     id 'openhouse.apps-spark-common'
     id 'openhouse.iceberg-conventions-1.2'
+    id 'openhouse.mysql-test-backend'
 }
 
 ext {

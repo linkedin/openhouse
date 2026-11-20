@@ -1,0 +1,10 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+}
+
+// Repository-only test runtime. Deliberately not published or bundled into tables-test-fixtures.
+dependencies {
+  compileOnly 'org.springframework.boot:spring-boot:2.7.8'
+  implementation 'org.testcontainers:mysql:1.21.4'
+  runtimeOnly 'mysql:mysql-connector-java:8.0.33'
+}

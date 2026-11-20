@@ -2,6 +2,7 @@ plugins {
     id 'openhouse.java-conventions'
     id 'openhouse.hadoop-conventions'
     id 'openhouse.maven-publish'
+    id 'openhouse.mysql-test-backend'
 }
 
 ext {
