@@ -25,6 +25,8 @@ The suite is included in the ordinary `:services:tables:test` task and therefore
 does not require a backend flag, manually started stack, or separate CI job.
 Docker or database startup failures fail the run; there is no H2 fallback.
 The existing Tables H2 and mocked tests retain their original configuration.
+Test contexts use non-global Reactor resource factories so closing a cached
+context cannot terminate another context's active HTS HTTP client.
 
 To check both affected modules, including all existing suites:
 
