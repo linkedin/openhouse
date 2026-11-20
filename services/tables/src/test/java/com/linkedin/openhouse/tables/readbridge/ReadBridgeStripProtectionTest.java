@@ -324,11 +324,46 @@ public class ReadBridgeStripProtectionTest {
         thrown.getMessage());
   }
 
-  /** A default is fixed once set, but a column without one can still get one. */
+  /**
+   * After the opt-in, a column gets a default only in the commit that adds it, as in Iceberg, even
+   * when the table has no default to protect yet.
+   */
   @Test
-  public void firstDefaultOnExistingColumn_allowed() {
+  public void firstDefaultOnExistingColumn_rejected() {
     ReadBridgeStripProtection protection = protection(COUNTRY_FROM_PROPERTY);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "US");
+
+    CommitRejectedException thrown =
+        Assertions.assertThrows(
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, true));
+    Assertions.assertEquals(
+        "COLUMN_DEFAULT_ADDED: db.tbl has no column default on country (field-id 2), and this"
+            + " commit adds one. A column gets a default only in the commit that adds the column,"
+            + " so keep this one without a default.",
+        thrown.getMessage());
+  }
+
+  @Test
+  public void defaultOnColumnTheCommitAdds_allowed() {
+    ReadBridgeStripProtection protection = protection(COUNTRY_FROM_PROPERTY);
+    TableDto existing = ramped(SCHEMA_WITHOUT_COUNTRY);
+    TableDto incoming = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "US");
+
+    Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, true));
+  }
+
+  /** The commit that opts a table in may declare a default on a column the table already has. */
+  @Test
+  public void defaultOnExistingColumnAtOptIn_allowed() {
+    ReadBridgeStripProtection protection = protection(COUNTRY_FROM_PROPERTY);
+    TableDto existing =
+        TableDto.builder()
+            .databaseId("db")
+            .tableId("tbl")
+            .schema(SCHEMA_WITHOUT_DEFAULT)
+            .tableProperties(Collections.emptyMap())
+            .build();
     TableDto incoming = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "US");
 
     Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, true));

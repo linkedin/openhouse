@@ -23,10 +23,14 @@ import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 /**
- * Type 1 / Type 2 strip protection for column defaults. Type 1 checks that a commit keeps every
- * stamped column's default, unchanged; Type 2 asks {@link ClientCapabilityGate} whether the
- * commit's client is default-aware. Every {@code initial-default} is dropped before persist so
- * overlays cannot land in Iceberg metadata.
+ * Type 1 / Type 2 strip protection for column defaults. Type 1 holds a table that has opted in to
+ * Iceberg's rules for {@code initial-default}: a commit declares a default only on a column it
+ * adds, and keeps every stamped column's default, unchanged. Type 2 asks {@link
+ * ClientCapabilityGate} whether the commit's client is default-aware. Every {@code initial-default}
+ * is dropped before persist so overlays cannot land in Iceberg metadata.
+ *
+ * <p>The commit that opts a table in, or creates it opted in, may declare a default on any column
+ * the table has. Type 1 applies to every commit after it.
  *
  * <p>The catalog applies the rules only after its stale-base check, so they always judge a commit
  * against the table's current version. A commit built on an older version gets the retryable
@@ -91,9 +95,9 @@ public class ReadBridgeStripProtection {
   /**
    * Checks {@code commit} against the table's current version: the defaults the base declares, then
    * the ones the commit declares, must be usable, the commit must pass Type 1, its defaults must
-   * fit every schema version, and it must pass Type 2. Type 1 comes first, so a default that
-   * changed is refused as a change even when it also does not fit. A commit that creates the table
-   * only has its declared defaults checked.
+   * fit every schema version, and it must pass Type 2. Type 1 comes first, so a default that is
+   * late or changed is refused as such even when it also does not fit. A commit that creates the
+   * table or opts it in only has its declared defaults checked.
    *
    * @param clients the gate that says whether the commit's client declares the {@code
    *     column-defaults} capability and words the rejection
@@ -106,19 +110,20 @@ public class ReadBridgeStripProtection {
     TableMetadata base = commit.getBase().orElse(null);
     Schema schema = commit.getMetadata().schema();
     String location = base == null ? null : base.metadataFileLocation();
+    boolean optedIn = base != null && resolver.isBridged(base.properties());
     Map<Integer, String> previousStamped =
-        base == null || !resolver.isBridged(base.properties())
-            ? Collections.emptyMap()
-            : resolver.storedColumnDefaults(
-                tableDto(table, base.schema(), base.properties(), location));
+        optedIn
+            ? resolver.storedColumnDefaults(
+                tableDto(table, base.schema(), base.properties(), location))
+            : Collections.emptyMap();
     boolean bridged = resolver.isBridged(commit.getProperties());
     Map<Integer, String> declared =
         bridged
             ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
-    if (base != null) {
-      rejectRemovedOrChangedDefaults(
-          table, previousStamped, base.schema(), declared, bridged, schema);
+    if (optedIn && bridged) {
+      rejectRemovedOrChangedDefaults(table, previousStamped, base.schema(), declared, schema);
+      rejectLateDefaults(table, previousStamped, base.lastColumnId(), declared, schema);
     }
     rejectDefaultsThatDoNotFit(table, declared, commit.getMetadata().schemas());
     rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
@@ -168,19 +173,14 @@ public class ReadBridgeStripProtection {
   /**
    * Type 1: a still-present stamped column must keep its default, unchanged. Rewrites store the
    * default as a value in the files they write, so a new one would read differently in rewritten
-   * and untouched files. Tables that are unstamped or not opted in skip — there is no default to
-   * protect.
+   * and untouched files.
    */
   private static void rejectRemovedOrChangedDefaults(
       TableIdentifier table,
       Map<Integer, String> previousStamped,
       Schema previousSchema,
       Map<Integer, String> declared,
-      boolean bridged,
       Schema schema) {
-    if (previousStamped.isEmpty() || !bridged) {
-      return;
-    }
     for (Map.Entry<Integer, String> stamped : previousStamped.entrySet()) {
       Types.NestedField field = schema.findField(stamped.getKey());
       if (field == null) {
@@ -200,6 +200,32 @@ public class ReadBridgeStripProtection {
             String.format(
                 "COLUMN_DEFAULT_CHANGED: %s has a column default on %s, and this commit changes"
                     + " it. A column default cannot change once set, so keep its current value.",
+                table, fieldLabel(field)));
+      }
+    }
+  }
+
+  /**
+   * Type 1: a commit declares a default only on a column it adds, as Iceberg sets {@code
+   * initial-default} only when it adds a field. A first default on a column the table already has
+   * would reach rows in files written before the column, but not the same rows once a rewrite has
+   * stored them as NULL, like a changed default. Iceberg gives every field it adds, at any depth,
+   * an ID above the table's last column ID.
+   */
+  private static void rejectLateDefaults(
+      TableIdentifier table,
+      Map<Integer, String> previousStamped,
+      int lastColumnId,
+      Map<Integer, String> declared,
+      Schema schema) {
+    for (Integer fieldId : declared.keySet()) {
+      Types.NestedField field = schema.findField(fieldId);
+      if (field != null && fieldId <= lastColumnId && !previousStamped.containsKey(fieldId)) {
+        throw new CommitRejectedException(
+            String.format(
+                "COLUMN_DEFAULT_ADDED: %s has no column default on %s, and this commit adds one."
+                    + " A column gets a default only in the commit that adds the column, so keep"
+                    + " this one without a default.",
                 table, fieldLabel(field)));
       }
     }

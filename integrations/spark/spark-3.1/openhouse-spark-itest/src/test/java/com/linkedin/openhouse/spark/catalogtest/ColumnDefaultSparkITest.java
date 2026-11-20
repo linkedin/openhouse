@@ -64,14 +64,51 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
   }
 
   /**
-   * Clients apply a default to every schema version of its column, so the default must fit every
-   * type the column has had. The stub declares a default for {@code wide} that only a long holds:
-   * promoting {@code wide} from int is refused, and the table stays readable, alterable and
-   * droppable.
+   * Clients apply a default to every schema version of its column, so a default declared at the
+   * opt-in must fit every type the column has had. The stub declares a default for {@code wide}
+   * that only a long holds: opting in after promoting {@code wide} from int is refused, and the
+   * table stays readable, alterable and droppable.
    */
   @Test
-  public void promotionThatTheDefaultDoesNotFitIsRefused() throws Exception {
+  public void optInWithDefaultThatDoesNotFitAnOlderTypeIsRefused() throws Exception {
     String fqtn = "openhouse." + DATABASE + ".members_wide";
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("DROP TABLE IF EXISTS " + fqtn);
+      spark.sql("CREATE TABLE " + fqtn + " (id bigint, wide int) USING iceberg");
+      spark.sql("INSERT INTO " + fqtn + " VALUES (1, 5)");
+      spark.sql("ALTER TABLE " + fqtn + " ALTER COLUMN wide TYPE bigint");
+
+      BadRequestException refused =
+          assertThrows(
+              BadRequestException.class,
+              () ->
+                  spark.sql(
+                      "ALTER TABLE "
+                          + fqtn
+                          + " SET TBLPROPERTIES ('"
+                          + CAPABILITY_PROP
+                          + "'='true')"));
+      assertTrue(
+          refused.getMessage().contains("(TYPE_MISMATCH, column wide, field ID 2)"),
+          refused.getMessage());
+
+      spark.sql("REFRESH TABLE " + fqtn);
+      assertRowsEqual(
+          Collections.singletonList(row(1L, 5L)), rows(spark, "SELECT id, wide FROM " + fqtn));
+      spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN country string");
+      spark.sql("DROP TABLE " + fqtn);
+    }
+  }
+
+  /**
+   * After the opt-in, a column gets a default only in the commit that adds it, as in Iceberg. The
+   * stub declares a default for {@code wide} once it is a long, so promoting {@code wide} from int
+   * would give a column the table already has its first default: the promotion is refused, and the
+   * table stays readable, alterable and droppable.
+   */
+  @Test
+  public void firstDefaultOnExistingColumnIsRefused() throws Exception {
+    String fqtn = "openhouse." + DATABASE + ".members_late_default";
     try (SparkSession spark = getSparkSession()) {
       spark.sql("DROP TABLE IF EXISTS " + fqtn);
       spark.sql(
@@ -87,7 +124,12 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
               BadRequestException.class,
               () -> spark.sql("ALTER TABLE " + fqtn + " ALTER COLUMN wide TYPE bigint"));
       assertTrue(
-          refused.getMessage().contains("(TYPE_MISMATCH, column wide, field ID 2)"),
+          refused
+              .getMessage()
+              .contains(
+                  "COLUMN_DEFAULT_ADDED: "
+                      + DATABASE
+                      + ".members_late_default has no column default on wide (field-id 2)"),
           refused.getMessage());
 
       spark.sql("REFRESH TABLE " + fqtn);
