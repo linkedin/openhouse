@@ -118,12 +118,16 @@ dependencies {
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
   testImplementation 'org.springframework:spring-context-support:5.3.18'
   testImplementation(testFixtures(project(':services:common')))
+  testImplementation(testFixtures(project(':services:housetables')))
   testImplementation (project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
     exclude group: 'com.linkedin.iceberg'
   }
 }
 
 tasks.named('test') {
+  // HTS's runtime resources must not change the existing embedded-database test defaults.
+  systemProperty 'spring.sql.init.mode', 'never'
+  systemProperty 'spring.jpa.hibernate.ddl-auto', 'create-drop'
   // Bound retained Spring contexts so the full service suite fits the test worker's default heap.
   systemProperty 'spring.test.context.cache.maxSize', '8'
 }
