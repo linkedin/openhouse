@@ -4,11 +4,9 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
-import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
+import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
-import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
-import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -33,6 +31,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
                 .namespaceUuid(metadata.getNamespaceUuid())
                 .namespaceName(metadata.getNamespaceName())
                 .properties(metadata.getProperties())
+                .revision(metadata.getRevision())
                 .build())
         .build();
   }
@@ -48,6 +47,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
                 .namespaceUuid(metadata.getNamespaceUuid())
                 .namespaceName(metadata.getNamespaceName())
                 .properties(metadata.getProperties())
+                .revision(metadata.getRevision())
                 .build())
         .build();
   }
@@ -59,18 +59,25 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
   }
 
   @Override
-  public ApiResponse<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
-      String namespaceName, UpdateNamespacePropertiesRequestBody request) throws NotFoundException {
-    NamespacePropertyUpdate result =
-        namespacesService.updateNamespaceProperties(
-            namespaceName, request.getUpdates(), request.getRemovals());
-    return ApiResponse.<UpdateNamespacePropertiesResponseBody>builder()
+  public ApiResponse<NamespaceMetadataResponse> updateNamespace(
+      String namespaceName, UpdateNamespaceRequestBody request) throws NotFoundException {
+    NamespaceMetadata result =
+        namespacesService.updateNamespace(
+            namespaceName,
+            NamespaceMetadata.builder()
+                .namespaceUuid(request.getNamespaceUuid())
+                .namespaceName(request.getNamespaceName())
+                .properties(request.getProperties())
+                .revision(request.getRevision())
+                .build());
+    return ApiResponse.<NamespaceMetadataResponse>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
-            UpdateNamespacePropertiesResponseBody.builder()
-                .updated(result.getUpdated())
-                .removed(result.getRemoved())
-                .missing(result.getMissing())
+            NamespaceMetadataResponse.builder()
+                .namespaceUuid(result.getNamespaceUuid())
+                .namespaceName(result.getNamespaceName())
+                .properties(result.getProperties())
+                .revision(result.getRevision())
                 .build())
         .build();
   }

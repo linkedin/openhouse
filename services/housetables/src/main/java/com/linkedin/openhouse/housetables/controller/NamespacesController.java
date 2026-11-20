@@ -1,29 +1,33 @@
 package com.linkedin.openhouse.housetables.controller;
 
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
-import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
+import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceErrorResponse;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
-import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
+import com.linkedin.openhouse.housetables.model.InvalidNamespaceDocumentException;
 import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import javax.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 @ApiResponses({
   @ApiResponse(
       responseCode = "500",
-      description = "Namespace operation failed. Read current metadata before repeating a write.",
+      description = "Namespace metadata operation failed.",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
 })
 public class NamespacesController {
@@ -96,6 +100,10 @@ public class NamespacesController {
     @ApiResponse(
         responseCode = "404",
         description = "Namespace metadata was not found.",
+        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
+    @ApiResponse(
+        responseCode = "409",
+        description = "Namespace was concurrently modified.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   })
   @DeleteMapping("/{namespaceName}")
@@ -108,27 +116,31 @@ public class NamespacesController {
   }
 
   @Operation(
-      operationId = "updateNamespaceProperties",
+      operationId = "updateNamespace",
       tags = "Namespace",
-      summary = "Atomically apply sparse property updates and removals.")
+      summary = "Replace a namespace document at its current revision.")
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Namespace properties updated."),
     @ApiResponse(
         responseCode = "400",
-        description = "Request body could not be decoded.",
+        description = "Request body or namespace document is invalid.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
     @ApiResponse(
         responseCode = "404",
         description = "Namespace metadata was not found.",
+        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
+    @ApiResponse(
+        responseCode = "409",
+        description = "Namespace was concurrently modified.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   })
-  @PostMapping(value = "/{namespaceName}/properties", consumes = "application/json")
-  public ResponseEntity<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
+  @PutMapping(value = "/{namespaceName}", consumes = "application/json")
+  public ResponseEntity<NamespaceMetadataResponse> updateNamespace(
       @PathVariable("namespaceName") String namespaceName,
-      @RequestBody UpdateNamespacePropertiesRequestBody request)
+      @Valid @RequestBody UpdateNamespaceRequestBody request)
       throws NotFoundException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateNamespacePropertiesResponseBody>
-        response = namespacesApiHandler.updateNamespaceProperties(namespaceName, request);
+    com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
+        namespacesApiHandler.updateNamespace(namespaceName, request);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
@@ -149,7 +161,21 @@ public class NamespacesController {
   }
 
   @Hidden
-  @ExceptionHandler(HttpMessageNotReadableException.class)
+  @ExceptionHandler(EntityConcurrentModificationException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleConcurrentModification() {
+    return renderFailure(
+        HttpStatus.CONFLICT, "CommitFailedException", "Namespace was concurrently modified.");
+  }
+
+  @Hidden
+  @ExceptionHandler(InvalidNamespaceDocumentException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleInvalidDocument() {
+    return renderFailure(
+        HttpStatus.BAD_REQUEST, "InvalidRequestException", "Invalid namespace document.");
+  }
+
+  @Hidden
+  @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
   public ResponseEntity<NamespaceErrorResponse> handleInvalidRequestBody() {
     return renderFailure(
         HttpStatus.BAD_REQUEST, "InvalidRequestException", "Invalid namespace request.");

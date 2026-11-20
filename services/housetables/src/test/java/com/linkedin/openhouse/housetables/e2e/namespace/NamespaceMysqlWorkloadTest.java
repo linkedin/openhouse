@@ -2,11 +2,14 @@ package com.linkedin.openhouse.housetables.e2e.namespace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,10 +82,18 @@ class NamespaceMysqlWorkloadTest {
             writers,
             statistics,
             () -> {
-              namespaces.updateNamespaceProperties(
-                  "workload_" + propertyCount,
-                  Map.of("key_0", "value_" + sequence.incrementAndGet()),
-                  Set.of());
+              String name = "workload_" + propertyCount;
+              NamespaceMetadata current = namespaces.getNamespace(name);
+              Map<String, String> properties = new HashMap<>(current.getProperties());
+              properties.put("key_0", "value_" + sequence.incrementAndGet());
+              namespaces.updateNamespace(
+                  name,
+                  NamespaceMetadata.builder()
+                      .namespaceUuid(current.getNamespaceUuid())
+                      .namespaceName(current.getNamespaceName())
+                      .revision(current.getRevision())
+                      .properties(properties)
+                      .build());
               return true;
             });
         assertThat(namespaces.getNamespace("workload_" + propertyCount).getProperties())
@@ -187,7 +198,8 @@ class NamespaceMysqlWorkloadTest {
                                 operation.call();
                                 successes.incrementAndGet();
                               } catch (OptimisticLockException
-                                  | OptimisticLockingFailureException exception) {
+                                  | OptimisticLockingFailureException
+                                  | EntityConcurrentModificationException exception) {
                                 conflicts.incrementAndGet();
                               } finally {
                                 durations.add(System.nanoTime() - started);

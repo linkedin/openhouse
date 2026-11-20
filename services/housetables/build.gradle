@@ -99,27 +99,6 @@ tasks.named('test') {
   maxParallelForks = 1
 }
 
-tasks.register('namespaceMysqlTest', Test) {
-  description = 'Bootstraps a dedicated local MySQL schema and runs namespace persistence contracts.'
-  group = 'verification'
-  testClassesDirs = sourceSets.test.output.classesDirs
-  classpath = sourceSets.test.runtimeClasspath
-  filter { includeTestsMatching '*NamespacesServiceTest' }
-  systemProperty 'spring.sql.init.mode', 'always'
-  systemProperty 'spring.jpa.hibernate.ddl-auto', 'none'
-  systemProperty 'cluster.housetables.database.type', 'MYSQL'
-  systemProperty 'cluster.housetables.database.url',
-      providers.gradleProperty('namespaceMysqlUrl').getOrElse('jdbc:mysql://127.0.0.1:33316/feedback?useSSL=false&allowPublicKeyRetrieval=true')
-  systemProperty 'HTS_DB_USER', 'root'
-  systemProperty 'HTS_DB_PASSWORD', ''
-  doFirst {
-    if (!providers.gradleProperty('namespaceMysqlUrl').isPresent()) {
-      throw new GradleException('Supply -PnamespaceMysqlUrl for a dedicated local schema.')
-    }
-
-  }
-}
-
 ['namespaceMysqlWorkload', 'namespaceMysqlOccupancyRegression'].each { taskName ->
   tasks.register(taskName, Test) {
     description = 'Measures sparse updates and generated occupancy SQL on an isolated local MySQL fixture.'
