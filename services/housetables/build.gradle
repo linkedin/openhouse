@@ -3,6 +3,7 @@ plugins {
   id 'openhouse.hadoop-conventions'
   id 'openhouse.iceberg-conventions-1.5.2'
   id 'openhouse.maven-publish'
+  id 'java-test-fixtures'
   /**
    * FIXME: Ideally, the below line are also defined in shared buildSrc. But raises following error:
    * Invalid plugin request [id: 'org.springframework.boot', version: '2.1.2.RELEASE'].
@@ -83,11 +84,12 @@ dependencies {
   implementation "mysql:mysql-connector-java:8.+"
   implementation "org.jetbrains:annotations:16.0.3"
   testImplementation(testFixtures(project(':services:common')))
-  testImplementation 'org.testcontainers:mysql:1.21.4'
+  testFixturesApi 'org.testcontainers:mysql:1.21.4'
+  testFixturesApi 'org.springframework.boot:spring-boot-starter-test:2.7.8'
 }
 
 // Tests rebuild their MySQL schema from the canonical DDL; this copies it, it is not a second copy.
-tasks.named('processTestResources') {
+tasks.named('processTestFixturesResources') {
   from('ddl') {
     include '*.sql'
     into 'hts-mysql/ddl'

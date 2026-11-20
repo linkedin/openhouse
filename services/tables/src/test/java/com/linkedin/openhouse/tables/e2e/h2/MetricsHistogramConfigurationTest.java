@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -42,7 +43,10 @@ import org.springframework.test.context.ContextConfiguration;
 @SpringBootTest
 @AutoConfigureMetrics
 @ContextConfiguration(
-    initializers = {TableE2eContextInitializer.class, AuthorizationPropertiesInitializer.class})
+    initializers = {
+      PropertyOverrideContextInitializer.class,
+      AuthorizationPropertiesInitializer.class
+    })
 public class MetricsHistogramConfigurationTest {
 
   @Autowired private MeterRegistry meterRegistry;

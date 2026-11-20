@@ -7,6 +7,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -36,7 +37,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @Slf4j
 @SpringBootTest
 @AutoConfigureMockMvc
-@ContextConfiguration(initializers = TableE2eContextInitializer.class)
+@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @WithMockUser(username = "testUser")
 public class DatabasesControllerTest {
 

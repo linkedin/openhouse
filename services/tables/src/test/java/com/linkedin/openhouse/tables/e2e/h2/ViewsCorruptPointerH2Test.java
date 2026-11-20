@@ -36,9 +36,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * report a sanitized server fault rather than return the incomplete pointer or treat it as absent.
  * Rows are seeded directly into the real house-table store, not produced by a stubbed failure.
  */
-@SpringBootTest(
-    classes = {SpringH2Application.class, ViewsCorruptPointerH2Test.Config.class},
-    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
+@SpringBootTest(classes = {SpringH2Application.class, ViewsCorruptPointerH2Test.Config.class})
 @AutoConfigureMockMvc
 @ContextConfiguration(
     initializers = {

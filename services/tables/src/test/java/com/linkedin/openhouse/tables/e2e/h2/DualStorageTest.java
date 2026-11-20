@@ -21,12 +21,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.TestPropertySource;
 
 @SpringBootTest
-@TestPropertySource(properties = "cluster.storages.default-type=hdfs")
-@ContextConfiguration(
-    initializers = {CustomClusterPropertiesInitializer.class, TableE2eContextInitializer.class})
+@ContextConfiguration(initializers = CustomClusterPropertiesInitializer.class)
 public class DualStorageTest {
 
   @Autowired HouseTableRepository houseTablesRepository;
@@ -53,7 +50,7 @@ public class DualStorageTest {
             .databaseId(hdfsDtoPrimaryKey.getDatabaseId())
             .tableId(hdfsDtoPrimaryKey.getTableId())
             .build();
-    Assertions.assertTrue(houseTablesRepository.findById(hdfsHtsPrimaryKey).isPresent());
+    Assertions.assertTrue(houseTablesRepository.existsById(hdfsHtsPrimaryKey));
     HouseTable houseTable = houseTablesRepository.findById(hdfsHtsPrimaryKey).get();
     // storage type hdfs
     Assertions.assertEquals(StorageType.HDFS.getValue(), houseTable.getStorageType());
@@ -68,7 +65,7 @@ public class DualStorageTest {
             .databaseId(localDtoPrimaryKey.getDatabaseId())
             .tableId(localDtoPrimaryKey.getTableId())
             .build();
-    Assertions.assertTrue(houseTablesRepository.findById(localHtsPrimaryKey).isPresent());
+    Assertions.assertTrue(houseTablesRepository.existsById(localHtsPrimaryKey));
     houseTable = houseTablesRepository.findById(localHtsPrimaryKey).get();
     // storage type local
     Assertions.assertEquals(StorageType.LOCAL.getValue(), houseTable.getStorageType());

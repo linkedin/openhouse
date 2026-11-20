@@ -64,11 +64,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 @SpringBootTest(
     classes = SpringH2Application.class,
-    properties = {
-      "tableE2eBackend=h2",
-      "spring.jpa.mapping-resources=table-e2e-orm.xml",
-      "cluster.tables.views.supported-dialects=spark,trino"
-    })
+    properties = "cluster.tables.views.supported-dialects=spark,trino")
 @AutoConfigureMockMvc
 @Import(ViewExceptionHandler.class)
 @ContextConfiguration(

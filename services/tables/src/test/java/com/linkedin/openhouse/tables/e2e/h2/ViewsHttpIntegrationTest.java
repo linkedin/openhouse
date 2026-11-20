@@ -41,6 +41,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.ViewMetadata;
@@ -48,7 +49,6 @@ import org.apache.iceberg.view.ViewMetadataParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,30 +66,30 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * Real TCP requests to a random-port Tables Service, then Docker HTS and Docker MySQL. No view,
- * catalog, admission, toggle, storage, or authorization component is mocked. Local dummy JWTs
- * exercise the supported test authentication boundary, not production token validation or OPA.
+ * Real TCP requests to random-port Tables and HTS services, then Docker MySQL. No view, catalog,
+ * admission, toggle, storage, or authorization component is mocked. Local dummy JWTs exercise the
+ * supported test authentication boundary, not production token validation or OPA.
  */
 @SpringBootTest(
     classes = SpringH2Application.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = "cluster.tables.views.supported-dialects=spark,trino")
 @ContextConfiguration(
-    initializers = {TableE2eContextInitializer.class, AuthorizationPropertiesInitializer.class})
+    initializers = {ViewsHttpContextInitializer.class, AuthorizationPropertiesInitializer.class})
 @Import(ViewExceptionHandler.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@EnabledIfSystemProperty(named = "tableE2eBackend", matches = "docker")
-public class ViewsDockerE2eTest {
+public class ViewsHttpIntegrationTest {
 
   private static final String CREATOR = "views-e2e-user";
   private static final String VIEW = "test_view";
   private static final String SEED_TABLE = "database_seed";
   private static final String SQL = "SELECT id, name FROM source_table";
   private static final String SOURCE_DIALECT = "openhouse.view.sourceDialect";
+  private static final AtomicInteger NEXT_DATABASE = new AtomicInteger();
 
   @Autowired private TestRestTemplate tables;
   @Autowired private ObjectMapper mapper;
-  @Autowired private TableE2eFixtures fixtures;
+  private final ViewsMysqlFixture fixtures = new ViewsMysqlFixture();
   @Autowired private ClusterProperties clusterProperties;
 
   private final TestRestTemplate hts =
@@ -106,12 +106,10 @@ public class ViewsDockerE2eTest {
 
   @BeforeEach
   void setUp() throws Exception {
-    assertTrue(fixtures.usesDocker(), "This suite must never run against an H2 substitute");
-    fixtures.assertBackendWiring();
     headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
     headers.setBearerAuth(new DummyTokenInterceptor.DummySecurityJWT(CREATOR).buildNoopJWT());
-    database = "views_e2e_" + UUID.randomUUID().toString().replace("-", "");
+    database = "v" + NEXT_DATABASE.incrementAndGet();
     seedDatabase(database);
     enableViews(database);
   }
@@ -1021,7 +1019,7 @@ public class ViewsDockerE2eTest {
         "TABLE", fixtures.persistedEntity(db, SEED_TABLE).orElseThrow().get("entity_type"));
   }
 
-  private void enableViews(String db) {
+  private void enableViews(String db) throws Exception {
     databases.add(db);
     TableToggleStatus toggle =
         TableToggleStatus.builder()
@@ -1086,7 +1084,7 @@ public class ViewsDockerE2eTest {
     return row;
   }
 
-  private void assertAbsent(String db, String view) {
+  private void assertAbsent(String db, String view) throws Exception {
     assertFalse(fixtures.persistedEntity(db, view).isPresent());
     assertEquals(404, htsRead("entities", db, view).getStatusCodeValue());
     assertEquals(404, htsRead("views", db, view).getStatusCodeValue());
