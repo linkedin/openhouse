@@ -352,7 +352,9 @@ public final class Operations implements AutoCloseable {
     if (!fs().delete(tableDirectoryPath, true)) {
       throw new IOException("Failed to delete orphan directory " + tableDirectoryPath);
     }
-    log.info("Deleted orphan directory {} with {} staged files", tableDirectoryPath, files.size());
+    // All files but the marker are staged files.
+    log.info(
+        "Deleted orphan directory {} with {} staged files", tableDirectoryPath, files.size() - 1);
     return true;
   }
 
@@ -360,7 +362,9 @@ public final class Operations implements AutoCloseable {
     List<FileStatus> files = Lists.newArrayList();
     RemoteIterator<LocatedFileStatus> it = fs().listFiles(dir, true);
     while (it.hasNext()) {
-      files.add(it.next());
+      // Copy without the block locations, which are not needed and take most of the memory when
+      // the directory has many files.
+      files.add(new FileStatus(it.next()));
     }
     return files;
   }
