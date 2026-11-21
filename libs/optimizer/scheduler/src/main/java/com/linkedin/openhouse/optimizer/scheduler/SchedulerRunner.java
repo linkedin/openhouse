@@ -245,14 +245,13 @@ public class SchedulerRunner {
                   group.getAccount(),
                   claimedTableNames,
                   claimedIds);
-              // The status stays SCHEDULED. Only job_id changes.
               int updated =
                   operationsRepo.updateBatch(
                       claimedIds,
                       OperationStatus.SCHEDULED,
                       OperationStatus.SCHEDULED,
                       Optional.empty(),
-                      Optional.of(jobId));
+                      Optional.of(jobId)); // jobId is the only field that changes
               log.info(
                   "Submitted job {} for {} tables ({} rows updated with the job id)",
                   jobId,
