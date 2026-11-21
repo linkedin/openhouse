@@ -1,5 +1,10 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.JsonToken;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -16,12 +21,15 @@ import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,7 +37,11 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipException;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -70,6 +82,25 @@ public final class Operations implements AutoCloseable {
   private static final String CATALOG = "openhouse";
 
   private static final String METRICS_SCOPE = Operations.class.getName();
+
+  /**
+   * File that {@link #deleteOrphanDirectory} writes under the trash subdirectory of an orphan table
+   * directory it stages. Its modification time is the staging time: staged files cannot carry it,
+   * as renames keep modification times and not all file systems support setting them.
+   */
+  public static final String STAGED_FOR_DELETION_MARKER = "_STAGED_FOR_DELETION";
+
+  private static final String OPENHOUSE_TABLE_UUID_PROPERTY = "openhouse.tableUUID";
+  private static final String GZIP_METADATA_FILE_EXTENSION = ".gz.metadata.json";
+  private static final String UUID_REGEX =
+      "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+  /** OpenHouse names table directories {@code <tableId>-<tableUUID>}. */
+  private static final Pattern TABLE_DIRECTORY_UUID_PATTERN =
+      Pattern.compile("-(" + UUID_REGEX + ")$");
+
+  private static final Pattern ROOT_METADATA_FILE_NAME_PATTERN =
+      Pattern.compile("^(\\d{1,18})-" + UUID_REGEX + "(\\.gz)?\\.metadata\\.json$");
+  private static final JsonFactory JSON_FACTORY = new JsonFactory();
 
   private final SparkSession spark;
 
@@ -216,67 +247,287 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Run deleteOrphanDirectory operation on the given table directory path with time filter, moves
-   * files to the given trash subdirectory if the table is created older than the provided
-   * timestamp.
+   * Stages an orphan table directory for deletion by moving its files under its trash subdirectory,
+   * if none of them was modified since the given timestamp: a directory still used by a table keeps
+   * getting new files. Only stages the directory of an OpenHouse table, whose latest root metadata
+   * file is the metadata of a table with the UUID in the directory name and located at the
+   * directory; views and directories without such metadata are kept. Writes the {@link
+   * #STAGED_FOR_DELETION_MARKER} first, so that no file is staged without a staging time for {@link
+   * #deleteStagedOrphanDirectory} to wait on.
+   *
+   * @return true if files were staged
+   * @throws IOException if the directory cannot be listed, its root metadata file cannot be read or
+   *     a file cannot be staged
    */
   public boolean deleteOrphanDirectory(
-      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
-    List<Path> matchingFiles = Lists.newArrayList();
-    listFiles(
-        tableDirectoryPath,
-        file -> !file.getPath().toString().contains(trashDir),
-        true,
-        matchingFiles);
-
-    boolean anyMatched = false;
-    // if there is one file that satisfy predicate, all files should go into trash
-    try {
-      FileSystem fileSystem = fs();
-      for (Path matchingFile : matchingFiles) {
-        FileStatus filestatus = fileSystem.getFileStatus(matchingFile);
-        if (filestatus.getModificationTime() < olderThanTimestampMillis) {
-          anyMatched = true;
-          break;
-        }
-      }
-    } catch (IOException e) {
-      log.error("Error fetching the file system given path: {}", tableDirectoryPath);
+      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) throws IOException {
+    List<FileStatus> files = listFilesRecursively(tableDirectoryPath);
+    List<FileStatus> filesToStage =
+        files.stream()
+            .filter(file -> !isInTrash(file, tableDirectoryPath, trashDir))
+            .collect(Collectors.toList());
+    if (filesToStage.isEmpty()) {
+      return false;
     }
-
-    if (!anyMatched) {
+    for (FileStatus file : filesToStage) {
+      if (file.getModificationTime() >= olderThanTimestampMillis) {
+        log.info(
+            "Not staging orphan directory {}: file {} was modified at {}",
+            tableDirectoryPath,
+            file.getPath(),
+            file.getModificationTime());
+        return false;
+      }
+    }
+    Optional<String> notTableDirectory =
+        getReasonNotTableDirectory(tableDirectoryPath, trashDir, files);
+    if (notTableDirectory.isPresent()) {
+      log.info("Not staging orphan directory {}: {}", tableDirectoryPath, notTableDirectory.get());
       return false;
     }
 
-    for (Path matchingFile : matchingFiles) {
+    fs().create(getStagedForDeletionMarkerPath(tableDirectoryPath, trashDir), true).close();
+    int failedFiles = 0;
+    for (FileStatus file : filesToStage) {
       Path trashPath =
-          getTrashPath(tableDirectoryPath.toString(), matchingFile.toString(), trashDir);
+          getTrashPath(tableDirectoryPath.toString(), file.getPath().toString(), trashDir);
       try {
-        rename(matchingFile, trashPath);
+        rename(file.getPath(), trashPath);
       } catch (IOException e) {
-        log.error(String.format("Move operation failed for file path: %s", tableDirectoryPath), e);
+        log.error(String.format("Failed to stage file %s", file.getPath()), e);
+        failedFiles++;
       }
+    }
+    if (failedFiles > 0) {
+      throw new IOException(
+          String.format(
+              "Failed to stage %d of %d files of orphan directory %s",
+              failedFiles, filesToStage.size(), tableDirectoryPath));
     }
     return true;
   }
 
   /**
-   * Remove staged orphan files in the staged trash directory and eventually delete the table
-   * directory
+   * Deletes an orphan table directory staged by {@link #deleteOrphanDirectory} before the given
+   * timestamp. Keeps the directory if it was not staged, was staged since the timestamp, has a file
+   * outside the trash subdirectory or modified since the timestamp, or is not the directory of an
+   * OpenHouse table, as checked by {@link #deleteOrphanDirectory}.
+   *
+   * @return true if the directory was deleted
+   * @throws IOException if the directory cannot be listed or deleted, or its root metadata file
+   *     cannot be read
    */
-  public void deleteStagedOrphanDirectory(
-      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
-    Path trashFolderPath = new Path(tableDirectoryPath, trashDir);
-    try {
-      deleteStagedFiles(trashFolderPath, olderThanTimestampMillis, true);
-      if (!fs().delete(tableDirectoryPath, true)) {
-        log.error(String.format("Failed to delete directory %s", tableDirectoryPath));
-      }
-    } catch (IOException e) {
-      log.error(
-          String.format("Delete staged files failed for orphan directory: %s", tableDirectoryPath),
-          e);
+  public boolean deleteStagedOrphanDirectory(
+      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) throws IOException {
+    List<FileStatus> files = listFilesRecursively(tableDirectoryPath);
+    String markerPath =
+        getStagedForDeletionMarkerPath(tableDirectoryPath, trashDir).toUri().getPath();
+    if (files.stream().noneMatch(file -> file.getPath().toUri().getPath().equals(markerPath))) {
+      log.info("Keeping orphan directory {}: it is not staged for deletion", tableDirectoryPath);
+      return false;
     }
+    for (FileStatus file : files) {
+      if (!isInTrash(file, tableDirectoryPath, trashDir)) {
+        log.info(
+            "Keeping orphan directory {}: file {} is not staged",
+            tableDirectoryPath,
+            file.getPath());
+        return false;
+      }
+      if (file.getModificationTime() >= olderThanTimestampMillis) {
+        log.info(
+            "Keeping orphan directory {}: file {} was modified at {}",
+            tableDirectoryPath,
+            file.getPath(),
+            file.getModificationTime());
+        return false;
+      }
+    }
+    Optional<String> notTableDirectory =
+        getReasonNotTableDirectory(tableDirectoryPath, trashDir, files);
+    if (notTableDirectory.isPresent()) {
+      log.info("Keeping orphan directory {}: {}", tableDirectoryPath, notTableDirectory.get());
+      return false;
+    }
+    if (!fs().delete(tableDirectoryPath, true)) {
+      throw new IOException("Failed to delete orphan directory " + tableDirectoryPath);
+    }
+    // All files but the marker are staged files.
+    log.info(
+        "Deleted orphan directory {} with {} staged files", tableDirectoryPath, files.size() - 1);
+    return true;
+  }
+
+  private List<FileStatus> listFilesRecursively(Path dir) throws IOException {
+    List<FileStatus> files = Lists.newArrayList();
+    RemoteIterator<LocatedFileStatus> it = fs().listFiles(dir, true);
+    while (it.hasNext()) {
+      // Copy without the block locations, which are not needed and take most of the memory when
+      // the directory has many files.
+      files.add(new FileStatus(it.next()));
+    }
+    return files;
+  }
+
+  private static Path getStagedForDeletionMarkerPath(Path tableDirectoryPath, String trashDir) {
+    return new Path(new Path(tableDirectoryPath, trashDir), STAGED_FOR_DELETION_MARKER);
+  }
+
+  /** Compares paths without scheme and authority, which listings may add. */
+  private static boolean isInTrash(FileStatus file, Path tableDirectoryPath, String trashDir) {
+    String trashPath = new Path(tableDirectoryPath, trashDir).toUri().getPath();
+    return file.getPath().toUri().getPath().startsWith(trashPath + Path.SEPARATOR);
+  }
+
+  /**
+   * Returns why the given directory is not known to be the directory of an OpenHouse table, or
+   * empty if it is: its latest root metadata file, staged or not, must be the metadata of a table
+   * with the UUID in the directory name and located at the directory. Anything else, such as a view
+   * directory or a directory without root metadata, is kept.
+   *
+   * @param files all files under the directory
+   * @throws IOException if the root metadata file cannot be read
+   */
+  private Optional<String> getReasonNotTableDirectory(
+      Path tableDirectoryPath, String trashDir, List<FileStatus> files) throws IOException {
+    Matcher directoryName = TABLE_DIRECTORY_UUID_PATTERN.matcher(tableDirectoryPath.getName());
+    if (!directoryName.find()) {
+      return Optional.of("its name has no table UUID");
+    }
+    String directoryUuid = directoryName.group(1);
+    Optional<FileStatus> metadataFile =
+        findLatestRootMetadataFile(tableDirectoryPath, trashDir, files);
+    if (!metadataFile.isPresent()) {
+      return Optional.of("it has no root metadata file");
+    }
+    Path metadataPath = metadataFile.get().getPath();
+    RootMetadata metadata;
+    try {
+      metadata = readRootMetadata(metadataPath);
+    } catch (JsonProcessingException | ZipException e) {
+      return Optional.of(
+          String.format(
+              "its root metadata file %s cannot be parsed: %s", metadataPath, e.getMessage()));
+    }
+    // View metadata has a view-uuid instead.
+    if (metadata.tableUuid == null) {
+      return Optional.of(
+          String.format("its root metadata file %s is not table metadata", metadataPath));
+    }
+    if (!directoryUuid.equalsIgnoreCase(metadata.openHouseTableUuid)) {
+      return Optional.of(
+          String.format(
+              "its root metadata file %s is of table %s",
+              metadataPath, metadata.openHouseTableUuid));
+    }
+    if (!isLocationOf(metadata.location, tableDirectoryPath)) {
+      return Optional.of(
+          String.format(
+              "its root metadata file %s is of a table located at %s",
+              metadataPath, metadata.location));
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Finds the root metadata file with the highest version directly under the table directory or,
+   * once staged, its trash subdirectory. OpenHouse names them {@code <version>-<uuid><extension>}.
+   */
+  private static Optional<FileStatus> findLatestRootMetadataFile(
+      Path tableDirectoryPath, String trashDir, List<FileStatus> files) {
+    String directoryPath = tableDirectoryPath.toUri().getPath();
+    String trashPath = new Path(tableDirectoryPath, trashDir).toUri().getPath();
+    return files.stream()
+        .filter(
+            file -> {
+              String parentPath = file.getPath().getParent().toUri().getPath();
+              return parentPath.equals(directoryPath) || parentPath.equals(trashPath);
+            })
+        .filter(file -> ROOT_METADATA_FILE_NAME_PATTERN.matcher(file.getPath().getName()).matches())
+        .max(
+            Comparator.comparingLong(Operations::getRootMetadataVersion)
+                .thenComparingLong(FileStatus::getModificationTime));
+  }
+
+  private static long getRootMetadataVersion(FileStatus file) {
+    Matcher matcher = ROOT_METADATA_FILE_NAME_PATTERN.matcher(file.getPath().getName());
+    return matcher.matches() ? Long.parseLong(matcher.group(1)) : -1;
+  }
+
+  /** Compares paths without scheme and authority, which OpenHouse leaves out of locations. */
+  private static boolean isLocationOf(String location, Path tableDirectoryPath) {
+    if (location == null || location.isEmpty()) {
+      return false;
+    }
+    try {
+      return new Path(location).toUri().getPath().equals(tableDirectoryPath.toUri().getPath());
+    } catch (IllegalArgumentException e) {
+      return false;
+    }
+  }
+
+  /**
+   * Reads the fields of a root metadata file that identify what it describes, streaming past the
+   * rest, which can be large.
+   */
+  private RootMetadata readRootMetadata(Path metadataPath) throws IOException {
+    RootMetadata metadata = new RootMetadata();
+    try (InputStream file = fs().open(metadataPath);
+        InputStream in =
+            metadataPath.getName().endsWith(GZIP_METADATA_FILE_EXTENSION)
+                ? new GZIPInputStream(file)
+                : file;
+        JsonParser parser = JSON_FACTORY.createParser(in)) {
+      if (parser.nextToken() != JsonToken.START_OBJECT) {
+        throw new JsonParseException(parser, "Root metadata is not a JSON object");
+      }
+      while (parser.nextToken() == JsonToken.FIELD_NAME) {
+        String field = parser.getCurrentName();
+        JsonToken value = parser.nextToken();
+        switch (field) {
+          case "table-uuid":
+            metadata.tableUuid = readString(parser);
+            break;
+          case "location":
+            metadata.location = readString(parser);
+            break;
+          case "properties":
+            if (value != JsonToken.START_OBJECT) {
+              parser.skipChildren();
+              break;
+            }
+            while (parser.nextToken() == JsonToken.FIELD_NAME) {
+              String property = parser.getCurrentName();
+              parser.nextToken();
+              if (OPENHOUSE_TABLE_UUID_PROPERTY.equals(property)) {
+                metadata.openHouseTableUuid = readString(parser);
+              } else {
+                parser.skipChildren();
+              }
+            }
+            break;
+          default:
+            parser.skipChildren();
+            break;
+        }
+      }
+    }
+    return metadata;
+  }
+
+  /** Returns the current value if it is a string, or skips it and returns null. */
+  private static String readString(JsonParser parser) throws IOException {
+    if (parser.currentToken() == JsonToken.VALUE_STRING) {
+      return parser.getText();
+    }
+    parser.skipChildren();
+    return null;
+  }
+
+  private static final class RootMetadata {
+    private String tableUuid;
+    private String location;
+    private String openHouseTableUuid;
   }
 
   /** Expire snapshots on a given fully-qualified table name. */
