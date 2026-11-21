@@ -20,6 +20,7 @@ def _unpickle_scan_context(
     worker_jvm_args: str | None = None,
     metric_attributes: Mapping[str, str] | None = None,
     sql_table_id: TableIdentifier | None = None,
+    orc_readahead_bytes: int = 0,
 ) -> TableScanContext:
     return TableScanContext(
         table_metadata=table_metadata,
@@ -30,6 +31,7 @@ def _unpickle_scan_context(
         worker_jvm_args=worker_jvm_args,
         metric_attributes=metric_attributes if metric_attributes is not None else {},
         sql_table_id=sql_table_id,
+        orc_readahead_bytes=orc_readahead_bytes,
     )
 
 
@@ -50,6 +52,7 @@ class TableScanContext:
         metric_attributes: Attributes attached to every metric emitted while iterating splits.
         sql_table_id: Database and table as spelled in the transform SQL, when that differs in case from table_id.
             Used only to bind batches for SQL execution; table_id stays the catalog identity.
+        orc_readahead_bytes: Read-ahead window for ORC data files, in bytes. 0 disables read-ahead.
     """
 
     table_metadata: TableMetadata
@@ -60,6 +63,7 @@ class TableScanContext:
     worker_jvm_args: str | None = None
     metric_attributes: Mapping[str, str] = field(default_factory=dict)
     sql_table_id: TableIdentifier | None = None
+    orc_readahead_bytes: int = 0
 
     @property
     def execution_table_id(self) -> TableIdentifier:
@@ -78,5 +82,6 @@ class TableScanContext:
                 self.worker_jvm_args,
                 dict(self.metric_attributes),
                 self.sql_table_id,
+                self.orc_readahead_bytes,
             ),
         )

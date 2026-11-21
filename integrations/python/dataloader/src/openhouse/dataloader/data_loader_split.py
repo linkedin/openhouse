@@ -16,6 +16,7 @@ from pyiceberg.io.pyarrow import ArrowScan
 from pyiceberg.table import ArrivalOrder, FileScanTask
 
 from openhouse.dataloader._jvm import apply_libhdfs_opts
+from openhouse.dataloader._orc_readahead import OrcReadAheadFileIO
 from openhouse.dataloader._table_scan_context import TableScanContext
 from openhouse.dataloader._timer import log_duration
 from openhouse.dataloader.filters import _quote_identifier
@@ -234,9 +235,12 @@ class DataLoaderSplit:
         split_start = time.monotonic()
         timed: _TimedBatchIter | None = None
         try:
+            io = ctx.io
+            if ctx.orc_readahead_bytes > 0:
+                io = OrcReadAheadFileIO(io, ctx.orc_readahead_bytes)
             arrow_scan = ArrowScan(
                 table_metadata=ctx.table_metadata,
-                io=ctx.io,
+                io=io,
                 projected_schema=ctx.projected_schema,
                 row_filter=ctx.row_filter,
             )
