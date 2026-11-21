@@ -6,10 +6,7 @@ public enum OperationStatus {
   /** Recommended by the Analyzer but not yet claimed by the Scheduler. */
   PENDING,
 
-  /** Claimed by the Scheduler; waiting for the Jobs Service to return a job ID. */
-  SCHEDULING,
-
-  /** Job submitted to the Jobs Service; the row now carries a {@code jobId}. */
+  /** Claimed by the Scheduler; {@code jobId} is set once the Jobs Service accepts the job. */
   SCHEDULED,
 
   /**

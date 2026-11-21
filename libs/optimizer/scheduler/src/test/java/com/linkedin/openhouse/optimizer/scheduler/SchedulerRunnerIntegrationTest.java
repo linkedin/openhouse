@@ -171,7 +171,7 @@ class SchedulerRunnerIntegrationTest {
         .hasSize(ids.size())
         .allSatisfy(
             row -> {
-              assertThat(row.getStatus()).isEqualTo(OperationStatus.SCHEDULING);
+              assertThat(row.getStatus()).isEqualTo(OperationStatus.SCHEDULED);
               assertThat(row.getScheduledAt()).isNotNull();
               assertThat(row.getJobId()).isNull();
             });

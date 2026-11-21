@@ -138,7 +138,7 @@ class TableOperationsRepositoryTest {
     String idC = UUID.randomUUID().toString();
     repository.save(pendingRow(idA, "tbl_a"));
     repository.save(pendingRow(idB, "tbl_b"));
-    // idC is already SCHEDULING with an older watermark — must NOT appear.
+    // idC is already SCHEDULED with an older watermark — must NOT appear.
     repository.save(
         TableOperationsRow.builder()
             .id(idC)
@@ -146,7 +146,7 @@ class TableOperationsRepositoryTest {
             .databaseName("db1")
             .tableName("tbl_c")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.SCHEDULING)
+            .status(OperationStatus.SCHEDULED)
             .createdAt(Instant.now())
             .scheduledAt(Instant.now().minusSeconds(60))
             .build());
@@ -159,7 +159,7 @@ class TableOperationsRepositoryTest {
         repository.updateBatch(
             List.of(idA, idB, idC),
             OperationStatus.PENDING,
-            OperationStatus.SCHEDULING,
+            OperationStatus.SCHEDULED,
             Optional.of(now),
             Optional.empty());
     assertThat(transitioned).isEqualTo(2);
@@ -168,7 +168,7 @@ class TableOperationsRepositoryTest {
         repository
             .find(
                 Optional.empty(),
-                Optional.of(OperationStatus.SCHEDULING),
+                Optional.of(OperationStatus.SCHEDULED),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -182,7 +182,7 @@ class TableOperationsRepositoryTest {
   }
 
   @Test
-  void updateBatch_schedulingToScheduled_setsJobIdAndPreservesScheduledAt() {
+  void updateBatch_recordsJobIdAndPreservesScheduledAt() {
     String id = UUID.randomUUID().toString();
     Instant claimedAt = Instant.parse("2026-05-20T16:42:43Z");
     repository.save(
@@ -192,7 +192,7 @@ class TableOperationsRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.SCHEDULING)
+            .status(OperationStatus.SCHEDULED)
             .createdAt(Instant.now())
             .scheduledAt(claimedAt)
             .build());
@@ -200,7 +200,7 @@ class TableOperationsRepositoryTest {
     int updated =
         repository.updateBatch(
             List.of(id),
-            OperationStatus.SCHEDULING,
+            OperationStatus.SCHEDULED,
             OperationStatus.SCHEDULED,
             Optional.empty(),
             Optional.of("job-123"));
@@ -213,9 +213,9 @@ class TableOperationsRepositoryTest {
   }
 
   @Test
-  void updateBatch_schedulingToPending_leavesScheduledAtUntouched() {
+  void updateBatch_scheduledToPending_leavesScheduledAtUntouched() {
     // scheduledAt is intentionally NOT cleared on revert. Status is the source of truth; the
-    // stale watermark gets overwritten on the next PENDING → SCHEDULING transition.
+    // stale watermark gets overwritten on the next PENDING → SCHEDULED transition.
     String id = UUID.randomUUID().toString();
     Instant claimedAt = Instant.parse("2026-05-20T16:42:43Z");
     repository.save(
@@ -225,7 +225,7 @@ class TableOperationsRepositoryTest {
             .databaseName("db1")
             .tableName("tbl1")
             .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.SCHEDULING)
+            .status(OperationStatus.SCHEDULED)
             .createdAt(Instant.now())
             .scheduledAt(claimedAt)
             .build());
@@ -233,7 +233,7 @@ class TableOperationsRepositoryTest {
     int reverted =
         repository.updateBatch(
             List.of(id),
-            OperationStatus.SCHEDULING,
+            OperationStatus.SCHEDULED,
             OperationStatus.PENDING,
             Optional.empty(),
             Optional.empty());
@@ -251,19 +251,21 @@ class TableOperationsRepositoryTest {
     repository.save(pendingRow(pendingId, "tbl_a"));
     repository.save(scheduledRow(scheduledId, "tbl_b"));
 
+    Instant claimedAt = Instant.parse("2026-05-20T16:42:43Z");
     int transitioned =
         repository.updateBatch(
             List.of(pendingId, scheduledId),
             OperationStatus.PENDING,
-            OperationStatus.SCHEDULING,
-            Optional.of(Instant.now()),
+            OperationStatus.SCHEDULED,
+            Optional.of(claimedAt),
             Optional.empty());
     assertThat(transitioned).isEqualTo(1);
 
     assertThat(repository.findById(pendingId).orElseThrow().getStatus())
-        .isEqualTo(OperationStatus.SCHEDULING);
-    assertThat(repository.findById(scheduledId).orElseThrow().getStatus())
         .isEqualTo(OperationStatus.SCHEDULED);
+    // The SCHEDULED row was not in fromStatus, so it keeps its earlier claim's watermark.
+    assertThat(repository.findById(scheduledId).orElseThrow().getScheduledAt())
+        .isNotEqualTo(claimedAt);
   }
 
   @Test
@@ -293,18 +295,18 @@ class TableOperationsRepositoryTest {
               repository.updateBatch(
                   List.of(id),
                   OperationStatus.PENDING,
-                  OperationStatus.SCHEDULING,
+                  OperationStatus.SCHEDULED,
                   Optional.of(claimedAt),
                   Optional.empty()))
           .isEqualTo(1);
       TableOperationsRow claimed = repository.findById(id).orElseThrow();
-      assertThat(claimed.getStatus()).isEqualTo(OperationStatus.SCHEDULING);
+      assertThat(claimed.getStatus()).isEqualTo(OperationStatus.SCHEDULED);
       assertThat(claimed.getScheduledAt()).isEqualTo(claimedAt);
 
       assertThat(
               repository.updateBatch(
                   List.of(id),
-                  OperationStatus.SCHEDULING,
+                  OperationStatus.SCHEDULED,
                   OperationStatus.SCHEDULED,
                   Optional.empty(),
                   Optional.of("job-123")))

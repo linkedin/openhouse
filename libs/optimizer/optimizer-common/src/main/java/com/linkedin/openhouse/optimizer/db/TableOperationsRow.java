@@ -22,8 +22,8 @@ import org.hibernate.annotations.ColumnDefault;
  * <p>Each row is identified by a client-generated UUID ({@code id}). The Analyzer creates a new row
  * when it first recommends an operation for a table, or when re-recommending after a prior terminal
  * state. {@code table_uuid} is the stable identity for the table (survives renames; rotates on
- * drop+recreate). The application enforces one active (PENDING / SCHEDULING / SCHEDULED) row per
- * {@code (table_uuid, operation_type)} at a time.
+ * drop+recreate). The application enforces one active (PENDING / SCHEDULED) row per {@code
+ * (table_uuid, operation_type)} at a time.
  *
  * <p>Per-operation metric columns will be added here as operations are onboarded.
  *
