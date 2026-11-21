@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.repository.impl;
 
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.IS_OH_PREFIXED;
 
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.toggle.FeatureToggleAspect;
@@ -9,7 +10,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * A base implementation of {@link PreservedKeyChecker} interface that considers keys with
- * "openhouse." prefix as preserved keys.
+ * "openhouse." prefix as preserved keys. The temporary-table expiration time {@link
+ * CatalogConstants#OPENHOUSE_LEASE_EXPIRATION_TIME_KEY} is not preserved, so users can set, change,
+ * and remove it.
  */
 @Component
 public class BasePreservedKeyChecker implements PreservedKeyChecker {
@@ -19,7 +22,9 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
    * in different environment.
    */
   public boolean isKeyPreserved(String key) {
-    return IS_OH_PREFIXED.test(key) || InternalRepositoryUtils.POLICIES_KEY.equals(key);
+    return (IS_OH_PREFIXED.test(key)
+            && !CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY.equals(key))
+        || InternalRepositoryUtils.POLICIES_KEY.equals(key);
   }
 
   /**
@@ -34,7 +39,7 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
   }
 
   /**
-   * Prevent any keys with prefix "openhouse." from being added during table creation.
+   * Prevent preserved keys from being added during table creation.
    *
    * @param key
    * @param tableDto
@@ -47,6 +52,8 @@ public class BasePreservedKeyChecker implements PreservedKeyChecker {
 
   @Override
   public String describePreservedSpace() {
-    return "table properties starting with `openhouse.` and the `policies` key cannot be modified";
+    return "table properties starting with `openhouse.` (except `"
+        + CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY
+        + "`) and the `policies` key cannot be modified";
   }
 }

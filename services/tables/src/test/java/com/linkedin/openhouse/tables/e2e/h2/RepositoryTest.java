@@ -460,6 +460,99 @@ public class RepositoryTest {
   }
 
   @Test
+  void testLeaseExpirationTimeKeyIsNotPreserved() {
+    Assertions.assertFalse(
+        preservedKeyChecker.isKeyPreserved(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+    Assertions.assertTrue(preservedKeyChecker.isKeyPreserved("openhouse.tableUUID"));
+  }
+
+  @Test
+  void testCreateTableKeepsLeaseExpirationTime() {
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("leaseOnCreate")
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .tableProperties(
+                    Map.of(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1700000000000"))
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Assertions.assertEquals(
+          "1700000000000",
+          openHouseInternalRepository
+              .findById(key)
+              .get()
+              .getTableProperties()
+              .get(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
+  @Test
+  void testUpdateTableAddsChangesAndRemovesLeaseExpirationTime() {
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("leaseOnUpdate")
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Map<String, String> properties = new HashMap<>(created.getTableProperties());
+      properties.put(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1700000000000");
+      TableDto added =
+          openHouseInternalRepository.save(
+              created
+                  .toBuilder()
+                  .tableVersion(created.getTableLocation())
+                  .tableProperties(properties)
+                  .build());
+      Assertions.assertEquals(
+          "1700000000000",
+          added.getTableProperties().get(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+
+      properties = new HashMap<>(added.getTableProperties());
+      properties.put(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1800000000000");
+      TableDto changed =
+          openHouseInternalRepository.save(
+              added
+                  .toBuilder()
+                  .tableVersion(added.getTableLocation())
+                  .tableProperties(properties)
+                  .build());
+      Assertions.assertEquals(
+          "1800000000000",
+          changed.getTableProperties().get(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+
+      properties = new HashMap<>(changed.getTableProperties());
+      properties.remove(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY);
+      TableDto removed =
+          openHouseInternalRepository.save(
+              changed
+                  .toBuilder()
+                  .tableVersion(changed.getTableLocation())
+                  .tableProperties(properties)
+                  .build());
+      Assertions.assertFalse(
+          removed
+              .getTableProperties()
+              .containsKey(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+      Assertions.assertFalse(
+          openHouseInternalRepository
+              .findById(key)
+              .get()
+              .getTableProperties()
+              .containsKey(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
+  @Test
   public void testUpdateTableWithModifiedPoliciesInTablePropsBlocked() {
     // Create a table with policies
     TableDto createDto =
@@ -1362,7 +1455,7 @@ public class RepositoryTest {
         e.getMessage()
             .startsWith(
                 "Bad tblproperties provided: Can't add, alter or drop table properties due to the restriction: "
-                    + "[table properties starting with `openhouse.` and the `policies` key cannot be modified], diff in existing "
+                    + "[table properties starting with `openhouse.` (except `openhouse.leaseExpirationTime`) and the `policies` key cannot be modified], diff in existing "
                     + "& provided table properties: {"));
 
     openHouseInternalRepository.deleteById(primaryKey);

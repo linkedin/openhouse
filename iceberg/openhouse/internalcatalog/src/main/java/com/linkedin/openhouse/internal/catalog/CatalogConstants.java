@@ -18,6 +18,13 @@ public final class CatalogConstants {
   public static final String OPENHOUSE_IS_TABLE_REPLICATED_KEY = "openhouse.isTableReplicated";
   public static final String OPENHOUSE_TABLEURI_KEY = "openhouse.tableUri";
   public static final String OPENHOUSE_CLUSTERID_KEY = "openhouse.clusterId";
+
+  /**
+   * Table property that holds a temporary table's expiration time, in epoch milliseconds. Users
+   * set, change, and remove it like any user property.
+   */
+  public static final String OPENHOUSE_LEASE_EXPIRATION_TIME_KEY = "openhouse.leaseExpirationTime";
+
   public static final String INITIAL_VERSION = "INITIAL_VERSION";
   public static final String LAST_UPDATED_MS = "last-updated-ms";
   public static final String TRANSIENT_RESTORE_PREFIX = "__transient_restore_";
