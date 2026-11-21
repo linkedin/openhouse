@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.fasterxml.jackson.databind.node.DoubleNode;
+import com.fasterxml.jackson.databind.node.FloatNode;
+import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
@@ -22,6 +25,8 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +49,15 @@ public class ReadBridgeStripProtectionTest {
 
   private static final ColumnDefaultsSource FIELD_2 =
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
+
+  /** Declares {@code country} (field 2) as the table's {@code country-default}, if it sets one. */
+  private static final ColumnDefaultsSource COUNTRY_FROM_PROPERTY =
+      tableDto -> {
+        String value = tableDto.getTableProperties().get("country-default");
+        return value == null
+            ? Collections.emptyMap()
+            : Collections.singletonMap(2, TextNode.valueOf(value));
+      };
 
   @Test
   public void noDefaultsSource_stillStripsInitialDefault() {
@@ -130,8 +144,12 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, false));
   }
 
+  /**
+   * {@link ColumnDefaultCommitPolicy} refuses an opt-out before this check runs. Without the
+   * policy, Type 1 still refuses an opt-out that drops a live default.
+   */
   @Test
-  public void optOutSchemaOnly_doesNotType1() {
+  public void optOutDroppingLiveDefault_rejected() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -142,24 +160,11 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(Collections.singletonMap(ENABLED_PROP, "false"))
             .build();
 
-    Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, false));
-  }
-
-  @Test
-  public void optOutOverwriteWithoutOverlay_stillType2() {
-    ReadBridgeStripProtection protection = protection(FIELD_2);
-    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
-    TableDto incoming =
-        TableDto.builder()
-            .databaseId("db")
-            .tableId("tbl")
-            .schema(SCHEMA_WITHOUT_DEFAULT)
-            .tableProperties(Collections.singletonMap(ENABLED_PROP, "false"))
-            .jsonSnapshots(Collections.singletonList(overwriteJson(10)))
-            .build();
-
-    Assertions.assertThrows(
-        CommitRejectedException.class, () -> commit(protection, existing, incoming, false));
+    CommitRejectedException thrown =
+        Assertions.assertThrows(
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, true));
+    Assertions.assertTrue(thrown.getMessage().startsWith("COLUMN_DEFAULT_REMOVED: "));
+    Assertions.assertTrue(thrown.getMessage().contains("on country (field-id 2)"));
   }
 
   @Test
@@ -296,6 +301,61 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
+  public void changingLiveDefault_rejected() {
+    ReadBridgeStripProtection protection = protection(COUNTRY_FROM_PROPERTY);
+    TableDto existing = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "US");
+    TableDto incoming = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "FR");
+
+    CommitRejectedException thrown =
+        Assertions.assertThrows(
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, true));
+    Assertions.assertTrue(thrown.getMessage().startsWith("COLUMN_DEFAULT_CHANGED: "));
+    Assertions.assertTrue(thrown.getMessage().contains("on country (field-id 2)"));
+  }
+
+  /**
+   * After the opt-in, a column gets a default only in the commit that adds it, as in Iceberg, even
+   * when the table has no default to protect yet.
+   */
+  @Test
+  public void firstDefaultOnExistingColumn_rejected() {
+    ReadBridgeStripProtection protection = protection(COUNTRY_FROM_PROPERTY);
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "US");
+
+    CommitRejectedException thrown =
+        Assertions.assertThrows(
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, true));
+    Assertions.assertTrue(thrown.getMessage().startsWith("COLUMN_DEFAULT_CHANGED: "));
+    Assertions.assertTrue(thrown.getMessage().contains("on country (field-id 2)"));
+  }
+
+  @Test
+  public void defaultOnColumnTheCommitAdds_allowed() {
+    ReadBridgeStripProtection protection = protection(COUNTRY_FROM_PROPERTY);
+    TableDto existing = ramped(SCHEMA_WITHOUT_COUNTRY);
+    TableDto incoming = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "US");
+
+    Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, true));
+  }
+
+  /** The commit that opts a table in may declare a default on a column the table already has. */
+  @Test
+  public void defaultOnExistingColumnAtOptIn_allowed() {
+    ReadBridgeStripProtection protection = protection(COUNTRY_FROM_PROPERTY);
+    TableDto existing =
+        TableDto.builder()
+            .databaseId("db")
+            .tableId("tbl")
+            .schema(SCHEMA_WITHOUT_DEFAULT)
+            .tableProperties(Collections.emptyMap())
+            .build();
+    TableDto incoming = withCountryDefault(ramped(SCHEMA_WITHOUT_DEFAULT), "US");
+
+    Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, true));
+  }
+
+  @Test
   public void schemaOnlyUpdate_doesNotGate() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
@@ -415,6 +475,60 @@ public class ReadBridgeStripProtectionTest {
             .getCause());
   }
 
+  /**
+   * Clients apply a default to every schema version that has its column. One that does not fit the
+   * column's type in an older version would fail every load of the table.
+   */
+  @Test
+  public void defaultThatDoesNotFitAnOlderSchemaVersion_rejected() {
+    ReadBridgeStripProtection protection =
+        protection(tableDto -> Collections.singletonMap(2, LongNode.valueOf(8_000_000_000L)));
+
+    CommitRejectedException thrown =
+        Assertions.assertThrows(
+            CommitRejectedException.class,
+            () -> commitOnPromotedColumn(protection, optIn(), optIn()));
+    Assertions.assertTrue(thrown.getMessage().startsWith("COLUMN_DEFAULT_UNUSABLE: "));
+    Assertions.assertTrue(
+        thrown.getMessage().contains("db.tbl (TYPE_MISMATCH, column n, field ID 2)"));
+    Assertions.assertTrue(
+        thrown.getMessage().contains("int, the column's type in schema version 0"));
+  }
+
+  @Test
+  public void defaultThatFitsEverySchemaVersion_allowed() {
+    ReadBridgeStripProtection protection =
+        protection(tableDto -> Collections.singletonMap(2, LongNode.valueOf(9L)));
+
+    Assertions.assertDoesNotThrow(() -> commitOnPromotedColumn(protection, optIn(), optIn()));
+  }
+
+  /**
+   * Promoting a float column to double renders its unchanged default anew, as a source that
+   * converts defaults to the column's type does: 0.1 becomes 0.10000000149011612. That is no
+   * change.
+   */
+  @Test
+  public void promotionRenderingAnUnchangedDefaultAnew_allowed() {
+    ReadBridgeStripProtection protection =
+        protection(
+            tableDto -> {
+              boolean isFloat =
+                  Types.FloatType.get()
+                      .equals(SchemaParser.fromJson(tableDto.getSchema()).findType(2));
+              return Collections.singletonMap(
+                  2, isFloat ? FloatNode.valueOf(0.1f) : DoubleNode.valueOf(0.1f));
+            });
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            commit(
+                protection,
+                ramped(SchemaParser.toJson(schemaWith("score", Types.FloatType.get()))),
+                ramped(SchemaParser.toJson(schemaWith("score", Types.DoubleType.get()))),
+                true));
+  }
+
   private static String schema(String resourceName) {
     try {
       return ResourceIoHelper.getSchemaJsonFromResource(
@@ -447,21 +561,59 @@ public class ReadBridgeStripProtectionTest {
             metadata(prepared),
             ImmutableMap.copyOf(prepared.getTableProperties()),
             prepared.getJsonSnapshots() != null),
-        new ClientCapabilityGate(
-            new CatalogRequestContext() {
-              @Override
-              public Optional<String> clientName() {
-                return Optional.of("spark");
-              }
-
-              @Override
-              public Set<String> clientCapabilities() {
-                return defaultAwareClient
-                    ? Collections.singleton(ClientCapabilityGate.COLUMN_DEFAULTS)
-                    : Collections.emptySet();
-              }
-            }));
+        sparkClient(defaultAwareClient));
     return prepared;
+  }
+
+  /**
+   * Commits {@code properties}, from a default-aware client, to a table with {@code baseProperties}
+   * whose column {@code n} (field 2) is an int in schema version 0 and a long in schema version 1,
+   * the current one.
+   */
+  private static void commitOnPromotedColumn(
+      ReadBridgeStripProtection protection,
+      Map<String, String> baseProperties,
+      Map<String, String> properties) {
+    Schema intColumn = schemaWith("n", Types.IntegerType.get());
+    Schema promoted = schemaWith("n", Types.LongType.get());
+    TableMetadata metadata =
+        TableMetadata.buildFrom(
+                TableMetadata.newTableMetadata(
+                    intColumn,
+                    PartitionSpec.unpartitioned(),
+                    "file:/data/openhouse/db/tbl-uuid",
+                    baseProperties))
+            .setCurrentSchema(promoted, promoted.highestFieldId())
+            .build();
+    protection.enforce(
+        new PendingCommit(
+            TABLE, Optional.of(metadata), metadata, ImmutableMap.copyOf(properties), false),
+        sparkClient(true));
+  }
+
+  /** A schema of {@code id} (field 1) and {@code column} (field 2), which has {@code type}. */
+  private static Schema schemaWith(String column, Type type) {
+    return new Schema(
+        Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+        Types.NestedField.optional(2, column, type));
+  }
+
+  /** A Spark client that declares the {@code column-defaults} capability or declares nothing. */
+  private static ClientCapabilityGate sparkClient(boolean defaultAwareClient) {
+    return new ClientCapabilityGate(
+        new CatalogRequestContext() {
+          @Override
+          public Optional<String> clientName() {
+            return Optional.of("spark");
+          }
+
+          @Override
+          public Set<String> clientCapabilities() {
+            return defaultAwareClient
+                ? Collections.singleton(ClientCapabilityGate.COLUMN_DEFAULTS)
+                : Collections.emptySet();
+          }
+        });
   }
 
   /** {@code table} as catalog metadata: the current version, or the one a commit proposes. */
@@ -490,6 +642,13 @@ public class ReadBridgeStripProtectionTest {
   private static TableDto unusable(TableDto table) {
     Map<String, String> properties = new HashMap<>(table.getTableProperties());
     properties.put("unusable", "true");
+    return table.toBuilder().tableProperties(properties).build();
+  }
+
+  /** Sets the {@code country-default} that {@link #COUNTRY_FROM_PROPERTY} declares. */
+  private static TableDto withCountryDefault(TableDto table, String value) {
+    Map<String, String> properties = new HashMap<>(table.getTableProperties());
+    properties.put("country-default", value);
     return table.toBuilder().tableProperties(properties).build();
   }
 
