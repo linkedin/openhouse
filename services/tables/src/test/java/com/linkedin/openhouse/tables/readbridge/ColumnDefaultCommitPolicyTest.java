@@ -109,7 +109,9 @@ public class ColumnDefaultCommitPolicyTest {
         Arguments.of(Named.of("committed false", table("false")), "false"));
   }
 
-  /** The bypass lifts the opt-in lock and skips the rules, default lookups included. */
+  /**
+   * The bypass lifts the opt-in lock and skips the rules, so it does not look up current defaults.
+   */
   @Test
   void bypassSkipsTheLockAndTheRules() {
     Assertions.assertDoesNotThrow(

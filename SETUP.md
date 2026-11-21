@@ -463,7 +463,8 @@ request header. It bypasses only column-default policy checks: the `column-defau
 other capability), the rule that a committed `required-capability.column-defaults=true` cannot be
 changed or removed, and the checks that a commit keeps a column's default and that a snapshot commit
 comes from a client that declares `column-defaults`. Incorrect reads or writes may result.
-Authentication, authorization and default resolution still apply, and `initial-default` is still
+Authentication, authorization and default resolution still apply, so a write that declares a column
+default that cannot be applied still fails with HTTP **400**, and `initial-default` is still
 stripped from writes. JARs without `header.` catalog properties need an upgrade/backport to send it.
 Removing table opt-in in a write is not a bypass.
 

@@ -43,8 +43,9 @@ import org.apache.iceberg.types.Types;
  * a table. See https://github.com/linkedin/openhouse/issues/693.
  *
  * <p>A request with the column-default policy bypass ({@link
- * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips the rules and the default
- * lookups they need. {@code initial-default} is still dropped.
+ * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips the rules and the lookup of
+ * the table's current defaults, but a default it declares must still be usable ({@link
+ * #rejectUnusableDefaults}). {@code initial-default} is still dropped.
  *
  * <p>Schema field objects are the JSON nodes that carry {@code id} — the same walk as the client
  * overlay. On Iceberg schema JSON that is NestedField; {@code element-id} / {@code schema-id} are
@@ -111,6 +112,24 @@ public class ReadBridgeStripProtection {
     if (base != null) {
       rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
       rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
+    }
+  }
+
+  /**
+   * Rejects {@code commit} if a default it declares cannot be applied. A commit with the
+   * column-default policy bypass skips every other check of {@link #enforce}, but not this one:
+   * every load of a table whose default cannot be applied fails.
+   *
+   * @throws CommitRejectedException if a default the commit declares cannot be applied
+   */
+  public void rejectUnusableDefaults(PendingCommit commit) {
+    if (resolver.isBridged(commit.getProperties())) {
+      declaredColumnDefaults(
+          tableDto(
+              commit.getTableIdentifier(),
+              commit.getMetadata().schema(),
+              commit.getProperties(),
+              commit.getBase().map(TableMetadata::metadataFileLocation).orElse(null)));
     }
   }
 
