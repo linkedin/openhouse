@@ -180,7 +180,10 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
   }
 
-  /** A write whose own table declares a default that cannot be applied is a bad request. */
+  /**
+   * A write whose own table declares a default that cannot be applied is a bad request, with or
+   * without the column-default policy bypass. Nothing is stored, so the table still loads.
+   */
   @Test
   public void put_failsAsBadRequestWhenRequestDeclaresUnusableDefault() throws Exception {
     created =
@@ -193,6 +196,15 @@ public class ReadBridgeColumnDefaultE2ETest {
     putTable(current)
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
+    mvc.perform(
+            tablePut(current)
+                .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
+    getTable()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']", is("\"US\"")))
+        .andExpect(jsonPath("$.tableProperties['" + DECLARES_UNUSABLE + "']").doesNotExist());
   }
 
   /**
@@ -452,8 +464,8 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   /**
    * A rename commits to the table, so the rules check it like any other commit: it passes when the
-   * stored default applies, and fails as a server error when it cannot unless the request carries
-   * the column-default policy bypass.
+   * stored default applies, and fails when it cannot, as a server error, or as a bad request with
+   * the column-default policy bypass, since the renamed table would declare that default too.
    */
   @Test
   public void rename_isCheckedLikeEveryCommit() throws Exception {
@@ -474,8 +486,8 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
     mvc.perform(
             rename(repaired).header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
-        .andExpect(status().isNoContent());
-    created = renamed(repaired);
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
   }
 
   private MockHttpServletRequestBuilder rename(String toTableId) {
@@ -572,15 +584,19 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   private ResultActions putTable(GetTableResponseBody table) throws Exception {
-    return mvc.perform(
-        MockMvcRequestBuilders.put(
-                String.format(
-                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
-                    table.getDatabaseId(),
-                    table.getTableId()))
-            .header(CAPABILITIES, ClientCapabilityGate.COLUMN_DEFAULTS)
-            .contentType(MediaType.APPLICATION_JSON)
-            .content(buildCreateUpdateTableRequestBody(table).toJson())
-            .accept(MediaType.APPLICATION_JSON));
+    return mvc.perform(tablePut(table));
+  }
+
+  /** A table PUT from a client that declares {@code column-defaults}. */
+  private MockHttpServletRequestBuilder tablePut(GetTableResponseBody table) throws Exception {
+    return MockMvcRequestBuilders.put(
+            String.format(
+                ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+                table.getDatabaseId(),
+                table.getTableId()))
+        .header(CAPABILITIES, ClientCapabilityGate.COLUMN_DEFAULTS)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(buildCreateUpdateTableRequestBody(table).toJson())
+        .accept(MediaType.APPLICATION_JSON);
   }
 }
