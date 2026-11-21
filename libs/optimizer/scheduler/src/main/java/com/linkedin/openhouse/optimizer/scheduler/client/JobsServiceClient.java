@@ -37,7 +37,7 @@ public class JobsServiceClient {
    * @param proxyUser resolved execution account shared by all tables in the bin
    * @param tableNames fully-qualified table names (db.table)
    * @param operationIds operation UUIDs — parallel to tableNames
-   * @param resultsEndpoint base URL the Spark app PATCHes results back to
+   * @param resultsEndpoint optimizer service base URL (no path) the Spark app POSTs results to
    * @return job ID if the submission succeeded, empty if an error occurred
    */
   public Optional<String> launch(
