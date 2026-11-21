@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.OperationType;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
-import com.linkedin.openhouse.optimizer.testing.MySqlContainerInitializer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -17,13 +16,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
-@ContextConfiguration(initializers = MySqlContainerInitializer.class)
+@TestPropertySource(locations = "classpath:optimizer-mysql-testcontainers.properties")
 @Transactional
 class TableOperationsRepositoryTest {
 

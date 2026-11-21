@@ -137,12 +137,31 @@ public class CadencePolicy {
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory,
       int consecutiveFailures) {
-    if (currentOp.isPresent() && isBlockingActiveOp(currentOp.get()).orElse(true)) {
-      return false;
+    if (currentOp.isPresent()) {
+      Instant nextEligibleAt = currentOp.get().getNextEligibleAt();
+      if (nextEligibleAt != null) {
+        // A terminal outcome (reported success/failure, or expiry) recorded the next retry time; it
+        // is the authoritative gate. Block until it elapses, then schedule — so a reported failure
+        // retries after its backoff rather than waiting out the stale-timeout, and a dead job backs
+        // off instead of rescheduling immediately.
+        return !Instant.now().isBefore(nextEligibleAt);
+      }
+      if (isBlockingActiveOp(currentOp.get()).orElse(true)) {
+        return false;
+      }
     }
     return latestHistory
         .map(entry -> readyAfterHistoryEntry(entry, consecutiveFailures))
         .orElse(true);
+  }
+
+  /**
+   * Earliest time to retry after an outcome observed at {@code from}: the success cadence on
+   * success, otherwise the failure backoff for {@code attempts}. This is what callers persist to
+   * {@code next_eligible_at} on completion or expiry.
+   */
+  public Instant nextEligibleAt(Instant from, boolean succeeded, int attempts) {
+    return from.plus(succeeded ? successRetryInterval : failureInterval(attempts));
   }
 
   /**

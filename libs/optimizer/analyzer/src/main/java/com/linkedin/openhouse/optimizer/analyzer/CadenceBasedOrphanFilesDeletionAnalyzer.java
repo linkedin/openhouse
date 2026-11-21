@@ -5,6 +5,7 @@ import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -92,6 +93,19 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
     return OperationTypeDto.ORPHAN_FILES_DELETION;
   }
 
+  /**
+   * OFD runs on replica tables. Unlike snapshot expiration / retention / compaction, OFD does not
+   * mutate the table's committed Iceberg metadata or snapshots — it only deletes storage files not
+   * referenced by any snapshot. The primary's OFD cleans the primary's storage, not the replica's,
+   * so a replica would otherwise accumulate orphan files indefinitely. This matches the legacy jobs
+   * scheduler, where OFD's {@code shouldRunTask()} returns {@code true} for replicas (with a 3-day
+   * minimum TTL enforced in the Spark OFD app, not here).
+   */
+  @Override
+  public boolean runsOnReplica() {
+    return true;
+  }
+
   @Override
   public boolean isEnabled(TableDto table) {
     return "true".equals(table.getTableProperties().get(OFD_ENABLED_PROPERTY));
@@ -100,6 +114,11 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
   @Override
   public boolean isActiveOpTimedOut(TableOperationDto op) {
     return cadencePolicy.isSubmissionTimedOut(op);
+  }
+
+  @Override
+  public Instant nextEligibleAt(Instant from, boolean succeeded, int attempts) {
+    return cadencePolicy.nextEligibleAt(from, succeeded, attempts);
   }
 
   @Override

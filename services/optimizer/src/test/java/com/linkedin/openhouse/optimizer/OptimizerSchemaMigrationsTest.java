@@ -2,7 +2,6 @@ package com.linkedin.openhouse.optimizer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.testing.MySqlContainerInitializer;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -22,16 +21,46 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
- * Starts the service on a database that already holds HouseTables' real schema and seeded rows. The
- * database must end up with the optimizer tables that Flyway creates in an empty one, without
- * changing any HouseTables table definition or row.
+ * Checks the tables that the migrations create. They must match the tables that Hibernate creates
+ * from the entities. The service must also add them to a database that holds HouseTables' real
+ * schema and seeded rows, and HouseTables' tables and rows must stay the same. The service runs as
+ * a user that can reach only the optimizer tables, so a migration that touches any other table
+ * fails its startup.
  */
 class OptimizerSchemaMigrationsTest {
 
+  /** The build's shared MySQL test version; see {@code mysqlTestVersion} in gradle.properties. */
+  private static final DockerImageName MYSQL_IMAGE =
+      DockerImageName.parse(
+          "mysql:"
+              + Objects.requireNonNull(
+                  System.getProperty("openhouse.test.mysql.version"),
+                  "openhouse.test.mysql.version is unset; run tests through Gradle"));
+
+  /**
+   * How long a connection waits for MySQL to answer before failing. Connector/J has no read timeout
+   * by default, so a server that accepts the connection and never answers would hang the build.
+   */
+  private static final int SOCKET_TIMEOUT_MILLIS = 60_000;
+
   private static final MySQLContainer<?> MYSQL =
-      MySqlContainerInitializer.newContainer().withUsername("root");
+      new MySQLContainer<>(MYSQL_IMAGE)
+          .withUsername("root")
+          .withUrlParam("socketTimeout", String.valueOf(SOCKET_TIMEOUT_MILLIS));
+
+  /** The service's MySQL user, granted the optimizer tables and nothing else. */
+  private static final String SERVICE_USER = "optimizer";
+
+  private static final String[] OPTIMIZER_TABLES = {
+    "optimizer_schema_history",
+    "table_operations",
+    "table_operations_history",
+    "table_stats",
+    "table_stats_history"
+  };
 
   private static final String[] HOUSE_TABLES_SEED_SQL = {
     "INSERT INTO user_table_row (database_id, table_id, version, metadata_location) VALUES"
@@ -57,13 +86,7 @@ class OptimizerSchemaMigrationsTest {
     createDatabase("new_database");
     startService("new_database");
     emptyDatabaseTables = tables("new_database");
-    assertThat(emptyDatabaseTables)
-        .containsOnlyKeys(
-            "optimizer_schema_history",
-            "table_operations",
-            "table_operations_history",
-            "table_stats",
-            "table_stats_history");
+    assertThat(emptyDatabaseTables).containsOnlyKeys(OPTIMIZER_TABLES);
   }
 
   @AfterAll
@@ -106,14 +129,37 @@ class OptimizerSchemaMigrationsTest {
     assertThat(tables).isEqualTo(emptyDatabaseTables);
   }
 
-  /** Starts the service on the database, which migrates it, and stops the service. */
-  private static void startService(String database) {
+  /**
+   * Fails when the entities and the migrations define different tables. Hibernate creates the
+   * entities' tables in a database of their own. Fix a failure with a migration or an entity
+   * change.
+   */
+  @Test
+  void createsTheTablesTheEntitiesDefine() throws SQLException {
+    String database = "entities";
+    createDatabase(database);
+    startService(
+        database, "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=create");
+    Map<String, List<String>> migratedTables = new TreeMap<>(emptyDatabaseTables);
+    migratedTables.remove("optimizer_schema_history");
+    assertThat(definitionLines(migratedTables))
+        .as("The migrations' tables (actual) and the entities' tables (expected)")
+        .containsExactlyInAnyOrderElementsOf(definitionLines(tables(database)));
+  }
+
+  /**
+   * Starts the service on the database and stops it. The service migrates the database unless the
+   * settings turn Flyway off.
+   */
+  private static void startService(String database, String... settings) {
+    List<String> args = new ArrayList<>();
+    args.add("--spring.datasource.url=" + jdbcUrl(database));
+    args.add("--spring.datasource.username=" + SERVICE_USER);
+    args.add("--spring.datasource.password=" + MYSQL.getPassword());
+    args.addAll(Arrays.asList(settings));
     new SpringApplicationBuilder(OptimizerServiceApplication.class)
         .web(WebApplicationType.NONE)
-        .run(
-            "--cluster.optimizer.database.url=" + jdbcUrl(database),
-            "--spring.datasource.username=" + MYSQL.getUsername(),
-            "--spring.datasource.password=" + MYSQL.getPassword())
+        .run(args.toArray(new String[0]))
         .close();
   }
 
@@ -130,6 +176,18 @@ class OptimizerSchemaMigrationsTest {
       }
     }
     return tables;
+  }
+
+  /**
+   * Every line of every table's SHOW CREATE TABLE, prefixed with the table's name. The test ignores
+   * column order. MySQL ends every line but the last with a comma, so the commas are dropped.
+   */
+  private static List<String> definitionLines(Map<String, List<String>> tables) {
+    List<String> lines = new ArrayList<>();
+    tables.forEach(
+        (table, definition) ->
+            definition.forEach(line -> lines.add(table + ": " + line.trim().replaceAll(",$", ""))));
+    return lines;
   }
 
   private static List<List<String>> rows(String database, String table) throws SQLException {
@@ -159,10 +217,33 @@ class OptimizerSchemaMigrationsTest {
     return tableNames;
   }
 
+  /** Creates the database and grants the service user the optimizer tables in it. */
   private static void createDatabase(String database) throws SQLException {
     try (Connection connection = connect(MYSQL.getDatabaseName());
         Statement statement = connection.createStatement()) {
       statement.execute("CREATE DATABASE " + database);
+      statement.execute(
+          "CREATE USER IF NOT EXISTS '"
+              + SERVICE_USER
+              + "'@'%' IDENTIFIED BY '"
+              + MYSQL.getPassword()
+              + "'");
+      for (String table : OPTIMIZER_TABLES) {
+        String privileges =
+            table.equals("optimizer_schema_history")
+                ? "SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX"
+                : "SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX, ALTER, DROP";
+        statement.execute(
+            "GRANT "
+                + privileges
+                + " ON `"
+                + database
+                + "`.`"
+                + table
+                + "` TO '"
+                + SERVICE_USER
+                + "'@'%'");
+      }
     }
   }
 
@@ -178,6 +259,6 @@ class OptimizerSchemaMigrationsTest {
         + "/"
         + database
         + "?useSSL=false&allowPublicKeyRetrieval=true&socketTimeout="
-        + MySqlContainerInitializer.SOCKET_TIMEOUT_MILLIS;
+        + SOCKET_TIMEOUT_MILLIS;
   }
 }

@@ -8,6 +8,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.Job;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.JobMapper;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.JobRow;
 import com.linkedin.openhouse.housetables.model.JobRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
@@ -16,7 +17,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +33,7 @@ import org.springframework.util.MultiValueMapAdapter;
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @AutoConfigureMockMvc
-public class JobControllerTest {
+public class JobControllerTest extends HtsDatabaseTestBase {
 
   private final JobRow testJobRow =
       JobRow.builder()
@@ -62,11 +62,6 @@ public class JobControllerTest {
   @BeforeEach
   public void setup() {
     htsRepository.save(testJobRow);
-  }
-
-  @AfterEach
-  public void tearDown() {
-    htsRepository.deleteAll();
   }
 
   @Test

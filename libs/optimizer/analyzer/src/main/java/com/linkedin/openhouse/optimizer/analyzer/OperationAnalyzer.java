@@ -4,6 +4,7 @@ import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -47,6 +48,24 @@ public interface OperationAnalyzer {
   }
 
   /**
+   * Whether this operation may run on a replica table. A replica mirrors a primary in another
+   * cluster via replication, so any operation that would change the replica's committed Iceberg
+   * metadata or snapshots (e.g. snapshot expiration, retention, compaction, data-layout) must not
+   * run on it — it would diverge the replica from its primary. Operations that don't touch
+   * committed metadata are safe: read-only ones like stats collection, and orphan-file deletion
+   * (which only removes storage files not referenced by any snapshot, and must run on the replica
+   * since the primary's OFD cleans only the primary's storage).
+   *
+   * <p>Defaults to {@code false} so the metadata/snapshot-mutating maintenance case is primary-only
+   * by default; an operation that is safe on a replica opts in by overriding to {@code true}.
+   * Enforced centrally by {@code AnalyzerRunner} on both the commit-driven and full-scan paths, so
+   * a replica is skipped before {@link #isEnabled}/{@link #shouldSchedule} are consulted.
+   */
+  default boolean runsOnReplica() {
+    return false;
+  }
+
+  /**
    * Whether the given active op is a submitted job that has timed out — exceeded the stale-timeout
    * with no success. This "logical timeout" is derived, never persisted; the per-table retry
    * backoff counts it as a non-success alongside explicitly FAILED history.
@@ -54,6 +73,14 @@ public interface OperationAnalyzer {
    * @param op an existing operation record for this (table, type)
    */
   boolean isActiveOpTimedOut(TableOperationDto op);
+
+  /**
+   * Earliest time to retry after an outcome observed at {@code from}: the success cadence on
+   * success, otherwise the failure backoff for {@code attempts}. Persisted to {@code
+   * next_eligible_at} on completion or expiry so retry timing no longer depends on the
+   * stale-timeout.
+   */
+  Instant nextEligibleAt(Instant from, boolean succeeded, int attempts);
 
   /**
    * Returns {@code true} if a new or refreshed operation record should be upserted.

@@ -9,14 +9,16 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
+import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -31,6 +33,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,28 +58,30 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.ResultMatcher;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.MultiValueMapAdapter;
 
-@SpringBootTest
+@SpringBootTest(classes = SpringHtsTestApplication.class)
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @AutoConfigureMockMvc
-public class HtsControllerTest {
+public class HtsControllerTest extends HtsDatabaseTestBase {
 
   @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
-
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
   @Autowired SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
 
-  @Autowired MockMvc mvc;
-
   @Autowired SoftDeletedUserTablesMapper softDeletedTableMapper;
 
   @Autowired DataSource dataSource;
+
+  @Autowired MockMvc mvc;
 
   /** Lets a dependency failure be injected where a real one would be raised. */
   @SpyBean UserTableHtsJdbcRepository htsJdbcRepository;
@@ -91,14 +96,8 @@ public class HtsControllerTest {
   }
 
   @AfterEach
-  public void tearDown() {
+  public void resetTestSpy() {
     Mockito.reset(htsJdbcRepository);
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first;
-    // otherwise converter hydration during teardown poisons the rest of the class.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-    softDeletedHtsJdbcRepository.deleteAll();
   }
 
   @Test
@@ -2001,8 +2000,10 @@ public class HtsControllerTest {
   }
 
   /**
-   * Regression: {@code TABLE_ROW_PREDICATE} excludes an unrecognized spelling before hydration, so
-   * a corrupt row is simply absent from the table point read under H2. Unchanged from base.
+   * Regression: {@code TABLE_ROW_PREDICATE} excludes this unrecognized {@code UNKNOWN} spelling
+   * before hydration, so the row is simply absent from the table point read. That holds for this
+   * value, not for every corrupt spelling: an accented one passes the predicate and fails
+   * conversion. Unchanged from base.
    */
   @Test
   public void testCorruptRowIsExcludedFromTheTablePointReadRatherThanFailing() throws Exception {
@@ -2021,8 +2022,9 @@ public class HtsControllerTest {
   /**
    * The table reads now cross the same boundary as the view reads, so corruption reaching one
    * produces the column-and-value diagnostic rather than the ORM {@code toString()}. This is the
-   * one intended behavioural change to the table path. Injected, because under a folding collation
-   * — not under H2 — the predicate would match a spelling Java rejects.
+   * one intended behavioural change to the table path. Injected to pin the handler boundary for any
+   * repository failure of this kind; the natural accent-insensitive match that Java rejects is
+   * exercised over real HTTP by {@code testCorruptEntityTypeValuesSplitIntoTwoFailureModes}.
    */
   @Test
   public void testCorruptDiscriminatorOnTheTablePointReadCarriesColumnDiagnostic()
@@ -2049,8 +2051,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * Restore's occupancy read is neutral, so it is the one table path on which a genuinely corrupt
-   * row hydrates under H2. It must fail loudly rather than report the key as free and clobber it.
+   * Restore's occupancy read is neutral, carrying no type predicate, so a corrupt occupant hydrates
+   * there on any backend. It must fail loudly rather than report the key as free and clobber it.
    */
   @Test
   public void testCorruptOccupantMakesRestoreFailRatherThanOverwrite() throws Exception {
@@ -2155,8 +2157,8 @@ public class HtsControllerTest {
 
   /**
    * A handler that swallowed the failure into an empty result would answer 200 with no rows, so the
-   * absence of any payload is asserted alongside the status. The failure is injected because H2
-   * cannot select a corrupt row through the view predicate.
+   * absence of any payload is asserted alongside the status. The failure is injected deliberately
+   * at the repository boundary so both view route shapes are pinned against the same exception.
    */
   @ParameterizedTest
   @CsvSource({"/hts/views,          point", "/v1/hts/views/query, paged"})
@@ -2474,5 +2476,139 @@ public class HtsControllerTest {
                 is("/openhouse/entity_type_db/put_over_legacy/v1_metadata.json")));
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).hasValue("TABLE");
+  }
+
+  /** Regression: restoring a soft-deleted table writes TABLE back to the discriminator column. */
+  @Test
+  public void testRestoreStampsTheTableDiscriminator() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(
+                            UserTable.builder()
+                                .databaseId(ENTITY_TYPE_DB)
+                                .tableId("restored")
+                                .tableVersion(INITIAL_TABLE_VERSION)
+                                .metadataLocation(
+                                    "/openhouse/entity_type_db/restored/v1_metadata.json")
+                                .storageType(TEST_DEFAULT_STORAGE_TYPE)
+                                .entityType("TABLE")
+                                .build())
+                        .build()
+                        .toJson()))
+        .andExpect(status().isCreated());
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/v1/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "restored")
+                .param("isSoftDelete", "true"))
+        .andExpect(status().isNoContent());
+
+    MvcResult archive =
+        mvc.perform(
+                MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
+                    .param("databaseId", ENTITY_TYPE_DB)
+                    .param("tableId", "restored"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.pageResults.content[0].entityType").value(nullValue()))
+            .andReturn();
+    long deletedAtMs =
+        new ObjectMapper()
+            .readTree(archive.getResponse().getContentAsString())
+            .at("/pageResults/content/0/deletedAtMs")
+            .asLong();
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables/restore")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "restored")
+                .param("deletedAtMs", Long.toString(deletedAtMs)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "restored")).hasValue("TABLE");
+  }
+
+  /**
+   * The column collation is accent-insensitive and NO PAD. An accented spelling therefore matches
+   * the typed lookup in SQL but fails Java's mapping (500), while padded or blank spellings match
+   * nothing in SQL (404) yet still fail mapping on the untyped route (500). Every 500 must name the
+   * column and quote the stored value.
+   */
+  @Test
+  public void testCorruptEntityTypeValuesSplitIntoTwoFailureModes() throws Exception {
+    Map<String, Integer> typedStatusByStored = new LinkedHashMap<>();
+    typedStatusByStored.put("TABLE", 200);
+    typedStatusByStored.put("T\u00c1BLE", 500);
+    typedStatusByStored.put("TABLE ", 404);
+    typedStatusByStored.put(" TABLE", 404);
+    typedStatusByStored.put("", 404);
+    typedStatusByStored.put("   ", 404);
+
+    JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+    int index = 0;
+    for (Map.Entry<String, Integer> corruptCase : typedStatusByStored.entrySet()) {
+      String stored = corruptCase.getKey();
+      int typedStatus = corruptCase.getValue();
+      String table = "t_case" + index++;
+      insertRawEntityType(ENTITY_TYPE_DB, table, stored);
+
+      assertThat(
+              jdbc.queryForObject(
+                  "SELECT entity_type = 'TABLE' FROM user_table_row"
+                      + " WHERE database_id = ? AND table_id = ?",
+                  Integer.class,
+                  ENTITY_TYPE_DB,
+                  table))
+          .as("MySQL's own comparison for entity_type '%s'", stored)
+          .isEqualTo(typedStatus == 404 ? 0 : 1);
+
+      ResultActions typed =
+          mvc.perform(
+                  MockMvcRequestBuilders.get("/hts/tables")
+                      .param("databaseId", ENTITY_TYPE_DB)
+                      .param("tableId", table))
+              .andExpect(status().is(typedStatus));
+      if (typedStatus == 500) {
+        typed.andExpect(corruptValueDiagnostic(stored));
+      }
+      if (!"TABLE".equals(stored)) {
+        mvc.perform(
+                MockMvcRequestBuilders.get("/hts/entities")
+                    .param("databaseId", ENTITY_TYPE_DB)
+                    .param("tableId", table))
+            .andExpect(status().isInternalServerError())
+            .andExpect(corruptValueDiagnostic(stored));
+      }
+    }
+
+    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/query").param("databaseId", ENTITY_TYPE_DB))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message", containsString("user_table_row.entity_type")));
+  }
+
+  private static ResultMatcher corruptValueDiagnostic(String stored) {
+    return jsonPath(
+        "$.message",
+        allOf(containsString("user_table_row.entity_type"), containsString("'" + stored + "'")));
+  }
+
+  @Test
+  public void testMissingRequiredParametersAreBadRequest() throws Exception {
+    for (MockHttpServletRequestBuilder request :
+        Arrays.asList(
+            MockMvcRequestBuilders.get("/hts/tables"),
+            MockMvcRequestBuilders.get("/hts/views"),
+            MockMvcRequestBuilders.get("/hts/entities"),
+            MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted"),
+            MockMvcRequestBuilders.patch("/hts/tables/rename"),
+            MockMvcRequestBuilders.delete("/v1/hts/tables")
+                .param("databaseId", "d")
+                .param("tableId", "t"))) {
+      mvc.perform(request).andExpect(status().isBadRequest());
+    }
   }
 }

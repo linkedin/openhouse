@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.*;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -40,7 +39,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class HtsRepositoryTest {
+public class HtsRepositoryTest extends HtsDatabaseTestBase {
 
   /**
    * Canonical interleaved fixture. Four visible tables (two legacy NULL, two explicit TABLE) are
@@ -64,19 +63,9 @@ public class HtsRepositoryTest {
 
   @Autowired UserTableHtsJdbcRepository htsRepository;
 
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
-
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
   @Autowired DataSource dataSource;
-
-  @AfterEach
-  public void tearDown() {
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-  }
 
   private UserTableRow row(String databaseId, String tableId, EntityType entityType) {
     return UserTableRow.builder()
@@ -200,7 +189,7 @@ public class HtsRepositoryTest {
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
     userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     List<String> result = Lists.newArrayList(htsRepository.findAllDistinctDatabaseIds());
-    Assertions.assertEquals(Lists.newArrayList("test_db0", "test_db1"), result);
+    assertThat(result).containsExactlyInAnyOrder("test_db0", "test_db1");
   }
 
   @Test
@@ -679,11 +668,8 @@ public class HtsRepositoryTest {
    * be selected by the query and then explode while loading, which is worse than either matching or
    * skipping it consistently.
    *
-   * <p>H2 runs in {@code MODE=MySQL} which is case-SENSITIVE for string comparison, so a bare
-   * {@code = 'TABLE'} predicate would leave the planted row unmatched and the read would simply
-   * come back empty. It is matched, which is what proves the query normalizes rather than leaning
-   * on a provider collation. No writer can produce such a row: the enum boundary normalizes before
-   * the value reaches the column.
+   * <p>No writer can produce such a row: the enum boundary normalizes before the value reaches the
+   * column.
    */
   @Test
   public void testLegacyNonCanonicalSpellingIsMatchedAndHydrates() {
@@ -1016,7 +1002,7 @@ public class HtsRepositoryTest {
     assertThat(pageTableIds(page1)).containsExactly("match_t05_view");
   }
 
-  /** H2 compares case-sensitively, so returning these rows proves {@code upper(...)} is applied. */
+  /** Every spelling of VIEW is listed and counted; NULL and garbage are not. */
   @Test
   public void testViewQueriesIncludeEverySpellingAndExcludeNullAndGarbage() {
     seedCaseNormalizationRows();
@@ -1120,8 +1106,10 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Pins H2 only: a folding production collation could still match a spelling Java rejects, which
-   * is why the read paths translate corruption loudly rather than relying on this.
+   * Pins this exact {@code UNKNOWN} value, which the pinned {@code utf8mb4_0900_ai_ci} column
+   * collation does not equate with either type. It is not a universal exclusion of corrupt
+   * spellings: that collation still matches an accented spelling Java rejects, which is why the
+   * read paths translate corruption loudly.
    */
   @Test
   public void testTypedDeletesAndTableRenameSkipAnUnknownSpelling() {
@@ -1164,10 +1152,6 @@ public class HtsRepositoryTest {
         .isInstanceOf(UnsupportedOperationException.class);
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "sealed_view")).hasValue("VIEW");
-
-    // Teardown owns whole-store cleanup now, and it still reaches every row.
-    userTableStoreCleaner.clear();
-    assertThat(htsRepository.existsById(sealedKey)).isFalse();
   }
 
   /**

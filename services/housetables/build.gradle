@@ -83,4 +83,13 @@ dependencies {
   implementation "mysql:mysql-connector-java:8.+"
   implementation "org.jetbrains:annotations:16.0.3"
   testImplementation(testFixtures(project(':services:common')))
+  testImplementation 'org.testcontainers:mysql:1.21.4'
+}
+
+// Tests rebuild their MySQL schema from the canonical DDL; this copies it, it is not a second copy.
+tasks.named('processTestResources') {
+  from('ddl') {
+    include '*.sql'
+    into 'hts-mysql/ddl'
+  }
 }

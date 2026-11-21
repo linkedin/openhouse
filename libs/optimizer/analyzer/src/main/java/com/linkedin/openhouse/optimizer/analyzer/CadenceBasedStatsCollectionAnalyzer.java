@@ -5,6 +5,7 @@ import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -90,6 +91,15 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
     return OperationTypeDto.TABLE_STATS_COLLECTION;
   }
 
+  /**
+   * Stats collection only reads the table, so it is safe on a replica (which the primary maintains
+   * in another cluster). Opt in so replicas still get stats while maintenance operations stay off.
+   */
+  @Override
+  public boolean runsOnReplica() {
+    return true;
+  }
+
   @Override
   public boolean isEnabled(TableDto table) {
     return "true".equals(table.getTableProperties().get(STATS_ENABLED_PROPERTY));
@@ -98,6 +108,11 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
   @Override
   public boolean isActiveOpTimedOut(TableOperationDto op) {
     return cadencePolicy.isSubmissionTimedOut(op);
+  }
+
+  @Override
+  public Instant nextEligibleAt(Instant from, boolean succeeded, int attempts) {
+    return cadencePolicy.nextEligibleAt(from, succeeded, attempts);
   }
 
   @Override

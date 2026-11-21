@@ -4,11 +4,11 @@ import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConsta
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import java.time.Instant;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +19,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class SoftDeletedHtsRepositoryTest {
+public class SoftDeletedHtsRepositoryTest extends HtsDatabaseTestBase {
 
   long deletedTimestamp = System.currentTimeMillis();
 
@@ -35,11 +35,6 @@ public class SoftDeletedHtsRepositoryTest {
           .build();
 
   @Autowired private SoftDeletedUserTableHtsJdbcRepository softDeletedUserTableHtsJdbcRepository;
-
-  @AfterEach
-  public void tearDown() {
-    softDeletedUserTableHtsJdbcRepository.deleteAll();
-  }
 
   @Test
   public void testSoftDeleteExists() {
