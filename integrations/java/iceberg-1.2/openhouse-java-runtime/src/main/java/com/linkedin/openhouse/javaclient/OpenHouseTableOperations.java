@@ -184,7 +184,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     }
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
     try {
-      return bridge.apply(raw);
+      return bridge.apply(tableName(), raw);
+    } catch (ColumnDefaultDoesNotFitException e) {
+      throw new Tasks.UnrecoverableException(e.getMessage(), e);
     } catch (ReadBridgeException e) {
       throw unrecoverableBridge(e);
     }

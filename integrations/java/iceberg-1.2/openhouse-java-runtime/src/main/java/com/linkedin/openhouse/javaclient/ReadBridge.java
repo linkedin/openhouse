@@ -10,8 +10,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.types.Types;
 
 /**
  * Overlays server-stamped read-time behavior from table {@code config} onto loaded Iceberg
@@ -35,6 +39,7 @@ final class ReadBridge {
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private static final String SCHEMAS = "schemas";
+  private static final String SCHEMA_ID = "schema-id";
   private static final String FIELDS = "fields";
   private static final String ID = "id";
   private static final String TYPE = "type";
@@ -63,17 +68,21 @@ final class ReadBridge {
   }
 
   /** Overlay onto {@code raw}, or return it unchanged. */
-  TableMetadata apply(TableMetadata raw) throws ReadBridgeException {
+  TableMetadata apply(String table, TableMetadata raw) throws ReadBridgeException {
     if (columnDefaults.isEmpty()) {
       return raw;
     }
     ObjectNode root = metadataJson(raw);
     boolean changed = false;
-    for (ObjectNode field : fieldObjects(root).collect(Collectors.toList())) {
-      JsonNode defaultValue = columnDefaults.get(field.get(ID).asInt());
-      if (defaultValue != null) {
-        field.set(INITIAL_DEFAULT, defaultValue);
-        changed = true;
+    for (JsonNode schema : root.get(SCHEMAS)) {
+      Schema version = raw.schemasById().get(schema.get(SCHEMA_ID).asInt());
+      for (ObjectNode field : nestedFields(schema).collect(Collectors.toList())) {
+        JsonNode defaultValue = columnDefaults.get(field.get(ID).asInt());
+        if (defaultValue != null) {
+          checkFits(table, version, field.get(ID).asInt(), defaultValue);
+          field.set(INITIAL_DEFAULT, defaultValue);
+          changed = true;
+        }
       }
     }
     if (!changed) {
@@ -90,6 +99,29 @@ final class ReadBridge {
       return TableMetadataParser.fromJson(raw.metadataFileLocation(), json);
     } catch (RuntimeException e) {
       throw ReadBridgeException.cannotBind(e);
+    }
+  }
+
+  /**
+   * Iceberg's parse of the patched metadata fails on a default that does not fit, but its error
+   * does not name the column. So take the steps its SchemaParser takes for an initial-default.
+   */
+  private static void checkFits(String table, Schema version, int id, JsonNode defaultValue)
+      throws ColumnDefaultDoesNotFitException {
+    Types.NestedField field = version.findField(id);
+    try {
+      Types.NestedField.from(field)
+          .withInitialDefault(
+              Expressions.lit(SingleValueParser.fromJson(field.type(), defaultValue.toString())))
+          .build();
+    } catch (RuntimeException e) {
+      throw new ColumnDefaultDoesNotFitException(
+          String.format(
+              "COLUMN_DEFAULT_UNUSABLE: OpenHouse cannot apply the column defaults declared on"
+                  + " %s (TYPE_MISMATCH, column %s, field ID %d). The default does not fit %s,"
+                  + " the column's type in schema version %d.",
+              table, version.findColumnName(id), id, field.type(), version.schemaId()),
+          e);
     }
   }
 
@@ -123,12 +155,6 @@ final class ReadBridge {
       }
     }
     return byFieldId;
-  }
-
-  /** NestedField objects under every schema-id: {@code schemas[].fields}, then nested types. */
-  private static Stream<ObjectNode> fieldObjects(ObjectNode metadata) {
-    return StreamSupport.stream(metadata.get(SCHEMAS).spliterator(), false)
-        .flatMap(ReadBridge::nestedFields);
   }
 
   private static Stream<ObjectNode> nestedFields(JsonNode type) {

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 class ReadBridgeTest {
 
   private static final String PREFIX = ReadBridge.COLUMN_DEFAULT_PREFIX;
+  private static final String TABLE = "db.tbl";
 
   @Test
   void decodesColumnDefaultsByFieldId() throws ReadBridgeException {
@@ -72,8 +73,8 @@ class ReadBridgeTest {
   @Test
   void applyReturnsSameInstanceWhenNothingToBridge() throws ReadBridgeException {
     TableMetadata raw = newTable("file:/tmp/rb-inert");
-    assertSame(raw, ReadBridge.INERT.apply(raw));
-    assertSame(raw, ReadBridge.from(Collections.singletonMap("other.key", "x")).apply(raw));
+    assertSame(raw, ReadBridge.INERT.apply(TABLE, raw));
+    assertSame(raw, ReadBridge.from(Collections.singletonMap("other.key", "x")).apply(TABLE, raw));
   }
 
   @Test
@@ -81,7 +82,7 @@ class ReadBridgeTest {
     TableMetadata raw = newTable("file:/tmp/rb-apply");
     Map<String, String> config = Collections.singletonMap(PREFIX + "2", "\"US\"");
 
-    TableMetadata bridged = ReadBridge.from(config).apply(raw);
+    TableMetadata bridged = ReadBridge.from(config).apply(TABLE, raw);
 
     assertEquals("US", bridged.schema().findField(2).initialDefault());
     assertNull(bridged.schema().findField(1).initialDefault());
@@ -118,7 +119,7 @@ class ReadBridgeTest {
     config.put(PREFIX + "2", "\"US\"");
     config.put(PREFIX + "3", "\"west\"");
 
-    TableMetadata bridged = ReadBridge.from(config).apply(raw);
+    TableMetadata bridged = ReadBridge.from(config).apply(TABLE, raw);
 
     assertEquals(2, bridged.schemas().size());
     for (Schema schema : bridged.schemas()) {
@@ -132,7 +133,7 @@ class ReadBridgeTest {
   void applyIgnoresFieldIdsAbsentFromAllSchemas() throws ReadBridgeException {
     TableMetadata raw = newTable("file:/tmp/rb-gap");
     Map<String, String> config = Collections.singletonMap(PREFIX + "99", "\"x\"");
-    assertSame(raw, ReadBridge.from(config).apply(raw));
+    assertSame(raw, ReadBridge.from(config).apply(TABLE, raw));
   }
 
   @Test
@@ -140,8 +141,45 @@ class ReadBridgeTest {
     TableMetadata raw = newTable("file:/tmp/rb-bad-bind");
     Map<String, String> config = Collections.singletonMap(PREFIX + "1", "\"not-an-int\"");
     ReadBridgeException thrown =
-        assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config).apply(raw));
+        assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config).apply(TABLE, raw));
     assertEquals(ReadBridgeException.Kind.CANNOT_BIND, thrown.getKind());
+  }
+
+  /** A default that fits bigint but not int, the column's type before the promotion. */
+  @Test
+  void applyNamesTheSchemaVersionADefaultDoesNotFit() {
+    Schema v0 =
+        new Schema(
+            0,
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "n", Types.IntegerType.get()));
+    Schema v1 =
+        new Schema(
+            1,
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "n", Types.LongType.get()));
+    TableMetadata raw =
+        TableMetadata.buildFrom(
+                TableMetadata.newTableMetadata(
+                    v0,
+                    PartitionSpec.unpartitioned(),
+                    "file:/tmp/rb-promoted",
+                    Collections.emptyMap()))
+            .addSchema(v1, 2)
+            .setCurrentSchema(1)
+            .build();
+    Map<String, String> config = Collections.singletonMap(PREFIX + "2", "8000000000");
+
+    ColumnDefaultDoesNotFitException thrown =
+        assertThrows(
+            ColumnDefaultDoesNotFitException.class,
+            () -> ReadBridge.from(config).apply(TABLE, raw));
+
+    assertEquals(
+        "COLUMN_DEFAULT_UNUSABLE: OpenHouse cannot apply the column defaults declared on db.tbl"
+            + " (TYPE_MISMATCH, column n, field ID 2). The default does not fit int, the column's"
+            + " type in schema version 0.",
+        thrown.getMessage());
   }
 
   @Test
@@ -159,7 +197,7 @@ class ReadBridgeTest {
             schema, PartitionSpec.unpartitioned(), "file:/tmp/rb-nested", Collections.emptyMap());
     Map<String, String> config = Collections.singletonMap(PREFIX + "3", "\"US\"");
 
-    TableMetadata bridged = ReadBridge.from(config).apply(raw);
+    TableMetadata bridged = ReadBridge.from(config).apply(TABLE, raw);
 
     assertEquals(
         "US", bridged.schema().findField(2).type().asStructType().field(3).initialDefault());
