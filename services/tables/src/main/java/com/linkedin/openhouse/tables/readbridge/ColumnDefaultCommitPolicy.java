@@ -24,7 +24,7 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
  * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}), read from its {@link
  * CatalogRequestContext}, skips both, so an operator can repair a table whose stored default cannot
  * be applied. It still cannot declare such a default ({@link
- * ReadBridgeStripProtection#rejectUnusableDefaults}): every load of the table would fail.
+ * ReadBridgeStripProtection#declaredColumnDefaults}): every load of the table would fail.
  */
 public class ColumnDefaultCommitPolicy implements PreCommitCheck {
 
@@ -58,7 +58,7 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
   @Override
   public void check(PendingCommit commit) {
     if (requestContext.columnDefaultPolicyBypass()) {
-      columnDefaultRules.rejectUnusableDefaults(commit);
+      columnDefaultRules.declaredColumnDefaults(commit);
       return;
     }
     keepOptIn(commit);

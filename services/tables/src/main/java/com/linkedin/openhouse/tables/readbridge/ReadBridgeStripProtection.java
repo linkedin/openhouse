@@ -45,7 +45,7 @@ import org.apache.iceberg.types.Types;
  * <p>A request with the column-default policy bypass ({@link
  * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips the rules and the lookup of
  * the table's current defaults, but a default it declares must still be usable ({@link
- * #rejectUnusableDefaults}). {@code initial-default} is still dropped.
+ * #declaredColumnDefaults}). {@code initial-default} is still dropped.
  *
  * <p>Schema field objects are the JSON nodes that carry {@code id} — the same walk as the client
  * overlay. On Iceberg schema JSON that is NestedField; {@code element-id} / {@code schema-id} are
@@ -105,10 +105,7 @@ public class ReadBridgeStripProtection {
             : resolver.storedColumnDefaults(
                 tableDto(table, base.schema(), base.properties(), location));
     boolean bridged = resolver.isBridged(commit.getProperties());
-    Map<Integer, String> declared =
-        bridged
-            ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
-            : Collections.emptyMap();
+    Map<Integer, String> declared = declaredColumnDefaults(commit);
     if (base != null) {
       rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
       rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
@@ -116,27 +113,23 @@ public class ReadBridgeStripProtection {
   }
 
   /**
-   * Rejects {@code commit} if a default it declares cannot be applied. A commit with the
-   * column-default policy bypass skips every other check of {@link #enforce}, but not this one:
-   * every load of a table whose default cannot be applied fails.
+   * The defaults {@code commit} declares, none if it does not opt the table in. {@link
+   * ColumnDefaultCommitPolicy} skips {@link #enforce} for a commit with the column-default policy
+   * bypass, but still calls this: every load of a table whose default cannot be applied fails.
    *
    * @throws CommitRejectedException if a default the commit declares cannot be applied
    */
-  public void rejectUnusableDefaults(PendingCommit commit) {
-    if (resolver.isBridged(commit.getProperties())) {
-      declaredColumnDefaults(
+  public Map<Integer, String> declaredColumnDefaults(PendingCommit commit) {
+    if (!resolver.isBridged(commit.getProperties())) {
+      return Collections.emptyMap();
+    }
+    try {
+      return resolver.incomingColumnDefaults(
           tableDto(
               commit.getTableIdentifier(),
               commit.getMetadata().schema(),
               commit.getProperties(),
               commit.getBase().map(TableMetadata::metadataFileLocation).orElse(null)));
-    }
-  }
-
-  /** The defaults {@code committed} declares; one that cannot be applied rejects the commit. */
-  private Map<Integer, String> declaredColumnDefaults(TableDto committed) {
-    try {
-      return resolver.incomingColumnDefaults(committed);
     } catch (ColumnDefaultException e) {
       throw new CommitRejectedException(e.getMessage(), e);
     }
