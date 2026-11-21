@@ -245,6 +245,7 @@ public class SchedulerRunner {
                   group.getAccount(),
                   claimedTableNames,
                   claimedIds);
+              // The status stays SCHEDULED. Only job_id changes.
               int updated =
                   operationsRepo.updateBatch(
                       claimedIds,
