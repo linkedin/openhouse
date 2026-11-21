@@ -8,6 +8,9 @@ import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -18,10 +21,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.spark.sql.Row;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,6 +60,15 @@ public class OrphanTableDirectoryDeletionSparkAppTest extends OpenHouseSparkITes
   void setup() {
     otelEmitter = Mockito.mock(OtelEmitter.class);
     tableDirectory = new Path(tempDir.toString(), "db/tb-" + TABLE_UUID);
+  }
+
+  /** Releases a held table directory, so that the temporary directory can be deleted. */
+  @AfterEach
+  void releaseHold() throws IOException {
+    FileSystem fs = tableDirectory.getFileSystem(new Configuration());
+    if (fs.exists(tableDirectory)) {
+      fs.setPermission(tableDirectory, new FsPermission((short) 0700));
+    }
   }
 
   @Test
@@ -361,6 +378,87 @@ public class OrphanTableDirectoryDeletionSparkAppTest extends OpenHouseSparkITes
     }
   }
 
+  @Test
+  public void testDirectoryIsRecordedThenHeldWhenQuiet() throws Exception {
+    String heldTable = "odd_hold.held_" + UUID.randomUUID().toString().replace("-", "");
+    FsPermission previousPermission = new FsPermission((short) 0750);
+    try (Operations ops = Operations.withCatalog(getSparkSession(), opsOtelEmitter)) {
+      FileSystem fs = ops.fs();
+      createFile(fs, ROOT_METADATA, tableMetadata(TABLE_UUID, location()), daysAgo(30));
+      createFile(fs, "data/a.orc", daysAgo(30));
+      createFile(fs, "metadata/00002.metadata.json", daysAgo(1));
+      fs.setPermission(tableDirectory, previousPermission);
+      String[] options = {"--action", "hold", "--holdDays", "3", "--heldTableName", heldTable};
+
+      // A directory written to recently may still be in use.
+      createApp(options).runInner(ops);
+      Assertions.assertEquals(previousPermission, fs.getFileStatus(tableDirectory).getPermission());
+      Assertions.assertFalse(fs.exists(new Path(tableDirectory, Operations.ON_HOLD_MARKER)));
+      verifyCount(AppConstants.HELD_DIRECTORY_COUNT, 0);
+
+      setModificationTime(fs, daysAgo(30));
+      long beforeHoldMillis = System.currentTimeMillis();
+      createApp(options).runInner(ops);
+      Assertions.assertEquals(0, fs.getFileStatus(tableDirectory).getPermission().toShort());
+      verifyCount(AppConstants.HELD_DIRECTORY_COUNT, 1);
+      verifyCount(AppConstants.ORPHAN_DIRECTORY_COUNT, 0);
+      List<Row> rows = ops.spark().sql("SELECT * FROM " + heldTable).collectAsList();
+      Assertions.assertEquals(1, rows.size());
+      Row row = rows.get(0);
+      FileStatus directory = fs.getFileStatus(tableDirectory);
+      Assertions.assertEquals(location(), row.getAs("path"));
+      Assertions.assertEquals(TABLE_UUID, row.getAs("table_uuid"));
+      Assertions.assertEquals(directory.getOwner(), row.getAs("owner"));
+      Assertions.assertEquals(directory.getGroup(), row.getAs("group_name"));
+      Assertions.assertEquals("750", row.getAs("previous_permission"));
+      long heldAtMillis = row.<Timestamp>getAs("held_at").getTime();
+      Assertions.assertTrue(heldAtMillis >= beforeHoldMillis);
+      Assertions.assertEquals(
+          heldAtMillis + TimeUnit.DAYS.toMillis(3), row.<Timestamp>getAs("delete_after").getTime());
+      Assertions.assertEquals("test-odd-job", row.getAs("job_id"));
+      Assertions.assertEquals(
+          OrphanTableDirectoryDeletionSparkApp.HOLD_SOURCE, row.getAs("hold_source"));
+
+      // A directory on hold is left as it is.
+      createApp(options).runInner(ops);
+      verifyCount(AppConstants.HELD_DIRECTORY_COUNT, 1);
+      Assertions.assertEquals(1, ops.spark().sql("SELECT * FROM " + heldTable).count());
+
+      // Setting the previous permission back releases the directory as it was.
+      fs.setPermission(tableDirectory, previousPermission);
+      Assertions.assertEquals(
+          files(
+              ROOT_METADATA,
+              "data/a.orc",
+              "metadata/00002.metadata.json",
+              Operations.ON_HOLD_MARKER),
+          listFiles(fs));
+      Assertions.assertEquals(
+          String.format(
+              "previousPermission=750\nheldAtMillis=%d\njobId=test-odd-job\n", heldAtMillis),
+          readFile(Operations.ON_HOLD_MARKER));
+    }
+  }
+
+  @Test
+  public void testOnlyTableDirectoryIsHeldWithoutHeldTable() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), opsOtelEmitter)) {
+      FileSystem fs = ops.fs();
+      createFile(fs, ROOT_METADATA, viewMetadata(TABLE_UUID, location()), daysAgo(30));
+      createFile(fs, "metadata/a.json", daysAgo(30));
+
+      createApp("--action", "hold").runInner(ops);
+      Assertions.assertNotEquals(0, fs.getFileStatus(tableDirectory).getPermission().toShort());
+      Assertions.assertEquals(files(ROOT_METADATA, "metadata/a.json"), listFiles(fs));
+      verifyCount(AppConstants.HELD_DIRECTORY_COUNT, 0);
+
+      createFile(fs, ROOT_METADATA, tableMetadata(TABLE_UUID, location()), daysAgo(30));
+      createApp("--action", "HOLD").runInner(ops);
+      Assertions.assertEquals(0, fs.getFileStatus(tableDirectory).getPermission().toShort());
+      verifyCount(AppConstants.HELD_DIRECTORY_COUNT, 1);
+    }
+  }
+
   @ParameterizedTest
   @CsvSource({
     "--orphanDaysOld, 0",
@@ -369,10 +467,24 @@ public class OrphanTableDirectoryDeletionSparkAppTest extends OpenHouseSparkITes
     "--trashDir, ''",
     "--trashDir, ..",
     "--trashDir, ../.trash",
-    "--trashDir, /tmp/.trash"
+    "--trashDir, /tmp/.trash",
+    "--action, delete",
+    "--holdDays, 3",
+    "--heldTableName, db.held"
   })
   public void testCreateAppRejectsInvalidOptions(String option, String value) {
     Assertions.assertThrows(IllegalArgumentException.class, () -> createApp(option, value));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "--holdDays, -1",
+    "--heldTableName, held",
+    "--heldTableName, 'db.held; DROP TABLE db.t'"
+  })
+  public void testCreateAppRejectsInvalidHoldOptions(String option, String value) {
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> createApp("--action", "hold", option, value));
   }
 
   private OrphanTableDirectoryDeletionSparkApp createApp(String... options) {
@@ -459,6 +571,11 @@ public class OrphanTableDirectoryDeletionSparkAppTest extends OpenHouseSparkITes
       relativePaths.add(files.next().getPath().toUri().getPath().substring(prefix.length()));
     }
     return relativePaths;
+  }
+
+  private String readFile(String relativePath) throws IOException {
+    return new String(
+        Files.readAllBytes(Paths.get(location(), relativePath)), StandardCharsets.UTF_8);
   }
 
   private static Set<String> files(String... relativePaths) {

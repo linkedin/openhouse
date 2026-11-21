@@ -16,12 +16,15 @@ import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
+import com.linkedin.openhouse.jobs.util.DirectoryHold;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
@@ -51,6 +54,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.fs.permission.FsAction;
+import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
@@ -89,6 +94,12 @@ public final class Operations implements AutoCloseable {
    * as renames keep modification times and not all file systems support setting them.
    */
   public static final String STAGED_FOR_DELETION_MARKER = "_STAGED_FOR_DELETION";
+
+  /**
+   * File that {@link #holdDirectory} writes directly under a directory it puts on hold, with the
+   * directory's previous permission, the hold time and the id of the job that held it.
+   */
+  public static final String ON_HOLD_MARKER = "_ON_HOLD";
 
   private static final String OPENHOUSE_TABLE_UUID_PROPERTY = "openhouse.tableUUID";
   private static final String GZIP_METADATA_FILE_EXTENSION = ".gz.metadata.json";
@@ -356,6 +367,89 @@ public final class Operations implements AutoCloseable {
     log.info(
         "Deleted orphan directory {} with {} staged files", tableDirectoryPath, files.size() - 1);
     return true;
+  }
+
+  /**
+   * Returns the hold to put on an orphan table directory, or empty if it must not be held: it is
+   * already on hold, has a file modified since the given timestamp, or is not the directory of an
+   * OpenHouse table, as checked by {@link #deleteOrphanDirectory}. Does not change the directory.
+   *
+   * @throws IOException if the directory cannot be listed or its root metadata file cannot be read
+   */
+  public Optional<DirectoryHold> prepareOrphanDirectoryHold(
+      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) throws IOException {
+    FileStatus directory = fs().getFileStatus(tableDirectoryPath);
+    // Not even its owner can list a directory on hold.
+    if (isOnHold(directory.getPermission())) {
+      log.info("Not holding orphan directory {}: it is already on hold", tableDirectoryPath);
+      return Optional.empty();
+    }
+    List<FileStatus> files = listFilesRecursively(tableDirectoryPath);
+    for (FileStatus file : files) {
+      if (file.getModificationTime() >= olderThanTimestampMillis) {
+        log.info(
+            "Not holding orphan directory {}: file {} was modified at {}",
+            tableDirectoryPath,
+            file.getPath(),
+            file.getModificationTime());
+        return Optional.empty();
+      }
+    }
+    Optional<String> notTableDirectory =
+        getReasonNotTableDirectory(tableDirectoryPath, trashDir, files);
+    if (notTableDirectory.isPresent()) {
+      log.info("Not holding orphan directory {}: {}", tableDirectoryPath, notTableDirectory.get());
+      return Optional.empty();
+    }
+    Matcher directoryName = TABLE_DIRECTORY_UUID_PATTERN.matcher(tableDirectoryPath.getName());
+    // Checked by getReasonNotTableDirectory.
+    directoryName.find();
+    return Optional.of(
+        DirectoryHold.builder()
+            .path(tableDirectoryPath)
+            .tableUuid(directoryName.group(1))
+            .owner(directory.getOwner())
+            .group(directory.getGroup())
+            .previousPermission(String.format("%03o", directory.getPermission().toShort()))
+            .heldAtMillis(System.currentTimeMillis())
+            .build());
+  }
+
+  /**
+   * Puts a directory on hold as prepared by {@link #prepareOrphanDirectoryHold}: writes the {@link
+   * #ON_HOLD_MARKER}, then removes all permissions on the directory, so that nothing can read or
+   * write it, not even its owner, until a superuser deletes it. Its owner releases it by setting
+   * its previous permission back, which keeps its ACL entries.
+   *
+   * @throws IOException if the marker cannot be written or the permissions cannot be removed
+   */
+  public void holdDirectory(DirectoryHold hold, String jobId) throws IOException {
+    Path directory = hold.getPath();
+    try (OutputStream out = fs().create(new Path(directory, ON_HOLD_MARKER), true)) {
+      out.write(
+          String.format(
+                  "previousPermission=%s\nheldAtMillis=%d\njobId=%s\n",
+                  hold.getPreviousPermission(), hold.getHeldAtMillis(), jobId)
+              .getBytes(StandardCharsets.UTF_8));
+    }
+    fs().setPermission(directory, new FsPermission((short) 0));
+    FsPermission permission = fs().getFileStatus(directory).getPermission();
+    if (!isOnHold(permission)) {
+      throw new IOException(
+          String.format(
+              "Failed to hold directory %s: its permission is %s", directory, permission));
+    }
+    log.info(
+        "Held directory {}, release it with: chmod {} {}",
+        directory,
+        hold.getPreviousPermission(),
+        directory);
+  }
+
+  private static boolean isOnHold(FsPermission permission) {
+    return permission.getUserAction() == FsAction.NONE
+        && permission.getGroupAction() == FsAction.NONE
+        && permission.getOtherAction() == FsAction.NONE;
   }
 
   private List<FileStatus> listFilesRecursively(Path dir) throws IOException {

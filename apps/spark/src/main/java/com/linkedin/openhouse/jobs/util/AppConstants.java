@@ -16,6 +16,7 @@ public final class AppConstants {
   public static final String STAGED_FILE_COUNT = "staged_file_count";
   public static final String ORPHAN_DIRECTORY_COUNT = "orphan_directory_count";
   public static final String STAGED_DIRECTORY_COUNT = "staged_directory_count";
+  public static final String HELD_DIRECTORY_COUNT = "held_directory_count";
   public static final String ADDED_DATA_FILE_COUNT = "added_data_file_count";
   public static final String REWRITTEN_DATA_FILE_COUNT = "rewritten_data_file_count";
   public static final String REWRITTEN_DATA_FILE_BYTES = "rewritten_data_file_bytes";
