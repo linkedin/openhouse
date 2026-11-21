@@ -197,9 +197,6 @@ class SchedulerRunnerTest {
             eq(OperationStatus.SCHEDULED),
             eq(Optional.empty()),
             eq(Optional.of("job-123")));
-    verify(operationsRepo, never())
-        .updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.PENDING), any(), any());
 
     ArgumentCaptor<String> jobName = ArgumentCaptor.forClass(String.class);
     ArgumentCaptor<List<String>> tableNames = ArgumentCaptor.forClass(List.class);
@@ -213,38 +210,6 @@ class SchedulerRunnerTest {
             eq(RESULTS_ENDPOINT));
     assertThat(jobName.getValue()).startsWith("batched-orphan_files_deletion-");
     assertThat(tableNames.getValue()).containsExactly("db1.tbl1");
-  }
-
-  @Test
-  void schedule_jobLaunchFails_marksPendingForRetry() {
-    String uuid = UUID.randomUUID().toString();
-    TableOperationsRow row = pendingRow(uuid, "db1", "tbl1");
-
-    stubFindPending(List.of(row));
-    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
-    when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULED), any(), any()))
-        .thenReturn(1);
-    stubFindClaimed(List.of(claimedRow(row)));
-    when(jobsClient.launch(
-            anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
-        .thenReturn(Optional.empty());
-    when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.PENDING), any(), any()))
-        .thenReturn(1);
-
-    runner.schedule(ORPHAN_FILES_DELETION);
-
-    verify(operationsRepo)
-        .updateBatch(
-            eq(List.of(row.getId())),
-            eq(OperationStatus.SCHEDULED),
-            eq(OperationStatus.PENDING),
-            eq(Optional.empty()),
-            eq(Optional.empty()));
-    verify(operationsRepo, never())
-        .updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any());
   }
 
   @Test
@@ -266,9 +231,6 @@ class SchedulerRunnerTest {
     verify(operationsRepo, never())
         .updateBatch(
             anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any());
-    verify(operationsRepo, never())
-        .updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.PENDING), any(), any());
   }
 
   @Test

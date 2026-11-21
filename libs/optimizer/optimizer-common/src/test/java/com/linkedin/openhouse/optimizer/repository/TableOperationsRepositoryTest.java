@@ -213,38 +213,6 @@ class TableOperationsRepositoryTest {
   }
 
   @Test
-  void updateBatch_scheduledToPending_leavesScheduledAtUntouched() {
-    // scheduledAt is intentionally NOT cleared on revert. Status is the source of truth; the
-    // stale watermark gets overwritten on the next PENDING → SCHEDULED transition.
-    String id = UUID.randomUUID().toString();
-    Instant claimedAt = Instant.parse("2026-05-20T16:42:43Z");
-    repository.save(
-        TableOperationsRow.builder()
-            .id(id)
-            .tableUuid(UUID.randomUUID().toString())
-            .databaseName("db1")
-            .tableName("tbl1")
-            .operationType(OperationType.ORPHAN_FILES_DELETION)
-            .status(OperationStatus.SCHEDULED)
-            .createdAt(Instant.now())
-            .scheduledAt(claimedAt)
-            .build());
-
-    int reverted =
-        repository.updateBatch(
-            List.of(id),
-            OperationStatus.SCHEDULED,
-            OperationStatus.PENDING,
-            Optional.empty(),
-            Optional.empty());
-    assertThat(reverted).isEqualTo(1);
-
-    TableOperationsRow row = repository.findById(id).orElseThrow();
-    assertThat(row.getStatus()).isEqualTo(OperationStatus.PENDING);
-    assertThat(row.getScheduledAt()).isEqualTo(claimedAt);
-  }
-
-  @Test
   void updateBatch_skipsRowsNotInFromStatus() {
     String pendingId = UUID.randomUUID().toString();
     String scheduledId = UUID.randomUUID().toString();

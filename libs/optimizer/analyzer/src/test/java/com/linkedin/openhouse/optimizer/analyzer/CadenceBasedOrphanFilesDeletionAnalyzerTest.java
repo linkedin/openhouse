@@ -239,7 +239,11 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   }
 
   private TableOperationDto opScheduledAt(OperationStatusDto status, Instant scheduledAt) {
-    return TableOperationDto.builder().status(status).scheduledAt(scheduledAt).build();
+    return TableOperationDto.builder()
+        .status(status)
+        .scheduledAt(scheduledAt)
+        .jobId("job-1")
+        .build();
   }
 
   private TableOperationsHistoryDto historyWithStatus(

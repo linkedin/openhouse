@@ -66,9 +66,10 @@ public interface OperationAnalyzer {
   }
 
   /**
-   * Whether the given active op is a submitted job that has timed out — exceeded the stale-timeout
-   * with no success. This "logical timeout" is derived, never persisted; the per-table retry
-   * backoff counts it as a non-success alongside explicitly FAILED history.
+   * Whether the given active op is a submitted job that has timed out — passed its deadline with no
+   * success: the launch deadline if it has no job id, otherwise the stale-timeout. This "logical
+   * timeout" is derived, never persisted; the per-table retry backoff counts it as a non-success
+   * alongside explicitly FAILED history.
    *
    * @param op an existing operation record for this (table, type)
    */

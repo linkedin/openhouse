@@ -306,12 +306,13 @@ public class AnalyzerRunner {
   }
 
   /**
-   * Writes the retry backoff for a dead/missed job: a submitted op that crossed the stale-timeout
-   * without ever reporting a terminal outcome never got an {@code next_eligible_at} written by the
-   * completion callback, so its retry would fire immediately on timeout. Write the failure backoff
-   * here — the same interval a reported failure would get — so the dead job backs off like any
-   * other failure. No-op unless the op is timed out and has no {@code next_eligible_at} yet.
-   * Returns whether a backoff was written.
+   * Writes the retry backoff for a dead/missed job: a submitted op that passed its deadline ({@link
+   * CadencePolicy#isSubmissionTimedOut}) without ever reporting a terminal outcome never got a
+   * {@code next_eligible_at} written by the completion callback, so its retry would fire
+   * immediately on timeout. Write the failure backoff here — the same interval a reported failure
+   * would get — so the dead job backs off like any other failure. A failed job request takes this
+   * path too: its op stays SCHEDULED with no job id. No-op unless the op is timed out and has no
+   * {@code next_eligible_at} yet. Returns whether a backoff was written.
    */
   private boolean recordExpiryBackoff(
       OperationAnalyzer analyzer, Optional<TableOperationDto> currentOp) {
@@ -334,15 +335,19 @@ public class AnalyzerRunner {
   }
 
   /**
-   * Attempt number for the next PENDING: reset to 1 when the latest run succeeded, otherwise one
-   * past the prior attempt (carried forward on the operation row). Maintained independently of the
-   * history windows so a recorded success can't be miscounted.
+   * Attempt number for the next PENDING: reset to 1 when the current operation succeeded, otherwise
+   * one past its attempt (carried forward on the operation row). The current operation succeeded
+   * only if the latest history entry is a SUCCESS with its id: an operation that timed out writes
+   * no history, so an older operation's success must not reset the count.
    */
   private static int nextAttempts(
       Optional<TableOperationDto> currentOp, Optional<TableOperationsHistoryDto> latestHistory) {
-    boolean lastSucceeded =
-        latestHistory.map(h -> h.getStatus() == HistoryStatusDto.SUCCESS).orElse(false);
-    int prior = lastSucceeded ? 0 : currentOp.map(TableOperationDto::getAttempts).orElse(0);
+    boolean currentOpSucceeded =
+        latestHistory
+            .filter(h -> h.getStatus() == HistoryStatusDto.SUCCESS)
+            .flatMap(h -> currentOp.filter(op -> op.getId().equals(h.getId())))
+            .isPresent();
+    int prior = currentOpSucceeded ? 0 : currentOp.map(TableOperationDto::getAttempts).orElse(0);
     return prior + 1;
   }
 
@@ -350,9 +355,9 @@ public class AnalyzerRunner {
    * Count the table's current consecutive non-success streak for {@code operationType}, newest
    * first, stopping at the first success. A "non-success" is any submitted job that did not reach
    * SUCCESS — an explicitly FAILED history entry or a <i>logical timeout</i> (a submitted op past
-   * the stale-timeout with no history, i.e. it never reported back). Nothing is persisted: the
-   * timeout is derived at read time, so a late callback simply writes its real outcome and resets
-   * the streak on the next pass.
+   * its deadline with no history, i.e. it never reported back). Nothing is persisted: the timeout
+   * is derived at read time, so a late callback simply writes its real outcome and resets the
+   * streak on the next pass.
    *
    * <p>Lazy: healthy tables (latest history SUCCESS and no timed-out active op) return {@code 0}
    * with no extra read. Only a non-healthy table pays for the recent-submissions / recent-history

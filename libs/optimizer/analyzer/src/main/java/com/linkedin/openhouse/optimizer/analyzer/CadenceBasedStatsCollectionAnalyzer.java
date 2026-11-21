@@ -32,7 +32,8 @@ import org.springframework.stereotype.Component;
  *       whose job has not reached a terminal state within {@code stats.stale-timeout-hours}
  *       (default 3h) is treated as dead (hung/missed callback) and no longer blocks, so the table
  *       is rescheduled instead of wedged. Stats biases toward an extra job (short deadline) since
- *       collection is idempotent.
+ *       collection is idempotent. A SCHEDULED row with no job id (its job request failed) has a
+ *       5-minute launch deadline instead.
  *   <li><b>Cadence elapsed since the last completed run.</b>
  *       <ul>
  *         <li>If the table has <i>no</i> prior history, schedule immediately.

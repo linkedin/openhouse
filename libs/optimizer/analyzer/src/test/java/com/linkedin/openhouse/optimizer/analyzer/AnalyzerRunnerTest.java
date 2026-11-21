@@ -437,6 +437,53 @@ class AnalyzerRunnerTest {
   }
 
   @Test
+  void analyze_attempts_carriesForwardWhenOnlyAnOlderOperationSucceeded() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    // The prior op timed out, so it wrote no history; its expiry backoff has elapsed.
+    TableOperationsRow priorOp =
+        TableOperationsRow.builder()
+            .id("prior-op")
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .tableUuid("uuid-1")
+            .databaseName(DB)
+            .tableName("tbl1")
+            .operationType(OFD_DB)
+            .createdAt(Instant.now().minusSeconds(10_000))
+            .scheduledAt(Instant.now().minusSeconds(9_000))
+            .nextEligibleAt(Instant.now().minusSeconds(60))
+            .attempts(2)
+            .build();
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    stubOpsFind(List.of(priorOp));
+    // The latest history entry is an older operation's success.
+    when(historyRepo.findLatest(eq(OFD_DB), any()))
+        .thenReturn(
+            List.of(
+                TableOperationsHistoryRow.builder()
+                    .id("older-op")
+                    .tableUuid("uuid-1")
+                    .databaseName(DB)
+                    .tableName("tbl1")
+                    .operationType(OFD_DB)
+                    .completedAt(Instant.now().minusSeconds(20_000))
+                    .status(com.linkedin.openhouse.optimizer.db.HistoryStatus.SUCCESS)
+                    .build()));
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), anyInt())).thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
+    verify(operationsRepo).save(captor.capture());
+    // Only the prior op's own success resets the count; it timed out, so the next attempt is 3.
+    assertThat(captor.getValue().getAttempts()).isEqualTo(3);
+  }
+
+  @Test
   void analyze_noOp_whenCadencePolicyReturnsFalseForPending() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();

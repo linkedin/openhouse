@@ -223,6 +223,29 @@ class CadenceBasedStatsCollectionAnalyzerTest {
         .isFalse();
   }
 
+  // --- shouldSchedule: SCHEDULED with no job id → the launch deadline applies ---
+
+  @Test
+  void shouldSchedule_scheduledWithoutJobIdPastLaunchDeadline_returnsTrue() {
+    // The job request failed, so no job will report: the analyzer stops waiting after the launch
+    // deadline instead of the stale timeout.
+    Instant claimedAt = Instant.now().minus(CadencePolicy.LAUNCH_DEADLINE).minusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true), Optional.of(opClaimedAt(claimedAt)), Optional.empty(), 0))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_scheduledWithoutJobIdWithinLaunchDeadline_returnsFalse() {
+    // The scheduler may still be waiting for the Jobs Service to accept the job request.
+    Instant claimedAt = Instant.now().minus(CadencePolicy.LAUNCH_DEADLINE).plusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true), Optional.of(opClaimedAt(claimedAt)), Optional.empty(), 0))
+        .isFalse();
+  }
+
   // --- shouldSchedule: next_eligible_at gate is authoritative when set ---
 
   @Test
@@ -291,7 +314,19 @@ class CadenceBasedStatsCollectionAnalyzerTest {
   }
 
   private TableOperationDto opScheduledAt(OperationStatusDto status, Instant scheduledAt) {
-    return TableOperationDto.builder().status(status).scheduledAt(scheduledAt).build();
+    return TableOperationDto.builder()
+        .status(status)
+        .scheduledAt(scheduledAt)
+        .jobId("job-1")
+        .build();
+  }
+
+  /** A SCHEDULED op whose job request failed: the scheduler claimed it but wrote no job id. */
+  private TableOperationDto opClaimedAt(Instant scheduledAt) {
+    return TableOperationDto.builder()
+        .status(OperationStatusDto.SCHEDULED)
+        .scheduledAt(scheduledAt)
+        .build();
   }
 
   private TableOperationDto opScheduledAtNextEligibleAt(
