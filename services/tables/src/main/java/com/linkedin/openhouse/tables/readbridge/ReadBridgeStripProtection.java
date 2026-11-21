@@ -112,18 +112,18 @@ public class ReadBridgeStripProtection {
     TableMetadata base = commit.getBase().orElse(null);
     Schema schema = commit.getMetadata().schema();
     String location = base == null ? null : base.metadataFileLocation();
-    boolean optedIn = base != null && resolver.isBridged(base.properties());
+    boolean optedInBefore = base != null && resolver.isBridged(base.properties());
     Map<Integer, String> previousStamped =
-        optedIn
+        optedInBefore
             ? resolver.storedColumnDefaults(
                 tableDto(table, base.schema(), base.properties(), location))
             : Collections.emptyMap();
-    boolean bridged = resolver.isBridged(commit.getProperties());
+    boolean optedInAfter = resolver.isBridged(commit.getProperties());
     Map<Integer, String> declared =
-        bridged
+        optedInAfter
             ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
-    if (optedIn && bridged) {
+    if (optedInBefore) {
       rejectChangedDefaults(table, previousStamped, base.schema(), declared, schema);
     }
     rejectDefaultsThatDoNotFit(table, declared, commit.getMetadata().schemas());

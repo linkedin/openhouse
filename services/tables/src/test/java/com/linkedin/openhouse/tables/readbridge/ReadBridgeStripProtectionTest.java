@@ -144,8 +144,12 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, false));
   }
 
+  /**
+   * {@link ColumnDefaultCommitPolicy} refuses an opt-out before this check runs. Without the
+   * policy, Type 1 still refuses an opt-out that drops a live default.
+   */
   @Test
-  public void optOutSchemaOnly_doesNotType1() {
+  public void optOutDroppingLiveDefault_rejected() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -156,24 +160,11 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(Collections.singletonMap(ENABLED_PROP, "false"))
             .build();
 
-    Assertions.assertDoesNotThrow(() -> commit(protection, existing, incoming, false));
-  }
-
-  @Test
-  public void optOutOverwriteWithoutOverlay_stillType2() {
-    ReadBridgeStripProtection protection = protection(FIELD_2);
-    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
-    TableDto incoming =
-        TableDto.builder()
-            .databaseId("db")
-            .tableId("tbl")
-            .schema(SCHEMA_WITHOUT_DEFAULT)
-            .tableProperties(Collections.singletonMap(ENABLED_PROP, "false"))
-            .jsonSnapshots(Collections.singletonList(overwriteJson(10)))
-            .build();
-
-    Assertions.assertThrows(
-        CommitRejectedException.class, () -> commit(protection, existing, incoming, false));
+    CommitRejectedException thrown =
+        Assertions.assertThrows(
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, true));
+    Assertions.assertTrue(thrown.getMessage().startsWith("COLUMN_DEFAULT_REMOVED: "));
+    Assertions.assertTrue(thrown.getMessage().contains("on country (field-id 2)"));
   }
 
   @Test
