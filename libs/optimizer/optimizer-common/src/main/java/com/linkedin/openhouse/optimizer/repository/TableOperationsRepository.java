@@ -110,6 +110,17 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
           + "AND r.status = com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING")
   int cancel(@Param("ids") List<String> ids);
 
+  /**
+   * Delete all operation rows for {@code tableUuid}, regardless of status. Returns the number of
+   * rows removed. Used to purge a table's queued/active operations when it is dropped; there is no
+   * status gate because a dropped table's operations are moot (any in-flight job targets a table
+   * that no longer exists).
+   */
+  @Transactional
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
+  @Query("DELETE FROM TableOperationsRow r WHERE r.tableUuid = :tableUuid")
+  int deleteByTableUuid(@Param("tableUuid") String tableUuid);
+
   // ---- Internals. Use the Optional-typed default methods above. ----
 
   @Query(

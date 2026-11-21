@@ -3,6 +3,7 @@ package com.linkedin.openhouse.internal.catalog;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.catalog.TableIdentifier;
 
 /**
  * Best-effort {@link PostCommitOperation} that extracts {@link CommitStats} from a successful
@@ -23,6 +24,12 @@ import org.apache.iceberg.TableMetadata;
  *       owners can set it via {@code ALTER TABLE ... SET TBLPROPERTIES}; reserved {@code
  *       openhouse.} keys cannot be modified by users and would make the gate un-settable.
  * </ul>
+ *
+ * <p><b>Drops.</b> A {@link CommitType#DROP} carries no metadata, so there are no stats and the
+ * per-table property can't be read. It is routed to {@link #publishDrop} instead so the publisher
+ * can purge whatever it holds for the table. That purge is not gated by the per-table property: it
+ * must also clean up tables that opted out after publishing, and it is idempotent, so it is a no-op
+ * for tables that never published.
  */
 @Slf4j
 public abstract class AbstractCommitStatsPublishOperation implements PostCommitOperation {
@@ -43,12 +50,19 @@ public abstract class AbstractCommitStatsPublishOperation implements PostCommitO
 
   @Override
   public void execute(PostCommitContext context) throws Exception {
+    if (context.getCommitType() == CommitType.DROP) {
+      if (context.getTableUuid() != null && !context.getTableUuid().isEmpty()) {
+        publishDrop(context.getTableUuid(), context.getTableIdentifier());
+      }
+      return;
+    }
     TableMetadata committedMetadata = context.getCommittedMetadata();
     if (committedMetadata == null || !isCollectionEnabled(committedMetadata)) {
       return;
     }
     Optional<CommitStats> stats =
-        CommitStatsFactory.extract(context.getTableIdentifier(), committedMetadata);
+        CommitStatsFactory.extract(
+            context.getTableIdentifier(), committedMetadata, context.getCommitType());
     if (stats.isPresent()) {
       publish(stats.get());
     }
@@ -68,4 +82,18 @@ public abstract class AbstractCommitStatsPublishOperation implements PostCommitO
    *     to the committer
    */
   protected abstract void publish(CommitStats stats) throws Exception;
+
+  /**
+   * Called when the table is dropped, so the publisher can purge any state it published for it.
+   * Default is a no-op; a deployment overrides it with its transport. Same contract as {@link
+   * #publish}: must tolerate interruption, and failures are recorded by the runner, never
+   * propagated to the caller that dropped the table.
+   *
+   * @param tableUuid stable UUID of the dropped table (non-empty)
+   * @param tableIdentifier the dropped table
+   * @throws Exception any failure
+   */
+  protected void publishDrop(String tableUuid, TableIdentifier tableIdentifier) throws Exception {
+    // no-op by default
+  }
 }

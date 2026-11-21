@@ -5,11 +5,23 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 /** Spring Data JPA repository for {@code table_stats} rows in the optimizer DB. */
 public interface TableStatsRepository extends JpaRepository<TableStatsRow, String> {
+
+  /**
+   * Delete the stats row for {@code tableUuid}, if present. Returns the number of rows removed (0
+   * or 1, since {@code tableUuid} is the primary key). Used to purge a table's stats when it is
+   * dropped.
+   */
+  @Transactional
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
+  @Query("DELETE FROM TableStatsRow r WHERE r.tableUuid = :tableUuid")
+  int deleteByTableUuid(@Param("tableUuid") String tableUuid);
 
   /**
    * Return stats rows matching the given filters. Every filter is optional ({@link

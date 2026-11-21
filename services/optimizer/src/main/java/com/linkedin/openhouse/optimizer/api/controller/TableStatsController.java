@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -58,6 +59,18 @@ public class TableStatsController {
             () ->
                 new ResponseStatusException(
                     HttpStatus.NOT_FOUND, String.format("no stats for tableUuid %s", tableUuid)));
+  }
+
+  /**
+   * Delete all optimizer data (stats, stats history, operations, operations history) for {@code
+   * tableUuid}. Called by the Tables Service when a table is dropped. Idempotent — returns 204 even
+   * when no rows existed — so a retried or duplicate drop notification is safe.
+   */
+  @ApiResponses(value = {@ApiResponse(responseCode = "204", description = "Stats DELETE: OK")})
+  @DeleteMapping("/{tableUuid}")
+  public ResponseEntity<Void> deleteTableData(@PathVariable String tableUuid) {
+    service.deleteTableData(tableUuid);
+    return ResponseEntity.noContent().build();
   }
 
   /**

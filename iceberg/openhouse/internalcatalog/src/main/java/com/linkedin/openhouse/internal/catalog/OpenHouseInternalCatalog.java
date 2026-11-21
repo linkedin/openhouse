@@ -210,6 +210,21 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
             "Drop table is supported only with a fileIO instance that SupportsPrefixOperations");
       }
     }
+    // The drop is now durable. It is not an Iceberg commit (no metadata), but it is a catalog
+    // change, so dispatch it through the post-commit path as DROP, best-effort and async, so
+    // operations can clean up state they hold for the table. Never fails the drop; Exception
+    // (not Throwable) so an Error such as OOM still propagates.
+    if (postCommitOperationRunner != null && postCommitOperationRunner.isEnabled()) {
+      try {
+        postCommitOperationRunner.runAll(
+            new PostCommitContext(identifier, null, CommitType.DROP, houseTable.getTableUUID()));
+      } catch (Exception e) {
+        log.error(
+            "Failed to dispatch post-commit operations for dropped table {} (nonfatal)",
+            identifier,
+            e);
+      }
+    }
     return true;
   }
 

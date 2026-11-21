@@ -18,7 +18,11 @@ import org.mockito.Mockito;
 public class PostCommitOperationRunnerTest {
 
   private static final PostCommitContext CONTEXT =
-      new PostCommitContext(TableIdentifier.of("db", "tbl"), Mockito.mock(TableMetadata.class));
+      new PostCommitContext(
+          TableIdentifier.of("db", "tbl"),
+          Mockito.mock(TableMetadata.class),
+          CommitType.DATA_UPDATE,
+          "uuid-123");
 
   private static PostCommitOperationRunner newRunner(
       List<PostCommitOperation> ops, SimpleMeterRegistry registry) {

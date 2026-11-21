@@ -16,6 +16,9 @@ package com.linkedin.openhouse.internal.catalog;
  *       timeout. Long/blocking work must respond to thread interruption so it can be cancelled.
  *   <li><b>Self-contained.</b> Extract only what is needed from the {@link PostCommitContext}; do
  *       not assume anything about other operations or ordering.
+ *   <li><b>Handles drops.</b> A table drop is dispatched as {@link CommitType#DROP} with {@code
+ *       null} committed metadata; branch on {@link PostCommitContext#getCommitType()} before
+ *       reading metadata, and ignore drops if the operation has nothing to clean up.
  * </ul>
  */
 public interface PostCommitOperation {

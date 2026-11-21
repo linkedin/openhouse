@@ -20,10 +20,19 @@ public class AbstractCommitStatsPublishOperationTest {
     private CommitStats published;
     private int publishCount;
 
+    private String droppedUuid;
+    private int dropCount;
+
     @Override
     protected void publish(CommitStats stats) {
       this.published = stats;
       this.publishCount++;
+    }
+
+    @Override
+    protected void publishDrop(String tableUuid, TableIdentifier tableIdentifier) {
+      this.droppedUuid = tableUuid;
+      this.dropCount++;
     }
   }
 
@@ -42,13 +51,15 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(
+        new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE, "uuid-123"));
 
     Assertions.assertEquals(1, op.publishCount);
     Assertions.assertNotNull(op.published);
     Assertions.assertEquals("uuid-123", op.published.getTableUuid());
     Assertions.assertEquals("db", op.published.getDatabaseName());
     Assertions.assertEquals("tbl", op.published.getTableName());
+    Assertions.assertEquals(CommitType.DATA_UPDATE, op.published.getCommitType());
   }
 
   @Test
@@ -58,7 +69,8 @@ public class AbstractCommitStatsPublishOperationTest {
     // no opt-in property
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(
+        new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE, "uuid-123"));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -70,7 +82,8 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "false");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(
+        new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE, "uuid-123"));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -82,8 +95,30 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(
+        new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE, "uuid-123"));
 
+    Assertions.assertEquals(0, op.publishCount);
+  }
+
+  @Test
+  void testDropRoutesToPublishDropWithoutStatsOrPropertyGate() throws Exception {
+    // A drop has no metadata (so no stats and no per-table property to read); it must purge by
+    // UUID regardless of the opt-in property.
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, null, CommitType.DROP, "uuid-123"));
+
+    Assertions.assertEquals(1, op.dropCount);
+    Assertions.assertEquals("uuid-123", op.droppedUuid);
+    Assertions.assertEquals(0, op.publishCount);
+  }
+
+  @Test
+  void testDropWithoutTableUuidIsIgnored() throws Exception {
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, null, CommitType.DROP, null));
+
+    Assertions.assertEquals(0, op.dropCount);
     Assertions.assertEquals(0, op.publishCount);
   }
 

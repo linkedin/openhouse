@@ -33,9 +33,16 @@ public final class CommitStatsFactory {
    * CommitStats.Delta} are populated from the current snapshot summary when present; for a commit
    * with no new snapshot (metadata-only) they are left null, so the publish is properties-only and
    * reports the same current state as the prior commit.
+   *
+   * <p>The database/table name is read from the committed {@code openhouse.databaseId} / {@code
+   * openhouse.tableId} properties rather than {@code tableIdentifier}, which on a rename still
+   * holds the <i>old</i> name — the committed properties always carry the new one. The identifier
+   * is only a fallback for the rare commit that omits those properties.
+   *
+   * @param commitType the kind of commit; stamped onto the returned stats
    */
   public static Optional<CommitStats> extract(
-      TableIdentifier tableIdentifier, TableMetadata committedMetadata) {
+      TableIdentifier tableIdentifier, TableMetadata committedMetadata, CommitType commitType) {
     if (committedMetadata == null) {
       return Optional.empty();
     }
@@ -52,8 +59,14 @@ public final class CommitStatsFactory {
     CommitStats.CommitStatsBuilder builder =
         CommitStats.builder()
             .tableUuid(tableUuid)
-            .databaseName(tableIdentifier.namespace().toString())
-            .tableName(tableIdentifier.name())
+            .commitType(commitType)
+            .databaseName(
+                firstNonBlank(
+                    properties.get(getCanonicalFieldName("databaseId")),
+                    tableIdentifier.namespace().toString()))
+            .tableName(
+                firstNonBlank(
+                    properties.get(getCanonicalFieldName("tableId")), tableIdentifier.name()))
             .tableLocation(committedMetadata.location())
             .tableVersion(properties.get(getCanonicalFieldName("tableVersion")))
             .tableProperties(Collections.unmodifiableMap(properties));
@@ -86,5 +99,10 @@ public final class CommitStatsFactory {
     } catch (NumberFormatException e) {
       return null;
     }
+  }
+
+  /** Return {@code value} if it is non-null and non-blank, otherwise {@code fallback}. */
+  private static String firstNonBlank(String value, String fallback) {
+    return (value == null || value.trim().isEmpty()) ? fallback : value;
   }
 }
