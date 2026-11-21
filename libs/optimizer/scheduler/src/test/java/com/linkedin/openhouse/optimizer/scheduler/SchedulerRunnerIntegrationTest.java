@@ -121,7 +121,7 @@ class SchedulerRunnerIntegrationTest {
 
   @ParameterizedTest
   @EnumSource(OperationTypeDto.class)
-  void schedule_failedLaunch_releasesClaimForRetry(OperationTypeDto type) {
+  void schedule_failedLaunch_keepsClaimAndDoesNotRelaunch(OperationTypeDto type) {
     TableOperationsRow row = seed(type, "db1", "a", "alice", 10L);
     doAnswer(
             invocation -> {
@@ -133,10 +133,6 @@ class SchedulerRunnerIntegrationTest {
 
     runner.schedule(type);
 
-    TableOperationsRow stored = operationsRepo.findById(row.getId()).orElseThrow();
-    assertThat(stored.getStatus()).isEqualTo(OperationStatus.PENDING);
-    assertThat(stored.getScheduledAt()).isNotNull();
-    assertThat(stored.getJobId()).isNull();
     verify(jobsClient)
         .launch(
             anyString(),
@@ -145,13 +141,12 @@ class SchedulerRunnerIntegrationTest {
             eq(List.of("db1.a")),
             eq(List.of(row.getId())),
             eq(RESULTS_ENDPOINT));
+    assertClaimed(List.of(row.getId()));
     clearInvocations(jobsClient);
-    stubSuccessfulLaunch();
 
     runner.schedule(type);
 
-    assertSubmitted(type, "alice", row);
-    verifyNoMoreInteractions(jobsClient);
+    verifyNoInteractions(jobsClient);
   }
 
   private void stubSuccessfulLaunch() {

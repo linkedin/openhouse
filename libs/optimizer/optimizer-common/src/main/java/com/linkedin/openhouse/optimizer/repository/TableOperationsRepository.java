@@ -83,8 +83,6 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
    *   <li>PENDING → SCHEDULED: pass {@code scheduledAt = Optional.of(claimedAt)}; the watermark
    *       lets {@link #find} resolve the precise set of rows this caller claimed.
    *   <li>SCHEDULED → SCHEDULED: pass {@code jobId = Optional.of(...)} after a successful launch.
-   *   <li>SCHEDULED → PENDING: pass both empty; {@code scheduledAt} stays at the prior claim's
-   *       watermark (overwritten on the next claim) and {@code jobId} stays null.
    * </ul>
    */
   default int updateBatch(

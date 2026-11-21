@@ -201,7 +201,9 @@ public class SchedulerRunner {
 
   /**
    * Claim the bin's operations, narrow to the rows actually owned, launch one batched Spark job for
-   * the claimed subset, and record its job id — or revert to PENDING if launch failed.
+   * the claimed subset, and record its job id. If the job request fails, the operations stay
+   * SCHEDULED with no job id, and the analyzer treats them as a failed attempt after its launch
+   * deadline.
    */
   @Transactional
   void scheduleBin(Bin bin, SchedulingGroup group) {
@@ -258,19 +260,12 @@ public class SchedulerRunner {
                   claimedItems.size(),
                   updated);
             },
-            () -> {
-              int reverted =
-                  operationsRepo.updateBatch(
-                      claimedIds,
-                      OperationStatus.SCHEDULED,
-                      OperationStatus.PENDING,
-                      Optional.empty(),
-                      Optional.empty());
-              log.warn(
-                  "Job submission failed; reverted {} claimed rows back to PENDING for retry on the"
-                      + " next pass",
-                  reverted);
-            });
+            () ->
+                log.warn(
+                    "Job request failed; {} claimed operations stay SCHEDULED with no job id until"
+                        + " the analyzer's launch deadline: operationIds={}",
+                    claimedIds.size(),
+                    claimedIds));
   }
 
   /**
