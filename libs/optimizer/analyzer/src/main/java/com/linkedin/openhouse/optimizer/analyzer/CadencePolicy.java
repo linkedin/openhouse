@@ -16,13 +16,12 @@ import java.util.Optional;
  * <ol>
  *   <li><b>Active-op guard.</b> The analyzer stays out of any table that already has a <i>live</i>
  *       operation — those belong to the scheduler. A {@code CANCELED} row never blocks. A {@code
- *       PENDING} row (not yet claimed) always blocks. A {@code SCHEDULING}/{@code SCHEDULED} row
- *       blocks only until its <b>deadline</b>: once a submitted job fails to reach a terminal
- *       SUCCESS/FAILED within {@code activeOpStaleTimeout} — it died, hung, or its completion
- *       callback was missed — the row is treated as dead and no longer blocks, so the table is
- *       rescheduled rather than wedged forever. The timeout length encodes the bias: short for
- *       cheap/idempotent work (prefer an extra job), long for expensive/mutating work (prefer a
- *       missed job over a duplicate).
+ *       PENDING} row (not yet claimed) always blocks. A {@code SCHEDULED} row blocks only until its
+ *       <b>deadline</b>: once a submitted job fails to reach a terminal SUCCESS/FAILED within
+ *       {@code activeOpStaleTimeout} — it died, hung, or its completion callback was missed — the
+ *       row is treated as dead and no longer blocks, so the table is rescheduled rather than wedged
+ *       forever. The timeout length encodes the bias: short for cheap/idempotent work (prefer an
+ *       extra job), long for expensive/mutating work (prefer a missed job over a duplicate).
  *   <li><b>Cadence guard.</b> With no live op, the decision is based on the most recent completed
  *       history entry: re-evaluate after {@code successRetryInterval} on success, or after {@code
  *       failureRetryInterval} on failure (shorter, for quick recovery).
@@ -71,9 +70,9 @@ public class CadencePolicy {
   private final Duration failureRetryInterval;
 
   /**
-   * How long a {@code SCHEDULING}/{@code SCHEDULED} operation may sit without reaching a terminal
-   * history entry before it is considered dead (missed/hung job) and stops blocking reschedule.
-   * Measured from the op's {@code scheduledAt}; an op without one cannot be proven stale.
+   * How long a {@code SCHEDULED} operation may sit without reaching a terminal history entry before
+   * it is considered dead (missed/hung job) and stops blocking reschedule. Measured from the op's
+   * {@code scheduledAt}; an op without one cannot be proven stale.
    */
   private final Duration activeOpStaleTimeout;
 
@@ -167,11 +166,11 @@ public class CadencePolicy {
   /**
    * Whether an existing operation row should keep the analyzer from issuing a new recommendation,
    * or {@link Optional#empty()} when the row's status is not one this policy classifies. CANCELED
-   * never blocks; PENDING always blocks (waiting for the scheduler to claim it); a
-   * SCHEDULING/SCHEDULED row blocks only until it passes {@link #activeOpStaleTimeout}, after which
-   * it is treated as a dead job eligible for rescheduling. The caller decides how to treat an
-   * unclassified status; {@link #shouldSchedule} conservatively treats it as blocking so we never
-   * schedule over an op we cannot reason about.
+   * never blocks; PENDING always blocks (waiting for the scheduler to claim it); a SCHEDULED row
+   * blocks only until it passes {@link #activeOpStaleTimeout}, after which it is treated as a dead
+   * job eligible for rescheduling. The caller decides how to treat an unclassified status; {@link
+   * #shouldSchedule} conservatively treats it as blocking so we never schedule over an op we cannot
+   * reason about.
    */
   private Optional<Boolean> isBlockingActiveOp(TableOperationDto op) {
     switch (op.getStatus()) {
@@ -179,7 +178,6 @@ public class CadencePolicy {
         return Optional.of(false);
       case PENDING:
         return Optional.of(true);
-      case SCHEDULING:
       case SCHEDULED:
         return Optional.of(!isSubmissionTimedOut(op));
       default:

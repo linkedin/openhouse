@@ -27,12 +27,12 @@ import org.springframework.stereotype.Component;
  *   <li><b>Opt-in.</b> The table sets {@code maintenance.optimizer.stats.enabled=true} in its table
  *       properties. Without this flag, the analyzer ignores the table entirely.
  *   <li><b>No <i>live</i> operation already in flight.</b> If the table has a non-CANCELED
- *       operation row — PENDING or in-progress (SCHEDULING/SCHEDULED) — the scheduler owns it and
- *       the analyzer stays out. A CANCELED row does not block. <b>Exception (deadline):</b> a
- *       SCHEDULING/SCHEDULED row whose job has not reached a terminal state within {@code
- *       stats.stale-timeout-hours} (default 3h) is treated as dead (hung/missed callback) and no
- *       longer blocks, so the table is rescheduled instead of wedged. Stats biases toward an extra
- *       job (short deadline) since collection is idempotent.
+ *       operation row — PENDING or in-progress (SCHEDULED) — the scheduler owns it and the analyzer
+ *       stays out. A CANCELED row does not block. <b>Exception (deadline):</b> a SCHEDULED row
+ *       whose job has not reached a terminal state within {@code stats.stale-timeout-hours}
+ *       (default 3h) is treated as dead (hung/missed callback) and no longer blocks, so the table
+ *       is rescheduled instead of wedged. Stats biases toward an extra job (short deadline) since
+ *       collection is idempotent.
  *   <li><b>Cadence elapsed since the last completed run.</b>
  *       <ul>
  *         <li>If the table has <i>no</i> prior history, schedule immediately.

@@ -89,7 +89,7 @@ class SchedulerRunnerTest {
   private void stubFindClaimed(List<TableOperationsRow> rows) {
     when(operationsRepo.find(
             eq(Optional.empty()),
-            eq(Optional.of(OperationStatus.SCHEDULING)),
+            eq(Optional.of(OperationStatus.SCHEDULED)),
             eq(Optional.empty()),
             eq(Optional.empty()),
             eq(Optional.empty()),
@@ -111,8 +111,8 @@ class SchedulerRunnerTest {
         .build();
   }
 
-  private TableOperationsRow schedulingRow(TableOperationsRow source) {
-    return source.toBuilder().status(OperationStatus.SCHEDULING).build();
+  private TableOperationsRow claimedRow(TableOperationsRow source) {
+    return source.toBuilder().status(OperationStatus.SCHEDULED).build();
   }
 
   private TableStatsRow statsRow(String uuid, long numCurrentFiles) {
@@ -178,11 +178,11 @@ class SchedulerRunnerTest {
     stubFindPending(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100_000L)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
-    stubFindClaimed(List.of(schedulingRow(row)));
+    stubFindClaimed(List.of(claimedRow(row)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
     when(jobsClient.launch(
             anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
@@ -193,13 +193,13 @@ class SchedulerRunnerTest {
     verify(operationsRepo)
         .updateBatch(
             eq(List.of(row.getId())),
-            eq(OperationStatus.SCHEDULING),
+            eq(OperationStatus.SCHEDULED),
             eq(OperationStatus.SCHEDULED),
             eq(Optional.empty()),
             eq(Optional.of("job-123")));
     verify(operationsRepo, never())
         .updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any());
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.PENDING), any(), any());
 
     ArgumentCaptor<String> jobName = ArgumentCaptor.forClass(String.class);
     ArgumentCaptor<List<String>> tableNames = ArgumentCaptor.forClass(List.class);
@@ -223,14 +223,14 @@ class SchedulerRunnerTest {
     stubFindPending(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
-    stubFindClaimed(List.of(schedulingRow(row)));
+    stubFindClaimed(List.of(claimedRow(row)));
     when(jobsClient.launch(
             anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.empty());
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any()))
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.PENDING), any(), any()))
         .thenReturn(1);
 
     runner.schedule(ORPHAN_FILES_DELETION);
@@ -238,13 +238,13 @@ class SchedulerRunnerTest {
     verify(operationsRepo)
         .updateBatch(
             eq(List.of(row.getId())),
-            eq(OperationStatus.SCHEDULING),
+            eq(OperationStatus.SCHEDULED),
             eq(OperationStatus.PENDING),
             eq(Optional.empty()),
             eq(Optional.empty()));
     verify(operationsRepo, never())
         .updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any());
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any());
   }
 
   @Test
@@ -255,7 +255,7 @@ class SchedulerRunnerTest {
     stubFindPending(List.of(row));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(0);
     stubFindClaimed(List.of());
 
@@ -265,10 +265,10 @@ class SchedulerRunnerTest {
         .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
     verify(operationsRepo, never())
         .updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any());
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any());
     verify(operationsRepo, never())
         .updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any());
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.PENDING), any(), any());
   }
 
   @Test
@@ -281,15 +281,15 @@ class SchedulerRunnerTest {
     when(operationsRepo.cancel(anyList())).thenReturn(1);
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(uuid, 100L)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
     TableOperationsRow survivor = row1.getCreatedAt().isBefore(row2.getCreatedAt()) ? row1 : row2;
     if (row1.getCreatedAt().equals(row2.getCreatedAt())) {
       survivor = row1.getId().compareTo(row2.getId()) <= 0 ? row1 : row2;
     }
-    stubFindClaimed(List.of(schedulingRow(survivor)));
+    stubFindClaimed(List.of(claimedRow(survivor)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
     when(jobsClient.launch(
             anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
@@ -313,12 +313,12 @@ class SchedulerRunnerTest {
     when(statsRepo.findAllById(any()))
         .thenReturn(List.of(statsRow(uuidA, 100L), statsRow(uuidB, 100L)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
     // Only A actually claimed.
-    stubFindClaimed(List.of(schedulingRow(rowA)));
+    stubFindClaimed(List.of(claimedRow(rowA)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
     when(jobsClient.launch(
             anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
@@ -342,7 +342,7 @@ class SchedulerRunnerTest {
     verify(operationsRepo)
         .updateBatch(
             eq(List.of(rowA.getId())),
-            eq(OperationStatus.SCHEDULING),
+            eq(OperationStatus.SCHEDULED),
             eq(OperationStatus.SCHEDULED),
             eq(Optional.empty()),
             eq(Optional.of("job-partial")));
@@ -358,11 +358,11 @@ class SchedulerRunnerTest {
     stubFindPending(List.of(withStatsRow, missingRow));
     when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow(withStats, 50L)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
+            anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
-    stubFindClaimed(List.of(schedulingRow(withStatsRow)));
+    stubFindClaimed(List.of(claimedRow(withStatsRow)));
     when(operationsRepo.updateBatch(
-            anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
+            anyList(), eq(OperationStatus.SCHEDULED), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
     when(jobsClient.launch(
             anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
@@ -375,7 +375,7 @@ class SchedulerRunnerTest {
         .updateBatch(
             ids.capture(),
             eq(OperationStatus.PENDING),
-            eq(OperationStatus.SCHEDULING),
+            eq(OperationStatus.SCHEDULED),
             any(),
             any());
     assertThat(ids.getValue()).containsExactly(withStatsRow.getId());
@@ -400,7 +400,7 @@ class SchedulerRunnerTest {
                 statsRow("c", 400_000L, "creator-b"),
                 statsRow("d", 10L, "headless"),
                 statsRow("e", 10L, "creator-a")));
-    stubFindClaimed(rows.stream().map(this::schedulingRow).collect(Collectors.toList()));
+    stubFindClaimed(rows.stream().map(this::claimedRow).collect(Collectors.toList()));
     when(jobsClient.launch(
             anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job"));

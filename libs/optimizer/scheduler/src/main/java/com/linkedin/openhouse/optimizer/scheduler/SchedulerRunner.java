@@ -201,7 +201,7 @@ public class SchedulerRunner {
 
   /**
    * Claim the bin's operations, narrow to the rows actually owned, launch one batched Spark job for
-   * the claimed subset, and mark SCHEDULED — or revert to PENDING if launch failed.
+   * the claimed subset, and record its job id — or revert to PENDING if launch failed.
    */
   @Transactional
   void scheduleBin(Bin bin, SchedulingGroup group) {
@@ -248,12 +248,12 @@ public class SchedulerRunner {
               int updated =
                   operationsRepo.updateBatch(
                       claimedIds,
-                      OperationStatus.SCHEDULING,
+                      OperationStatus.SCHEDULED,
                       OperationStatus.SCHEDULED,
                       Optional.empty(),
-                      Optional.of(jobId));
+                      Optional.of(jobId)); // jobId is the only field that changes
               log.info(
-                  "Submitted job {} for {} tables ({} rows marked SCHEDULED)",
+                  "Submitted job {} for {} tables ({} rows updated with the job id)",
                   jobId,
                   claimedItems.size(),
                   updated);
@@ -262,7 +262,7 @@ public class SchedulerRunner {
               int reverted =
                   operationsRepo.updateBatch(
                       claimedIds,
-                      OperationStatus.SCHEDULING,
+                      OperationStatus.SCHEDULED,
                       OperationStatus.PENDING,
                       Optional.empty(),
                       Optional.empty());
@@ -284,7 +284,7 @@ public class SchedulerRunner {
   }
 
   /**
-   * CAS-claim every item in the bin from PENDING to SCHEDULING with {@code claimedAt} as the
+   * CAS-claim every item in the bin from PENDING to SCHEDULED with {@code claimedAt} as the
    * watermark, then narrow {@link Bin#getItems()} to those rows this caller actually owns. Items
    * lost to a racing scheduler are dropped. Returns the {@link BinItem}s ready for launch.
    */
@@ -294,14 +294,14 @@ public class SchedulerRunner {
     operationsRepo.updateBatch(
         ids,
         OperationStatus.PENDING,
-        OperationStatus.SCHEDULING,
+        OperationStatus.SCHEDULED,
         Optional.of(claimedAt),
         Optional.empty());
     Set<String> claimedIds =
         operationsRepo
             .find(
                 Optional.empty(),
-                Optional.of(OperationStatus.SCHEDULING),
+                Optional.of(OperationStatus.SCHEDULED),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
