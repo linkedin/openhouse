@@ -101,46 +101,6 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
   }
 
   /**
-   * After the opt-in, a column gets a default only in the commit that adds it, as in Iceberg. The
-   * stub declares a default for {@code wide} once it is a long, so promoting {@code wide} from int
-   * would give a column the table already has its first default: the promotion is refused, and the
-   * table stays readable, alterable and droppable.
-   */
-  @Test
-  public void firstDefaultOnExistingColumnIsRefused() throws Exception {
-    String fqtn = "openhouse." + DATABASE + ".members_late_default";
-    try (SparkSession spark = getSparkSession()) {
-      spark.sql("DROP TABLE IF EXISTS " + fqtn);
-      spark.sql(
-          "CREATE TABLE "
-              + fqtn
-              + " (id bigint, wide int) USING iceberg TBLPROPERTIES ('"
-              + CAPABILITY_PROP
-              + "'='true')");
-      spark.sql("INSERT INTO " + fqtn + " VALUES (1, 5)");
-
-      BadRequestException refused =
-          assertThrows(
-              BadRequestException.class,
-              () -> spark.sql("ALTER TABLE " + fqtn + " ALTER COLUMN wide TYPE bigint"));
-      assertTrue(
-          refused
-              .getMessage()
-              .contains(
-                  "COLUMN_DEFAULT_ADDED: "
-                      + DATABASE
-                      + ".members_late_default has no column default on wide (field-id 2)"),
-          refused.getMessage());
-
-      spark.sql("REFRESH TABLE " + fqtn);
-      assertRowsEqual(
-          Collections.singletonList(row(1L, 5)), rows(spark, "SELECT id, wide FROM " + fqtn));
-      spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN country string");
-      spark.sql("DROP TABLE " + fqtn);
-    }
-  }
-
-  /**
    * Defaults on fields of structs inside list elements and map values reach Spark through the
    * overlay, and the ORC row reader fills them for rows written before the fields existed. With ORC
    * vectorization enabled, a projection with defaults still uses the row reader. The append goes

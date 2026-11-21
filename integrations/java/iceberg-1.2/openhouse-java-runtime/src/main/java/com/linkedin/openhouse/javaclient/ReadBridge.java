@@ -10,11 +10,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
-import org.apache.iceberg.types.Types;
 
 /**
  * Overlays server-stamped read-time behavior from table {@code config} onto loaded Iceberg
@@ -65,11 +62,7 @@ final class ReadBridge {
     return columnDefaults.isEmpty() ? INERT : new ReadBridge(columnDefaults);
   }
 
-  /**
-   * Overlay onto every schema version of {@code raw}, or return it unchanged.
-   *
-   * @throws ReadBridgeException if a default does not fit its column's type in a schema version
-   */
+  /** Overlay onto {@code raw}, or return it unchanged. */
   TableMetadata apply(TableMetadata raw) throws ReadBridgeException {
     if (columnDefaults.isEmpty()) {
       return raw;
@@ -96,35 +89,8 @@ final class ReadBridge {
     try {
       return TableMetadataParser.fromJson(raw.metadataFileLocation(), json);
     } catch (RuntimeException e) {
-      throw ReadBridgeException.cannotBind(misfit(raw), e);
+      throw ReadBridgeException.cannotBind(e);
     }
-  }
-
-  /**
-   * Why the bind failed, in the documented {@code COLUMN_DEFAULT_UNUSABLE} form: the first default
-   * that does not fit its column's type in a schema version of {@code raw}.
-   */
-  private String misfit(TableMetadata raw) {
-    for (Schema version : raw.schemas()) {
-      for (Map.Entry<Integer, JsonNode> entry : columnDefaults.entrySet()) {
-        Types.NestedField field = version.findField(entry.getKey());
-        if (field == null) {
-          continue;
-        }
-        try {
-          SingleValueParser.fromJson(field.type(), entry.getValue().toString());
-        } catch (RuntimeException e) {
-          return String.format(
-              "(TYPE_MISMATCH, column %s, field ID %d). The default does not fit %s, the column's"
-                  + " type in schema version %d.",
-              version.findColumnName(field.fieldId()),
-              field.fieldId(),
-              field.type(),
-              version.schemaId());
-        }
-      }
-    }
-    return "(TYPE_MISMATCH). A default does not bind to its column's type.";
   }
 
   Map<Integer, JsonNode> columnDefaults() {

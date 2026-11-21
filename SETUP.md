@@ -511,11 +511,10 @@ On an opted-in table, a column gets a default only in the commit that adds it, a
 default, unchanged, while it exists, as Iceberg treats `initial-default`. Rewrites store the
 default as a value in the files they write, so a default that came later, changed or went away
 would read differently in rewritten and untouched files. A commit fails with HTTP **400** if it
-gives a column the table already has its first default, with `COLUMN_DEFAULT_ADDED: db.tbl has no
-column default on country (field-id 2), and this commit adds one. ...`; if it changes a default,
-with `COLUMN_DEFAULT_CHANGED: db.tbl has a column default on country (field-id 2), and this commit
-changes it. ...`; and if it removes one, with `COLUMN_DEFAULT_REMOVED`. The commit that opts a
-table in, or creates it opted in, may declare a default on any column the table has.
+changes the default of a column the table already has, including a first default on a column
+without one, with `COLUMN_DEFAULT_CHANGED: this commit to db.tbl changes the column default on
+country (field-id 2). ...`, and if it removes one, with `COLUMN_DEFAULT_REMOVED`. The commit that
+opts a table in, or creates it opted in, may declare a default on any column the table has.
 
 A commit fails with HTTP **400** if a column default it declares does not fit the column's type in
 every schema version of the table: clients apply a default to every schema version, including the
@@ -532,9 +531,9 @@ The default-off escape hatch is the request header
 the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
 request header. It bypasses only column-default policy checks: the `column-defaults` capability (no
 other capability), the rule that a committed `required-capability.column-defaults=true` cannot be
-changed or removed, and the checks that a commit gives no existing column a first default and keeps
-a column's default unchanged, that its defaults fit every schema version, and that a snapshot commit
-comes from a client that declares `column-defaults`. Incorrect reads or writes may result.
+changed or removed, and the checks that a commit keeps existing columns' defaults as they are, that
+its defaults fit every schema version, and that a snapshot commit comes from a client that declares
+`column-defaults`. Incorrect reads or writes may result.
 Authentication, authorization and default resolution still apply, and `initial-default` is still
 stripped from writes. JARs without `header.` catalog properties need an upgrade/backport to send it.
 Removing table opt-in in a write is not a bypass.

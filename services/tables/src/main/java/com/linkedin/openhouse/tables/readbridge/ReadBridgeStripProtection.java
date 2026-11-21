@@ -14,6 +14,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SingleValueParser;
@@ -95,9 +97,9 @@ public class ReadBridgeStripProtection {
   /**
    * Checks {@code commit} against the table's current version: the defaults the base declares, then
    * the ones the commit declares, must be usable, the commit must pass Type 1, its defaults must
-   * fit every schema version, and it must pass Type 2. Type 1 comes first, so a default that is
-   * late or changed is refused as such even when it also does not fit. A commit that creates the
-   * table or opts it in only has its declared defaults checked.
+   * fit every schema version, and it must pass Type 2. Type 1 comes first, so a changed default is
+   * refused as such even when it also does not fit. A commit that creates the table or opts it in
+   * only has its declared defaults checked.
    *
    * @param clients the gate that says whether the commit's client declares the {@code
    *     column-defaults} capability and words the rejection
@@ -122,8 +124,7 @@ public class ReadBridgeStripProtection {
             ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
     if (optedIn && bridged) {
-      rejectRemovedOrChangedDefaults(table, previousStamped, base.schema(), declared, schema);
-      rejectLateDefaults(table, previousStamped, base.lastColumnId(), declared, schema);
+      rejectChangedDefaults(table, previousStamped, base.schema(), declared, schema);
     }
     rejectDefaultsThatDoNotFit(table, declared, commit.getMetadata().schemas());
     rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
@@ -171,22 +172,27 @@ public class ReadBridgeStripProtection {
   }
 
   /**
-   * Type 1: a still-present stamped column must keep its default, unchanged. Rewrites store the
-   * default as a value in the files they write, so a new one would read differently in rewritten
-   * and untouched files.
+   * Type 1: a column the table already has keeps its default as it is, as Iceberg sets {@code
+   * initial-default} only when it adds a field and never changes it. Rewrites store the default as
+   * a value in the files they write, so a default that came later, changed or went away would read
+   * differently in rewritten and untouched files.
    */
-  private static void rejectRemovedOrChangedDefaults(
+  private static void rejectChangedDefaults(
       TableIdentifier table,
       Map<Integer, String> previousStamped,
       Schema previousSchema,
       Map<Integer, String> declared,
       Schema schema) {
-    for (Map.Entry<Integer, String> stamped : previousStamped.entrySet()) {
-      Types.NestedField field = schema.findField(stamped.getKey());
-      if (field == null) {
+    Set<Integer> fieldIds = new TreeSet<>(previousStamped.keySet());
+    fieldIds.addAll(declared.keySet());
+    for (Integer fieldId : fieldIds) {
+      Types.NestedField previous = previousSchema.findField(fieldId);
+      Types.NestedField field = schema.findField(fieldId);
+      if (previous == null || field == null) {
         continue;
       }
-      String value = declared.get(stamped.getKey());
+      String stamped = previousStamped.get(fieldId);
+      String value = declared.get(fieldId);
       if (value == null) {
         throw new CommitRejectedException(
             String.format(
@@ -194,38 +200,12 @@ public class ReadBridgeStripProtection {
                     + " omitted it. %s",
                 table, fieldLabel(field), ClientCapabilityGate.remedy(COLUMN_DEFAULTS)));
       }
-      Types.NestedField previous = previousSchema.findField(stamped.getKey());
-      if (previous != null && !sameDefault(previous.type(), stamped.getValue(), value)) {
+      if (stamped == null || !sameDefault(previous.type(), stamped, value)) {
         throw new CommitRejectedException(
             String.format(
-                "COLUMN_DEFAULT_CHANGED: %s has a column default on %s, and this commit changes"
-                    + " it. A column default cannot change once set, so keep its current value.",
-                table, fieldLabel(field)));
-      }
-    }
-  }
-
-  /**
-   * Type 1: a commit declares a default only on a column it adds, as Iceberg sets {@code
-   * initial-default} only when it adds a field. A first default on a column the table already has
-   * would reach rows in files written before the column, but not the same rows once a rewrite has
-   * stored them as NULL, like a changed default. Iceberg gives every field it adds, at any depth,
-   * an ID above the table's last column ID.
-   */
-  private static void rejectLateDefaults(
-      TableIdentifier table,
-      Map<Integer, String> previousStamped,
-      int lastColumnId,
-      Map<Integer, String> declared,
-      Schema schema) {
-    for (Integer fieldId : declared.keySet()) {
-      Types.NestedField field = schema.findField(fieldId);
-      if (field != null && fieldId <= lastColumnId && !previousStamped.containsKey(fieldId)) {
-        throw new CommitRejectedException(
-            String.format(
-                "COLUMN_DEFAULT_ADDED: %s has no column default on %s, and this commit adds one."
-                    + " A column gets a default only in the commit that adds the column, so keep"
-                    + " this one without a default.",
+                "COLUMN_DEFAULT_CHANGED: this commit to %s changes the column default on %s. A"
+                    + " column gets a default only in the commit that adds the column, and keeps"
+                    + " it unchanged.",
                 table, fieldLabel(field)));
       }
     }
