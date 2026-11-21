@@ -643,6 +643,24 @@ public class TablesClientTest {
   }
 
   @Test
+  void testGetOrphanTableDirectoriesDoesNotReturnDirectoriesOnHold() {
+    Mockito.when(storageClient.isDirectory(new Path(testRootPath))).thenReturn(true);
+    Mockito.doReturn(Collections.singletonList(testDbName)).when(client).getDatabases();
+    DirectoryMetadata orphan = directoryMetadata(tableDirectoryName(testOrphanDirectoryName));
+    DirectoryMetadata orphanOnHold =
+        DirectoryMetadata.builder()
+            .path(new Path(testDbName, tableDirectoryName(testOrphanDirectoryName + "_held")))
+            .creator(testTableCreator)
+            .onHold(true)
+            .build();
+    Mockito.doReturn(Arrays.asList(orphanOnHold, orphan))
+        .when(client)
+        .getOrphanTableDirectories(testDbName);
+
+    Assertions.assertEquals(Collections.singletonList(orphan), client.getOrphanTableDirectories());
+  }
+
+  @Test
   void testGetOrphanTableDirectoriesFailsWhenEveryDatabaseIsSkipped() {
     Mockito.when(storageClient.isDirectory(new Path(testRootPath))).thenReturn(true);
     Mockito.doReturn(Arrays.asList("db1", "db2")).when(client).getDatabases();

@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.permission.FsAction;
+import org.apache.hadoop.fs.permission.FsPermission;
 
 /** A read-only client for interacting with file system. */
 @Slf4j
@@ -43,6 +45,7 @@ public class StorageClient {
             DirectoryMetadata.builder()
                 .path(fileStatus.getPath())
                 .creator(getOwner(fileStatus))
+                .onHold(isOnHold(fileStatus))
                 .build());
       }
     }
@@ -62,6 +65,14 @@ public class StorageClient {
 
   protected String getOwner(FileStatus fileStatus) {
     return fileStatus.getOwner();
+  }
+
+  /** Returns whether the permission grants no access to anyone, see {@link DirectoryMetadata}. */
+  private static boolean isOnHold(FileStatus fileStatus) {
+    FsPermission permission = fileStatus.getPermission();
+    return permission.getUserAction() == FsAction.NONE
+        && permission.getGroupAction() == FsAction.NONE
+        && permission.getOtherAction() == FsAction.NONE;
   }
 
   protected FileSystem fs() {

@@ -370,22 +370,28 @@ public class TablesClient {
             .filter(directory -> !directoriesInUse.contains(directory.getBaseName()))
             .collect(Collectors.toList());
     log.info(
-        "Database {}: {} directories, {} table directories in use, {} orphan table directories",
+        "Database {}: {} directories, {} table directories in use, {} orphan table directories, {}"
+            + " of them on hold",
         dbName,
         allTableDirectories.size(),
         directoriesInUse.size(),
-        orphanTableDirectories.size());
+        orphanTableDirectories.size(),
+        orphanTableDirectories.stream().filter(DirectoryMetadata::isOnHold).count());
     return orphanTableDirectories;
   }
 
   /**
-   * Get all orphan table directories in the corresponding file system.
+   * Get all orphan table directories in the corresponding file system, except those on hold.
    *
    * <p>A database whose orphan directories cannot be found safely is skipped, and the reason is
    * logged. Throws if the storage root is not a directory, if no databases are listed, or if every
    * database checked is skipped, since then the run cannot be trusted at all.
    *
-   * @return a list of DirectoryMetadata that are not registered
+   * <p>Orphan directories on hold, see {@link DirectoryMetadata#isOnHold()}, are not returned, as
+   * no job can read them. Each is logged instead, so that the list can be handed to a superuser to
+   * delete them.
+   *
+   * @return a list of DirectoryMetadata that are not registered and not on hold
    * @throws IllegalStateException if the run cannot find orphan directories in any database
    */
   public List<DirectoryMetadata> getOrphanTableDirectories() {
@@ -416,16 +422,26 @@ public class TablesClient {
         skippedDatabases.put(dbName, e.getMessage());
       }
     }
+    Map<Boolean, List<DirectoryMetadata>> byOnHold =
+        orphanTableDirectories.stream()
+            .collect(Collectors.partitioningBy(DirectoryMetadata::isOnHold));
+    List<DirectoryMetadata> onHold = byOnHold.get(true);
+    for (DirectoryMetadata directory : onHold) {
+      log.info(
+          "Orphan table directory on hold, to be deleted by a superuser: {}", directory.getPath());
+    }
     log.info(
-        "Orphan directory detection: checked {} databases, skipped {} {}, found {} orphan table directories",
+        "Orphan directory detection: checked {} databases, skipped {} {}, found {} orphan table directories,"
+            + " {} of them on hold and not processed",
         checkedDatabases,
         skippedDatabases.size(),
         skippedDatabases.keySet(),
-        orphanTableDirectories.size());
+        orphanTableDirectories.size(),
+        onHold.size());
     if (checkedDatabases > 0 && skippedDatabases.size() == checkedDatabases) {
       throw new IllegalStateException("Every database checked was skipped: " + skippedDatabases);
     }
-    return orphanTableDirectories;
+    return byOnHold.get(false);
   }
 
   /**
