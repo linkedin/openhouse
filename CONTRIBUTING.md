@@ -32,6 +32,9 @@ To prepare yourself for a contribution, you would need to install and get famili
 described in [Setup](SETUP.md). To deploy the services to your Kubernetes cluster, you can follow the instructions in
 [Deploy](DEPLOY.md).
 
+The [views HTTP integration tests](docs/development/views-http-integration.md)
+run with the normal Tables test task and require Docker for their shared MySQL fixture.
+
 You will not be able to push directly to the `main` branch. You will need to create a new branch and push to your fork.
 You can then create a pull request from your branch in your fork in the [openhouse](https://github.com/linkedin/openhouse)
 repository.

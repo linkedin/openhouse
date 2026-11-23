@@ -72,7 +72,7 @@ jobs:
       - name: Build and push Docker image for House Tables Service
         if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          docker build -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }} -f housetables-service.Dockerfile .
+          docker build --build-arg JAR_FILES=build/housetables/libs/housetables-${{ steps.get_tag.outputs.semVer }}.jar -t linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }} -f housetables-service.Dockerfile .
           docker push linkedin-openhouse-docker.jfrog.io/linkedin/openhouse/housetables-service:${{ steps.get_tag.outputs.semVer }}
 
       - name: Build and push Docker image for Jobs Service

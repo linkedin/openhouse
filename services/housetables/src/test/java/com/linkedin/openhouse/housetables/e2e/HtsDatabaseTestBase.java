@@ -2,28 +2,19 @@ package com.linkedin.openhouse.housetables.e2e;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.IOException;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
 
 /**
  * Points every HTS Spring test context at one disposable MySQL container per test JVM, built from
@@ -39,51 +30,14 @@ public abstract class HtsDatabaseTestBase {
 
   private static final String DATABASE = "hts_test";
 
-  private static final String MYSQL_IMAGE =
-      "mysql:"
-          + Objects.requireNonNull(
-              System.getProperty("openhouse.test.mysql.version"),
-              "openhouse.test.mysql.version is unset; run tests through Gradle");
-
-  /** Started and populated once, before any context builds a datasource; never stopped early. */
-  private static final class Holder {
-    private static final MySQLContainer<?> CONTAINER = startMysql();
-
-    private static final String JDBC_URL = CONTAINER.getJdbcUrl();
-
-    private static MySQLContainer<?> startMysql() {
-      MySQLContainer<?> mysql = new MySQLContainer<>(MYSQL_IMAGE).withDatabaseName(DATABASE);
-      mysql.start();
-      try (Connection connection =
-          DriverManager.getConnection(
-              mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())) {
-        populate(connection);
-      } catch (SQLException | IOException e) {
-        throw new IllegalStateException("Could not build the HTS MySQL test schema", e);
-      }
-      return mysql;
-    }
-
-    private static void populate(Connection connection) throws IOException {
-      Resource[] ddl =
-          new PathMatchingResourcePatternResolver().getResources("classpath:hts-mysql/ddl/*.sql");
-      assertThat(ddl).as("canonical HTS DDL resources").isNotEmpty();
-      Arrays.sort(ddl, Comparator.comparing(Resource::getFilename));
-      new ResourceDatabasePopulator(ddl).populate(connection);
-    }
-  }
-
   @DynamicPropertySource
   static void mysqlProperties(DynamicPropertyRegistry properties) {
-    MySQLContainer<?> container = Holder.CONTAINER;
-    properties.add("cluster.housetables.database.type", () -> "MYSQL");
-    properties.add("cluster.housetables.database.url", () -> Holder.JDBC_URL);
-    properties.add("HTS_DB_USER", container::getUsername);
-    properties.add("HTS_DB_PASSWORD", container::getPassword);
-    properties.add("cluster.housetables.database.cert-based-auth.enabled", () -> "false");
-    properties.add("spring.sql.init.mode", () -> "never");
-    properties.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-    properties.add("spring.datasource.hikari.minimum-idle", () -> "0");
+    HtsMysqlDatabase.configure(properties);
+  }
+
+  /** An unpooled connection to the test database, independent of any service session. */
+  protected static Connection openInspectionConnection() throws SQLException {
+    return HtsMysqlDatabase.openConnection();
   }
 
   @Autowired private DataSource mysqlFixtureDataSource;

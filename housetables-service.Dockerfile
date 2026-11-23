@@ -17,21 +17,9 @@ ENV PATH=$PATH:/export/apps/jdk/JDK-1_8_0_172/bin/:$USER_HOME
 
 ARG VERSION="1.0.0-SNAPSHOT"
 ARG BUILD_DIR="build/$APP_NAME/libs"
-ARG JAR_FILES=$BUILD_DIR/*.jar
+ARG JAR_FILES=$BUILD_DIR/$APP_NAME.jar
 
-COPY $JAR_FILES ./
-
-# Delete unwanted JAR files
-RUN ls ./
-RUN find . -name "*-sources.jar" -delete
-RUN find . -name "*-javadoc.jar" -delete
-RUN find . -name "*-lib.jar" -delete
-
-# Rename the JAR file.
-RUN ls ./
-RUN find ./ -name "*.jar" -exec mv {} $APP_NAME.jar \;
-
-RUN ls $APP_NAME.jar
+COPY $JAR_FILES ./$APP_NAME.jar
 
 COPY run.sh .
 
