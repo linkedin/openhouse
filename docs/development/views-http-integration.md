@@ -40,12 +40,14 @@ assumes `.git` is a directory. On macOS, select JDK 17 with
 
 ## Shared setup and isolation
 
-The shared fixture starts `mysql:8.4.11` once per test JVM/classloader and
+The shared fixture starts the MySQL image selected by `mysqlTestVersion` in
+`gradle.properties` (passed to every test JVM as `openhouse.test.mysql.version`;
+the fixture fails fast if it is unset) once per test JVM/classloader and
 applies all canonical `services/housetables/ddl/*.sql` in sorted filename order.
 Gradle publishes those DDL resources with the fixture; a missing resource set
-fails startup. The image pin is a test version, not a claim about production's
-patch version. Spring SQL initialization, Hibernate schema generation, and
-certificate-based datasource authentication are disabled before HTS starts.
+fails startup. This selects the shared test image version; it does not assert
+parity with a production MySQL version. Spring SQL initialization, Hibernate
+schema generation, and certificate-based datasource authentication are disabled before HTS starts.
 The suite never widens columns or otherwise alters the canonical schema.
 
 HTS tests retain their existing before-each truncate-and-seed lifecycle.

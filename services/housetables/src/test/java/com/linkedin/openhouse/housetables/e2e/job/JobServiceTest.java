@@ -15,7 +15,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.commons.collections.CollectionUtils;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,11 +56,6 @@ public class JobServiceTest extends HtsDatabaseTestBase {
     htsRepository.save(testJobRow);
     htsRepository.save(testJobRow2);
     htsRepository.save(testJobRow3);
-  }
-
-  @AfterEach
-  public void tearDown() {
-    htsRepository.deleteAll();
   }
 
   @Test

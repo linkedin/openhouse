@@ -95,8 +95,3 @@ tasks.named('processTestFixturesResources') {
     into 'hts-mysql/ddl'
   }
 }
-
-tasks.named('test') {
-  // Keep one test JVM: cached Spring contexts retain pools and can exceed MySQL max_connections.
-  maxParallelForks = 1
-}

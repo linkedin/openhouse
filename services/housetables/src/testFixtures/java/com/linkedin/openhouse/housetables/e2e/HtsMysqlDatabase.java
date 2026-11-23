@@ -8,6 +8,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Objects;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
@@ -18,11 +19,17 @@ import org.testcontainers.containers.MySQLContainer;
 public final class HtsMysqlDatabase {
   private HtsMysqlDatabase() {}
 
+  private static final String MYSQL_IMAGE =
+      "mysql:"
+          + Objects.requireNonNull(
+              System.getProperty("openhouse.test.mysql.version"),
+              "openhouse.test.mysql.version is unset; run tests through Gradle");
+
   private static final class Holder {
     private static final MySQLContainer<?> CONTAINER = startMysql();
 
     private static MySQLContainer<?> startMysql() {
-      MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4.11").withDatabaseName("hts_test");
+      MySQLContainer<?> mysql = new MySQLContainer<>(MYSQL_IMAGE).withDatabaseName("hts_test");
       mysql.start();
       try (Connection connection =
           DriverManager.getConnection(

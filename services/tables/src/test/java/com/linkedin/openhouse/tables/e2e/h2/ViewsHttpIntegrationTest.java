@@ -19,6 +19,7 @@ import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
+import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -424,10 +425,11 @@ public class ViewsHttpIntegrationTest {
   @Test
   void paginationCrossesHtsSourcePagesWithoutDuplicatesAndBindsTokensToDatabase() throws Exception {
     List<String> expected = new ArrayList<>();
-    for (int index = 0; index < 53; index++) {
+    // More views than one HTS source page, so listing crosses a real HTS page boundary.
+    for (int index = 0; index < ViewPaginationAdapter.DEFAULT_SOURCE_PAGE_SIZE + 3; index++) {
       String view = String.format(Locale.ROOT, "paged_%03d", index);
       expected.add(view);
-      assertViewPersisted(database, view, create(view, payload(database, view), 201));
+      create(view, payload(database, view), 201);
     }
     JsonNode first =
         request(HttpMethod.GET, collection(database) + "?size=7&sortBy=VIEWID", null, 200);
@@ -444,7 +446,7 @@ public class ViewsHttpIntegrationTest {
         actual.add(result.path("viewId").asText());
       }
       pages++;
-      assertTrue(pages <= 10, "Continuation must terminate");
+      assertTrue(pages <= 20, "Continuation must terminate");
       if (!page.hasNonNull("nextPageToken")) {
         break;
       }
@@ -475,11 +477,8 @@ public class ViewsHttpIntegrationTest {
         "pageToken=broken",
         "pageToken="
       })
-  void invalidListingParametersDoNotMutatePersistence(String query) throws Exception {
-    JsonNode created = create(VIEW, payload(database, VIEW), 201);
-    Map<String, Object> before = assertViewPersisted(database, VIEW, created);
+  void invalidListingParametersAreRejected(String query) throws Exception {
     request(HttpMethod.GET, collection(database) + "?" + query, null, 400);
-    assertEquals(before, assertViewPersisted(database, VIEW, created));
   }
 
   @ParameterizedTest

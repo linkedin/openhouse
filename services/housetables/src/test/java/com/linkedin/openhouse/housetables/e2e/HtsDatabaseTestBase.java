@@ -21,14 +21,14 @@ import org.springframework.test.context.DynamicPropertySource;
  * the canonical {@code services/housetables/ddl} files. There is deliberately no H2 fallback: a
  * missing Docker daemon or a failed startup fails the run.
  *
- * <p>Each test starts from the same store: all HTS tables are emptied and the test {@code data.sql}
+ * <p>Each test starts from the same store: every table is emptied and the test {@code data.sql}
  * toggle rules are loaded before every method. The reset is raw SQL through the real service
  * datasource, so it never hydrates a corrupt discriminator and works unchanged in mock-application
  * contexts, whose datasource is real.
  */
 public abstract class HtsDatabaseTestBase {
 
-  protected static final String DATABASE = "hts_test";
+  private static final String DATABASE = "hts_test";
 
   @DynamicPropertySource
   static void mysqlProperties(DynamicPropertyRegistry properties) {
