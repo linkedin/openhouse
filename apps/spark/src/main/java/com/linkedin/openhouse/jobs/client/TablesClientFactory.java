@@ -8,6 +8,7 @@ import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.api.ViewApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import java.net.MalformedURLException;
 import javax.annotation.Nullable;
@@ -56,17 +57,23 @@ public class TablesClientFactory {
       client.addDefaultHeader(
           WebClientFactory.HTTP_HEADER_ACTION_TYPE, WebClientFactory.ACTION_TYPE_SYSTEM);
     }
-    return create(retryTemplate, new TableApi(client), new DatabaseApi(client));
+    return create(
+        retryTemplate, new TableApi(client), new DatabaseApi(client), new ViewApi(client));
   }
 
-  public TablesClient create(RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi) {
+  public TablesClient create(
+      RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi, ViewApi viewApi) {
     return new TablesClient(
-        retryTemplate, tableApi, dbApi, filter, new StorageClient(fsStorageProvider));
+        retryTemplate, tableApi, dbApi, viewApi, filter, new StorageClient(fsStorageProvider));
   }
 
   @VisibleForTesting
   public TablesClient create(
-      RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi, StorageClient client) {
-    return new TablesClient(retryTemplate, tableApi, dbApi, filter, client);
+      RetryTemplate retryTemplate,
+      TableApi tableApi,
+      DatabaseApi dbApi,
+      ViewApi viewApi,
+      StorageClient client) {
+    return new TablesClient(retryTemplate, tableApi, dbApi, viewApi, filter, client);
   }
 }
