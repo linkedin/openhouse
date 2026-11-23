@@ -1,0 +1,715 @@
+package com.linkedin.openhouse.javaclient;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
+import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
+import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
+import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookRejectedException;
+import com.linkedin.openhouse.javaclient.precommit.SupportsPreCommit;
+import com.linkedin.openhouse.tables.client.api.SnapshotApi;
+import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.tables.client.model.LockState;
+import com.linkedin.openhouse.tables.client.model.Policies;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.BaseMetastoreTableOperations;
+import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SnapshotRefParser;
+import org.apache.iceberg.SortOrderParser;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.BadRequestException;
+import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
+import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.util.Tasks;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
+
+@Builder
+@Slf4j
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
+public class OpenHouseTableOperations extends BaseMetastoreTableOperations
+    implements SupportsPreCommit {
+
+  @Getter(AccessLevel.PROTECTED)
+  private TableIdentifier tableIdentifier;
+
+  @Getter(AccessLevel.PROTECTED)
+  private FileIO fileIO;
+
+  @Getter(AccessLevel.PROTECTED)
+  private TableApi tableApi;
+
+  @Getter(AccessLevel.PROTECTED)
+  private SnapshotApi snapshotApi;
+
+  @Getter(AccessLevel.PROTECTED)
+  private String cluster;
+
+  /**
+   * Whether this instance backs a replace-table (RTAS) transaction, set by {@link OpenHouseCatalog}
+   * at the only point where that intent is unambiguous.
+   *
+   * <p>{@code doCommit} cannot infer it from the {@code base}/{@code metadata} diff: Iceberg's
+   * {@code BaseTransaction} routes a replace transaction and an ordinary multi-update transaction
+   * (say, a schema evolution plus an append) through the very same {@code ops.commit(base,
+   * metadata)} call, so both arrive with metadata and snapshots updated and a non-null base.
+   * Misreading the latter as a replace would have the server rebuild the table wholesale instead of
+   * updating it. A final holder keeps Lombok's all-args constructor unchanged.
+   */
+  private final AtomicBoolean replaceTransaction = new AtomicBoolean(false);
+
+  /**
+   * Config last applied to {@code current()}, or {@code null}. Bound after Iceberg accepts a reload
+   * so skip-reload and a failed UUID check cannot desync stamps from overlays.
+   */
+  private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
+
+  /**
+   * Checks run before each commit is sent, in registration order. A final holder keeps Lombok's
+   * all-args constructor unchanged, so nothing downstream has to be rebuilt.
+   */
+  private final List<PreCommitHook> preCommitHooks = new CopyOnWriteArrayList<>();
+
+  /**
+   * Adds a check to run before each commit is sent to the service. Hooks run in registration order
+   * and the first to reject stops the commit.
+   *
+   * <p>Registering a hook is only half of it. A table runs its hooks only while it carries {@value
+   * #PRE_COMMIT_HOOKS_ENABLED_KEY}{@code =true}, so a hook can be registered everywhere and turned
+   * on table by table.
+   *
+   * @param hook the check to run; must not be null
+   * @return this, so it can be chained onto a newly built instance
+   * @throws NullPointerException if {@code hook} is null, so a mis-wired registration fails where
+   *     it is written rather than on the first commit that tries to run it
+   */
+  @Override
+  public OpenHouseTableOperations withPreCommit(PreCommitHook hook) {
+    preCommitHooks.add(Objects.requireNonNull(hook, "hook"));
+    return this;
+  }
+
+  /** Stamps last applied to {@code current()}, or {@code null}. */
+  protected Map<String, String> currentConfig() {
+    return config.get();
+  }
+
+  /**
+   * Marks this instance as backing a replace-table (RTAS) transaction, so the commit it receives is
+   * sent as a replace commit. Each transaction gets a fresh instance from {@link
+   * OpenHouseCatalog#newTableOps}, so the intent never leaks across transactions.
+   */
+  void markReplaceTransaction() {
+    replaceTransaction.set(true);
+  }
+
+  /** Whether the pending commit belongs to a replace-table (RTAS) transaction. */
+  @VisibleForTesting
+  boolean isReplaceTransaction() {
+    return replaceTransaction.get();
+  }
+
+  @Override
+  protected String tableName() {
+    return tableIdentifier.toString();
+  }
+
+  @Override
+  public FileIO io() {
+    return fileIO;
+  }
+
+  private static final String UPDATED_OPENHOUSE_POLICY_KEY = "updated.openhouse.policy";
+  private static final String OPENHOUSE_TABLE_TYPE_KEY = "openhouse.tableType";
+  private static final String OPENHOUSE_CLUSTER_ID_KEY = "openhouse.clusterId";
+  private static final String OPENHOUSE_IS_TABLE_REPLICATED_KEY = "openhouse.isTableReplicated";
+  private static final String POLICIES_KEY = "policies";
+  static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
+
+  /**
+   * Opt-in for {@link PreCommitHook}s, read from the table's current properties.
+   *
+   * <p>Anything other than {@code "true"}, including the property being absent, leaves the hooks
+   * off; parsing is {@link Boolean#parseBoolean}, so the value is case-insensitive.
+   */
+  static final String PRE_COMMIT_HOOKS_ENABLED_KEY = "openhouse.preCommitHooksEnabled";
+
+  @Override
+  public void doRefresh() {
+    log.info("Calling doRefresh for table: {}", tableName());
+    Optional<GetTableResponseBody> tableResponse =
+        tableApi
+            .getTableV1(tableIdentifier.namespace().toString(), tableIdentifier.name())
+            /*
+             on 404 from table service, resume the stream as empty response.
+             for any other error, surface it!
+            */
+            .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.empty())
+            .onErrorResume(WebClientResponseException.BadRequest.class, e -> Mono.empty())
+            .onErrorResume(
+                WebClientResponseException.class,
+                e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
+            .blockOptional();
+    Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
+    if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
+      throw new NoSuchTableException(
+          "Cannot find table %s after refresh, maybe another process deleted it", tableName());
+    }
+    Map<String, String> fetched = tableResponse.map(GetTableResponseBody::getConfig).orElse(null);
+    AtomicBoolean loaded = new AtomicBoolean();
+    // Iceberg skips the loader when tableLocation is unchanged. UUID is checked after the loader
+    // returns; bind only if this call actually accepted a reload.
+    super.refreshFromMetadataLocation(
+        tableLocation.orElse(null),
+        null,
+        20,
+        location -> {
+          TableMetadata bridged = loadMetadata(location, fetched);
+          loaded.set(true);
+          return bridged;
+        });
+    if (loaded.get()) {
+      config.set(fetched);
+    }
+    log.debug("Calling doRefresh succeeded");
+  }
+
+  /**
+   * Decode {@code fetched}, then read the metadata file, then overlay.
+   *
+   * <p>Decode first so a bad config never hits storage. {@link ReadBridgeException} is wrapped as
+   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file. The
+   * wrap includes {@link #tableName()} so a Spark job over many tables can tell which one failed.
+   */
+  protected TableMetadata loadMetadata(String metadataLocation, Map<String, String> fetched) {
+    final ReadBridge bridge;
+    try {
+      bridge = ReadBridge.from(fetched);
+    } catch (ReadBridgeException e) {
+      throw unrecoverableBridge(e);
+    }
+    TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
+    try {
+      return bridge.apply(raw);
+    } catch (ReadBridgeException e) {
+      throw unrecoverableBridge(e);
+    }
+  }
+
+  private Tasks.UnrecoverableException unrecoverableBridge(ReadBridgeException e) {
+    return new Tasks.UnrecoverableException(
+        "read-bridge: unusable config for table " + tableName(), e);
+  }
+
+  @Override
+  public void doCommit(TableMetadata base, TableMetadata metadata) {
+    log.info("Calling doCommit for table: {}", tableName());
+    boolean metadataUpdated = isMetadataUpdated(base, metadata);
+    boolean snapshotsUpdated = areSnapshotsUpdated(base, metadata);
+    // The replace intent is plumbed down from OpenHouseCatalog, never inferred from the diff: an
+    // ordinary transaction that evolves metadata and appends a snapshot is indistinguishable from
+    // an RTAS at this point. A replace always replaces the table wholesale, even when only part of
+    // the metadata changed, so the flag alone decides the route.
+    boolean replaceCommit = isReplaceTransaction() && base != null;
+    runPreCommitHooks(base, metadata, metadataUpdated, snapshotsUpdated);
+    try {
+      if (replaceCommit) {
+        putSnapshotsForReplace(base, metadata);
+      } else if (snapshotsUpdated) {
+        putSnapshots(base, metadata);
+      } else if (metadataUpdated) {
+        createUpdateTable(base, metadata);
+      }
+    } catch (RuntimeException e) {
+      if (e.getCause() instanceof InterruptedException) {
+        log.error(
+            String.format(
+                "Unexpected runtime error occurred during doCommit: %s, with stacktrace: ",
+                e.getClass().getSimpleName()),
+            e);
+        throw new CommitStateUnknownException(e);
+      } else {
+        throw e;
+      }
+    }
+    // Cleared only once the commit lands: BaseTransaction retries doCommit on this same instance
+    // after a CommitFailedException, and every retry must still be sent as a replace.
+    if (replaceCommit) {
+      replaceTransaction.set(false);
+    }
+    log.debug("Calling doCommit succeeded");
+  }
+
+  /**
+   * Runs the registered checks, in registration order, before anything is sent. The first to reject
+   * stops the commit and the rest do not run.
+   *
+   * <p>Placed here on purpose: the routing flags are settled, nothing has been sent yet, and it is
+   * outside the {@code catch} above, which turns an interrupt into a {@code
+   * CommitStateUnknownException}, the wrong thing to say about a commit that never left.
+   *
+   * <p>Each hook is evaluated in its own {@code try}, so an error names the hook that threw. A
+   * caller that registers nothing pays an empty-list check, and a table that has not opted in pays
+   * one property lookup on top of that.
+   */
+  private void runPreCommitHooks(
+      TableMetadata base,
+      TableMetadata metadata,
+      boolean metadataUpdated,
+      boolean snapshotsUpdated) {
+    if (preCommitHooks.isEmpty() || !preCommitHooksEnabled(base, metadata)) {
+      return;
+    }
+    PreCommitHookContext context =
+        new PreCommitHookContext(
+            getCluster(),
+            getTableIdentifier(),
+            base,
+            metadata,
+            isReplaceTransaction(),
+            metadataUpdated,
+            snapshotsUpdated);
+    for (PreCommitHook hook : preCommitHooks) {
+      try {
+        hook.evaluate(context);
+      } catch (PreCommitHookRejectedException e) {
+        throw asCommitException(hook, e, base == null);
+      } catch (CommitFailedException | CommitStateUnknownException e) {
+        // A hook throwing either of these is a bug, so say so rather than passing it on. Iceberg
+        // would retry a rejection that fails the same way every time, or report that a commit which
+        // never left may have landed.
+        throw new IllegalStateException(
+            String.format(
+                "Pre-commit hook %s threw %s, which it must not: a hook reports a problem with "
+                    + "PreCommitHookRejectedException. Table %s.",
+                hook.getName(), e.getClass().getSimpleName(), tableName()),
+            e);
+      }
+    }
+  }
+
+  /**
+   * Whether this table has opted in to pre-commit hooks, via the {@value
+   * #PRE_COMMIT_HOOKS_ENABLED_KEY} table property.
+   *
+   * <p>Off unless the property reads {@code true}, so registering a hook on the catalog does not
+   * light up every table loaded through it. A hook can be shipped everywhere and then enabled one
+   * table at a time, or switched off again by editing a property rather than by redeploying.
+   *
+   * <p>Read from {@code base}, the table as it stands, rather than from the commit: a commit that
+   * clears the property would otherwise disable the very hooks that were about to judge it. Turning
+   * it on behaves the same way round, taking effect from the next commit. A create has no {@code
+   * base}, so there the commit's own properties are all there is to read.
+   *
+   * <p>This is a rollout control, not a security control. The property is writer-settable, and a
+   * client-side hook is cooperative in any case: a writer could as easily use a catalog that never
+   * registered one. Checks that have to hold belong on the server.
+   *
+   * @param base the table as it is now, or null when it is being created
+   * @param metadata the table as it will be if the commit goes through
+   * @return whether the registered hooks should run for this commit
+   */
+  private boolean preCommitHooksEnabled(TableMetadata base, TableMetadata metadata) {
+    TableMetadata source = base == null ? metadata : base;
+    return Boolean.parseBoolean(source.properties().get(PRE_COMMIT_HOOKS_ENABLED_KEY));
+  }
+
+  /**
+   * Turns a rejected commit into the exception Iceberg expects.
+   *
+   * <p>The two failure types differ in whether Iceberg should try again. {@code
+   * CommitFailedException} is retried by Iceberg's commit loop, which is right when the check could
+   * not reach a verdict and wrong when the commit itself is the problem. That would retry until the
+   * attempts run out and then report a conflict that never happened.
+   *
+   * <p>A create is the exception. {@code BaseMetastoreCatalog}'s table builder catches {@code
+   * CommitFailedException} from a create and rethrows {@code AlreadyExistsException("Table was
+   * created concurrently")} without the cause, so a hook that could not run would report a table
+   * that does not exist and lose the reason. Nothing retries a create either, so the retry signal
+   * buys nothing there. Operational failures on a create use {@code ServiceUnavailableException},
+   * which Iceberg passes through.
+   *
+   * <p>Validation failures need no special case: {@code ValidationException} is not caught on
+   * either path.
+   */
+  private RuntimeException asCommitException(
+      PreCommitHook hook, PreCommitHookRejectedException e, boolean create) {
+    if (e.getFailureType() == PreCommitHookRejectedException.FailureType.OPERATIONAL) {
+      String message =
+          String.format(
+              "Pre-commit hook %s could not check table %s [%s]: %s",
+              hook.getName(), tableName(), e.getReasonCode(), e.getMessage());
+      return create
+          ? new ServiceUnavailableException(e, "%s", message)
+          : new CommitFailedException(e, "%s", message);
+    }
+    return new ValidationException(
+        e,
+        "Pre-commit hook %s rejected commit for table %s [%s]: %s",
+        hook.getName(),
+        tableName(),
+        e.getReasonCode(),
+        e.getMessage());
+  }
+
+  private Boolean isMetadataUpdated(TableMetadata base, TableMetadata metadata) {
+    if (base == null) {
+      return true;
+    } else {
+      return !base.schema().sameSchema(metadata.schema())
+          || !base.properties().equals(metadata.properties())
+          || !base.spec().equals(metadata.spec())
+          || !base.sortOrder().equals(metadata.sortOrder());
+    }
+  }
+
+  /**
+   * A wrapper for a remote REST call to create/update table metadata.
+   *
+   * @param metadata The new metadata used for creation/update.
+   */
+  private void createUpdateTable(TableMetadata base, TableMetadata metadata) {
+    CreateUpdateTableRequestBody createUpdateTableRequestBody =
+        constructMetadataRequestBody(base, metadata);
+
+    tableApi
+        .updateTableV1(
+            createUpdateTableRequestBody.getDatabaseId(),
+            createUpdateTableRequestBody.getTableId(),
+            createUpdateTableRequestBody)
+        .onErrorResume(
+            e ->
+                handleCreateUpdateHttpError(
+                    e,
+                    createUpdateTableRequestBody.getDatabaseId(),
+                    createUpdateTableRequestBody.getTableId()))
+        .block();
+  }
+
+  protected CreateUpdateTableRequestBody constructMetadataRequestBody(
+      TableMetadata base, TableMetadata metadata) {
+    CreateUpdateTableRequestBody createUpdateTableRequestBody = new CreateUpdateTableRequestBody();
+    createUpdateTableRequestBody.setBaseTableVersion(
+        base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
+    createUpdateTableRequestBody.setTableId(tableIdentifier.name());
+    createUpdateTableRequestBody.setDatabaseId(tableIdentifier.namespace().toString());
+    createUpdateTableRequestBody.setClusterId(cluster);
+    createUpdateTableRequestBody.setSchema(SchemaParser.toJson(metadata.schema(), false));
+    createUpdateTableRequestBody.setTimePartitioning(
+        TimePartitionSpecBuilder.builderFor(metadata.schema(), metadata.spec()).build());
+    createUpdateTableRequestBody.setClustering(
+        ClusteringSpecBuilder.builderFor(metadata.schema(), metadata.spec()).build());
+    createUpdateTableRequestBody.setPolicies(buildUpdatedPolicies(metadata));
+    createUpdateTableRequestBody.setTableProperties(
+        metadata.properties().entrySet().stream()
+            .filter(entry -> !UPDATED_OPENHOUSE_POLICY_KEY.equals(entry.getKey()))
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
+    createUpdateTableRequestBody.setSortOrder(SortOrderParser.toJson(metadata.sortOrder()));
+    // set tableType from incoming metadata to createUpdateTableRequestBody
+    if (metadata.properties() != null
+        && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
+      createUpdateTableRequestBody.setTableType(getTableType(base, metadata));
+    }
+    // TODO: consider allowing this for any table type, not just replica tables
+    if (isMultiSchemaUpdateCommit(base, metadata)
+        && getTableType(base, metadata)
+            == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE) {
+      List<String> newIntermediateSchemas = new ArrayList<>();
+      int startSchemaId = base == null ? 0 : base.currentSchemaId() + 1;
+      for (int i = startSchemaId; i < metadata.currentSchemaId(); i++) {
+        newIntermediateSchemas.add(SchemaParser.toJson(metadata.schemasById().get(i), false));
+      }
+      createUpdateTableRequestBody.setNewIntermediateSchemas(newIntermediateSchemas);
+    }
+    // If base table is a replicated table, retain the property from base table
+    if (base != null && base.properties().containsKey(OPENHOUSE_IS_TABLE_REPLICATED_KEY)) {
+      Map<String, String> newTblProperties = createUpdateTableRequestBody.getTableProperties();
+      newTblProperties.put(
+          OPENHOUSE_IS_TABLE_REPLICATED_KEY,
+          base.properties().get(OPENHOUSE_IS_TABLE_REPLICATED_KEY));
+      createUpdateTableRequestBody.setTableProperties(newTblProperties);
+    }
+    return createUpdateTableRequestBody;
+  }
+
+  @VisibleForTesting
+  void setCurrentConfig(Map<String, String> value) {
+    config.set(value);
+  }
+
+  /**
+   * If request is coming from replication process, createUpdateTableRequestBody.tableType should be
+   * REPLICA_TABLE Replication process requests are identified based on difference between table
+   * types and cluster_id between base, metadata
+   */
+  @VisibleForTesting
+  CreateUpdateTableRequestBody.TableTypeEnum getTableType(
+      TableMetadata base, TableMetadata metadata) {
+    if (base != null) {
+      CreateUpdateTableRequestBody.TableTypeEnum baseTableType =
+          CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
+              base.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
+      CreateUpdateTableRequestBody.TableTypeEnum metadataTableType =
+          CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
+              metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
+      // check if commit request is from replication case
+      if (baseTableType == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE
+          && metadataTableType == CreateUpdateTableRequestBody.TableTypeEnum.PRIMARY_TABLE
+          && !base.properties()
+              .get(OPENHOUSE_CLUSTER_ID_KEY)
+              .equals(metadata.properties().get(OPENHOUSE_CLUSTER_ID_KEY))) {
+        return baseTableType;
+      }
+    }
+    return CreateUpdateTableRequestBody.TableTypeEnum.valueOf(
+        metadata.properties().get(OPENHOUSE_TABLE_TYPE_KEY));
+  }
+
+  @VisibleForTesting
+  Policies buildUpdatedPolicies(TableMetadata metadata) {
+    Map<String, String> properties = metadata.properties();
+    Policies policies =
+        properties.containsKey(POLICIES_KEY)
+            ? toPoliciesObject(properties.get(POLICIES_KEY))
+            : null;
+    if (!properties.containsKey(UPDATED_OPENHOUSE_POLICY_KEY)) {
+      return policies;
+    }
+    Policies patchUpdatedPolicy = toPoliciesObject(properties.get(UPDATED_OPENHOUSE_POLICY_KEY));
+
+    // Nothing the patch, patchUpdatedPolicy is the new Policy.
+    if (policies == null) {
+      return patchUpdatedPolicy;
+    }
+
+    // Update retention config
+    if (patchUpdatedPolicy.getRetention() != null) {
+      policies.setRetention(patchUpdatedPolicy.getRetention());
+    }
+
+    // Update sharing config
+    if (patchUpdatedPolicy.getSharingEnabled() != null) {
+      policies.sharingEnabled(patchUpdatedPolicy.getSharingEnabled());
+    }
+    // Update column policy tag config
+    if (patchUpdatedPolicy.getColumnTags() != null) {
+      if (policies.getColumnTags() != null) {
+        policies
+            .getColumnTags()
+            .forEach(
+                (k, v) ->
+                    patchUpdatedPolicy
+                        .getColumnTags()
+                        .merge(k, v, (updatedSet, oldSet) -> updatedSet));
+      }
+      policies.setColumnTags(patchUpdatedPolicy.getColumnTags());
+    }
+    // Update replication config
+    if (patchUpdatedPolicy.getReplication() != null) {
+      policies.replication(patchUpdatedPolicy.getReplication());
+    }
+    // Update history config
+    if (patchUpdatedPolicy.getHistory() != null) {
+      policies.setHistory(patchUpdatedPolicy.getHistory());
+    }
+
+    return policies;
+  }
+
+  private Policies toPoliciesObject(String policiesString) throws JsonParseException {
+    if (policiesString.length() != 0) {
+      try {
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        return gson.fromJson(policiesString, Policies.class);
+      } catch (JsonParseException e) {
+        Policies systemOnlyPolicies = toActiveSystemOnlyPoliciesObject(policiesString);
+        if (systemOnlyPolicies != null) {
+          return systemOnlyPolicies;
+        }
+        throw new JsonParseException(
+            "OpenHouse: Cannot convert policies string to policies object");
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Gson cannot bind the generated nullable lock reason; SYSTEM_ONLY writes still need policies.
+   */
+  private static Policies toActiveSystemOnlyPoliciesObject(String policiesString) {
+    ObjectMapper mapper = ApiClient.createDefaultObjectMapper(ApiClient.createDefaultDateFormat());
+    try {
+      JsonNode lockState = mapper.readTree(policiesString).path("lockState");
+      if (lockState.path("locked").booleanValue()
+          && LockState.ReasonEnum.SYSTEM_ONLY
+              .getValue()
+              .equals(lockState.path("reason").textValue())) {
+        log.debug("OpenHouse: Parsing policies with an active SYSTEM_ONLY lock");
+        return mapper.readValue(policiesString, Policies.class);
+      }
+    } catch (IOException e) {
+      // The caller still throws the existing parse failure.
+      log.warn("OpenHouse: Cannot parse policies string", e);
+    }
+    return null;
+  }
+
+  protected boolean areSnapshotsUpdated(TableMetadata base, TableMetadata newMetadata) {
+    if (base == null) {
+      return !newMetadata.snapshots().isEmpty();
+    }
+    return !base.snapshots().equals(newMetadata.snapshots())
+        || !base.refs().equals(newMetadata.refs());
+  }
+
+  protected boolean isMultiSchemaUpdateCommit(TableMetadata base, TableMetadata newMetadata) {
+    return (base == null && newMetadata.currentSchemaId() > 0)
+        || (base != null && newMetadata.currentSchemaId() > base.currentSchemaId() + 1);
+  }
+
+  /**
+   * Builds an {@link IcebergSnapshotsRequestBody} from the given metadata and sends it to the
+   * snapshot API.
+   *
+   * @param base the metadata before the snapshot was created
+   * @param newMetadata metadata containing a new snapshot
+   * @param createUpdateTableRequestBody the request body for the table metadata
+   */
+  private void commitSnapshots(
+      TableMetadata base,
+      TableMetadata newMetadata,
+      CreateUpdateTableRequestBody createUpdateTableRequestBody) {
+    IcebergSnapshotsRequestBody icebergSnapshotsRequestBody = new IcebergSnapshotsRequestBody();
+    icebergSnapshotsRequestBody.baseTableVersion(
+        base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
+    icebergSnapshotsRequestBody.jsonSnapshots(
+        newMetadata.snapshots().stream().map(SnapshotParser::toJson).collect(Collectors.toList()));
+    icebergSnapshotsRequestBody.snapshotRefs(
+        newMetadata.refs().entrySet().stream()
+            .collect(
+                Collectors.toMap(Map.Entry::getKey, e -> SnapshotRefParser.toJson(e.getValue()))));
+    icebergSnapshotsRequestBody.createUpdateTableRequestBody(createUpdateTableRequestBody);
+
+    snapshotApi
+        .putSnapshotsV1(
+            createUpdateTableRequestBody.getDatabaseId(),
+            createUpdateTableRequestBody.getTableId(),
+            icebergSnapshotsRequestBody)
+        .onErrorResume(
+            e ->
+                handleCreateUpdateHttpError(
+                    e,
+                    createUpdateTableRequestBody.getDatabaseId(),
+                    createUpdateTableRequestBody.getTableId()))
+        .block();
+  }
+
+  /**
+   * A wrapper for a remote REST call to put snapshot.
+   *
+   * @param base the metadata before the snapshot was created
+   * @param newMetadata metadata containing a new snapshot
+   */
+  private void putSnapshots(TableMetadata base, TableMetadata newMetadata) {
+    CreateUpdateTableRequestBody createUpdateTableRequestBody =
+        constructMetadataRequestBody(base, newMetadata);
+    commitSnapshots(base, newMetadata, createUpdateTableRequestBody);
+  }
+
+  /**
+   * A wrapper for a remote REST call to put snapshot for a replace table operation.
+   *
+   * @param base the metadata before the snapshot was created
+   * @param newMetadata metadata containing a new snapshot
+   */
+  private void putSnapshotsForReplace(TableMetadata base, TableMetadata newMetadata) {
+    CreateUpdateTableRequestBody createUpdateTableRequestBody =
+        constructMetadataRequestBody(base, newMetadata);
+    createUpdateTableRequestBody.replaceCommit(true);
+    commitSnapshots(base, newMetadata, createUpdateTableRequestBody);
+  }
+
+  static Mono<GetTableResponseBody> handleCreateUpdateHttpError(
+      Throwable e, String databaseId, String tableId) {
+    if (e instanceof WebClientResponseException.NotFound) {
+      return Mono.error(
+          new NoSuchTableException(
+              String.format("Table %s.%s doesn't exist, ", databaseId, tableId), e));
+    } else if (e instanceof WebClientResponseException.Conflict) {
+      WebClientResponseException casted = (WebClientResponseException) e;
+      return Mono.error(
+          new CommitFailedException(
+              casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
+
+    } else if (e instanceof WebClientResponseException.GatewayTimeout
+        || e instanceof WebClientResponseException.ServiceUnavailable
+        || e instanceof WebClientResponseException.InternalServerError) {
+      /**
+       * This is done to avoid any data loss that could occur when a commit aborts at the caller
+       * leads to deletion of iceberg metadata files.
+       */
+      WebClientResponseException casted = (WebClientResponseException) e;
+      return Mono.error(new CommitStateUnknownException(casted.getResponseBodyAsString(), casted));
+    } else if (e instanceof WebClientResponseException.BadRequest) {
+      WebClientResponseException casted = (WebClientResponseException) e;
+      return Mono.error(
+          new BadRequestException(
+              casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
+    } else if (e instanceof WebClientResponseException.NotImplemented) {
+      return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
+    } else if (e instanceof WebClientResponseException
+        && ((WebClientResponseException) e).getStatusCode().is4xxClientError()) {
+      return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
+    } else {
+      /**
+       * This serves as a catch-all for any unexpected exceptions that could occur during doCommit,
+       * (i.e) exceptions that are not WebClientResponseException. This is a conservative approach
+       * to skip any unexpected cleanup that could occur when a commit aborts at the caller, thus
+       * avoiding any potential data loss. {@link WebClientRequestException} is caught here which is
+       * thrown when response is not completely received (even if the response is successful).
+       */
+      log.error(
+          String.format(
+              "Unexpected exception occurred during doCommit: %s, with stacktrace: ",
+              e.getClass().getSimpleName()),
+          e);
+      return Mono.error(new CommitStateUnknownException(e));
+    }
+  }
+}
