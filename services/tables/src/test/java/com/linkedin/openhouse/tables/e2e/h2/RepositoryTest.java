@@ -967,7 +967,7 @@ public class RepositoryTest {
   @Test
   public void testReplaceSucceedsWhenRetentionColumnRetained() {
     // Same setup as testReplaceFailsWhenRetentionColumnDroppedFromSchema, except the new schema
-    // keeps the retention column. The replace must be allowed.
+    // keeps the retention column and its partitioning. The replace must be allowed.
     Schema schema =
         new Schema(
             required(1, "id", Types.StringType.get()),
@@ -991,7 +991,9 @@ public class RepositoryTest {
             .tableVersion(INITIAL_TABLE_VERSION)
             .schema(SchemaParser.toJson(schema, false))
             .timePartitioning(null)
-            .clustering(null)
+            .clustering(
+                Collections.singletonList(
+                    ClusteringColumn.builder().columnName("datepartition").build()))
             .tableProperties(props)
             .policies(Policies.builder().retention(retention).build())
             .build();
@@ -1011,6 +1013,14 @@ public class RepositoryTest {
             .policies(null)
             .stageReplace(true)
             .build();
+    RequestValidationFailureException thrown =
+        Assertions.assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                openHouseInternalRepository.save(
+                    stageReplaceDto.toBuilder().clustering(null).build()));
+    Assertions.assertTrue(thrown.getMessage().contains("must be part of the partition spec"));
+
     TableDto replacedDto = openHouseInternalRepository.save(stageReplaceDto);
 
     Assertions.assertEquals(

@@ -73,6 +73,8 @@ import org.apache.iceberg.types.Types;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mockito;
@@ -720,7 +722,7 @@ public class TablesControllerTest {
             .columnPattern(
                 RetentionColumnPattern.builder()
                     .pattern("yyyy-MM-dd-HH")
-                    .columnName("timestampCol")
+                    .columnName("name")
                     .build())
             .build();
     Policies newPolicies = Policies.builder().retention(retention).build();
@@ -748,7 +750,7 @@ public class TablesControllerTest {
     Assertions.assertEquals(updatedPolicies.get("retention").get("count"), 4);
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("columnName"),
-        "timestampCol");
+        "name");
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("pattern"),
         "yyyy-MM-dd-HH");
@@ -786,6 +788,55 @@ public class TablesControllerTest {
         JsonPath.read(mvcResult.getResponse().getContentAsString(), "$.policies");
     Assertions.assertNull(updatedPolicies.get("retention"));
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void testCreateAndUpdateRejectRetentionOnNonPartitionColumn(boolean partitioned)
+      throws Exception {
+    GetTableResponseBody table =
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
+            .timePartitioning(null)
+            .clustering(
+                partitioned
+                    ? Collections.singletonList(ClusteringColumn.builder().columnName("id").build())
+                    : null)
+            .policies(TABLE_POLICIES_COMPLEX)
+            .build();
+    CreateUpdateTableRequestBody request = buildCreateUpdateTableRequestBody(table);
+
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/"
+                        + table.getDatabaseId()
+                        + "/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request.toJson()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("must be part of the partition spec")));
+
+    MvcResult created =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            table.toBuilder().policies(null).build(), mvc, storageManager);
+    try {
+      String tableLocation =
+          JsonPath.read(created.getResponse().getContentAsString(), "$.tableLocation");
+      mvc.perform(
+              MockMvcRequestBuilders.put(
+                      CURRENT_MAJOR_VERSION_PREFIX
+                          + "/databases/"
+                          + table.getDatabaseId()
+                          + "/tables/"
+                          + table.getTableId())
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(request.toBuilder().baseTableVersion(tableLocation).build().toJson()))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message", containsString("must be part of the partition spec")));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+    }
   }
 
   @Test
@@ -1567,10 +1618,7 @@ public class TablesControllerTest {
             .count(4)
             .granularity(TimePartitionSpec.Granularity.HOUR)
             .columnPattern(
-                RetentionColumnPattern.builder()
-                    .pattern("yyyy-MM-dd")
-                    .columnName("timestampCol")
-                    .build())
+                RetentionColumnPattern.builder().pattern("yyyy-MM-dd").columnName("name").build())
             .build();
     Policies newPolicies = Policies.builder().replication(replication).retention(retention).build();
 
@@ -1597,7 +1645,7 @@ public class TablesControllerTest {
     Assertions.assertEquals(updatedPolicies.get("retention").get("count"), 4);
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("columnName"),
-        "timestampCol");
+        "name");
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("pattern"),
         "yyyy-MM-dd");

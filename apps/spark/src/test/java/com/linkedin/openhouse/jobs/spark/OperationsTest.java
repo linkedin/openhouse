@@ -46,6 +46,7 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.ExpireSnapshots;
 import org.apache.iceberg.actions.ImmutableExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
+import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
@@ -1697,8 +1698,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       IcebergTableStats stats = ops.collectTableStats(tableName);
       Assertions.assertNull(stats.getEarliestPartitionDate());
 
-      // Test table with no partition
-      prepareTableWithPoliciesWithDateColumn(ops, tableName, "30d", false, false);
+      // The table is created, but attaching retention to its non-partition column is rejected.
+      Assertions.assertThrows(
+          BadRequestException.class,
+          () -> prepareTableWithPoliciesWithDateColumn(ops, tableName, "30d", false, false));
       stats = ops.collectTableStats(tableName);
       Assertions.assertNull(stats.getEarliestPartitionDate());
 
