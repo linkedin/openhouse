@@ -8,9 +8,12 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.common.config.BaseApplicationConfig;
 import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
@@ -51,12 +54,25 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   private static final int IN_MEMORY_BUFFER_SIZE = 40 * 1024 * 1024;
 
   private static final int DNS_QUERY_TIMEOUT_SECONDS = 10;
+  // Reactor Netty permits the initial send and one eligible connection-reset resend.
+  private static final int LEGACY_TOTAL_TRANSPORT_ATTEMPTS = 2;
+  private static final int NAMESPACE_TOTAL_TRANSPORT_ATTEMPTS = 1;
 
   @Autowired StorageManager storageManager;
 
   @Bean
   public UserTableApi provideApiInstance() {
-    return new UserTableApi(getHtsConfiguredApiClient());
+    return new UserTableApi(getHtsConfiguredApiClient(LEGACY_TOTAL_TRANSPORT_ATTEMPTS));
+  }
+
+  @Bean
+  public NamespaceApi provideNamespaceApiInstance() {
+    return new NamespaceApi(getHtsConfiguredApiClient(NAMESPACE_TOTAL_TRANSPORT_ATTEMPTS));
+  }
+
+  @Bean
+  public HouseNamespaceRepository provideNamespaceRepository(NamespaceApi namespaceApi) {
+    return new HouseNamespaceRepositoryImpl(namespaceApi);
   }
 
   /**
@@ -65,7 +81,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    */
   @Bean
   public ToggleStatusApi provideToggleApiInstance() {
-    return new ToggleStatusApi(getHtsConfiguredApiClient());
+    return new ToggleStatusApi(getHtsConfiguredApiClient(LEGACY_TOTAL_TRANSPORT_ATTEMPTS));
   }
 
   /**
@@ -74,7 +90,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    *
    * @return API instance for HTS client.
    */
-  private ApiClient getHtsConfiguredApiClient() {
+  private ApiClient getHtsConfiguredApiClient(int totalTransportAttempts) {
     String htsBasePath = clusterProperties.getClusterHouseTablesBaseUri();
     // Not able to leverage HousetablesApiClientFactory due to cyclic dependency
     // The default DNS query timeout is 5 sec for NameResolverProvider. Increasing this to 10 sec to
@@ -84,7 +100,8 @@ public class MainApplicationConfig extends BaseApplicationConfig {
         HttpClient.create(
                 HttpConnectionPoolProviderConfig.getCustomConnectionProvider(
                     "tables-hts-custom-connection-pool"))
-            .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)));
+            .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)))
+            .disableRetry(totalTransportAttempts == 1);
     WebClient webClient =
         ApiClient.buildWebClientBuilder()
             .baseUrl(htsBasePath)

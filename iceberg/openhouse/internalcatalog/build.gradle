@@ -26,7 +26,9 @@ dependencies {
   // Needed for testing against mock HTS server along with other constructs in /tables module.
   testImplementation "com.squareup.okhttp3:okhttp:" + ok_http3_version
   testImplementation "com.squareup.okhttp3:mockwebserver:" + ok_http3_version
+  testImplementation "io.projectreactor:reactor-test:3.4.27"
   testImplementation "org.mockito:mockito-inline:4.11.0"
+  testImplementation "org.awaitility:awaitility:4.2.0"
   testImplementation "io.opentelemetry:opentelemetry-sdk:1.47.0"
   testImplementation "io.opentelemetry:opentelemetry-sdk-testing:1.47.0"
 }
