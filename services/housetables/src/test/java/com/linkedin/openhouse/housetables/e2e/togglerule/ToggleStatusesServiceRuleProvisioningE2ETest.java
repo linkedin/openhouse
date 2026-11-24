@@ -4,7 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.api.spec.model.ToggleStatusEnum;
-import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
+import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.model.TableToggleRule;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.ToggleStatusHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.ToggleStatusesService;
@@ -13,9 +14,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ContextConfiguration;
 
-@SpringBootTest(classes = SpringH2HtsApplication.class)
+@SpringBootTest(classes = SpringHtsTestApplication.class)
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class ToggleStatusesServiceRuleProvisioningE2ETest {
+public class ToggleStatusesServiceRuleProvisioningE2ETest extends HtsDatabaseTestBase {
 
   @Autowired private ToggleStatusHtsJdbcRepository repository;
   @Autowired private ToggleStatusesService service;

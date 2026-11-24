@@ -15,9 +15,9 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
+import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.metrics.UserTableMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -38,7 +38,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,8 +55,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-@SpringBootTest(classes = SpringH2HtsApplication.class)
-public class UserTablesServiceTest {
+@SpringBootTest(classes = SpringHtsTestApplication.class)
+public class UserTablesServiceTest extends HtsDatabaseTestBase {
 
   private static final String CASE_DB_1 = "deleteDb1";
   private static final String CASE_DB_2 = "deleteDb2";
@@ -67,8 +66,6 @@ public class UserTablesServiceTest {
   @Autowired UserTablesService userTablesService;
 
   @SpyBean UserTableHtsJdbcRepository htsRepository;
-
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
@@ -109,15 +106,6 @@ public class UserTablesServiceTest {
     // Clear any mocks
     Mockito.reset(htsRepository);
     Mockito.reset(softDeletedHtsJdbcRepository);
-  }
-
-  @AfterEach
-  public void tearDown() {
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-    softDeletedHtsJdbcRepository.deleteAll();
   }
 
   @Test

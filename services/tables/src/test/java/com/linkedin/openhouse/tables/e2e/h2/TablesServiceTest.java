@@ -10,15 +10,18 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -33,6 +36,8 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.UUID;
@@ -284,6 +289,151 @@ public class TablesServiceTest {
     Mockito.verify(authorizationHandler)
         .checkAccessDecision(TEST_USER, createdTable, Privileges.UPDATE_TABLE_METADATA);
     tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+  }
+
+  @Test
+  public void getTableReturnsNotFoundForExpiredTemporaryTable() {
+    TableDto tableDto = temporaryTableDto("expired_temp_table", "2020-01-01T00:00:00Z");
+    tablesService.putTable(buildCreateUpdateTableRequestBody(tableDto), TEST_USER, true);
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> tablesService.getTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER));
+    Assertions.assertTrue(isListed(tableDto));
+
+    tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+    Assertions.assertFalse(isListed(tableDto));
+  }
+
+  @Test
+  public void getTableReturnsUnexpiredTemporaryTable() {
+    String expirationTime =
+        TemporaryTableProperties.formatExpirationTime(Instant.now().plus(Duration.ofDays(1)));
+    TableDto tableDto = temporaryTableDto("unexpired_temp_table", expirationTime);
+    tablesService.putTable(buildCreateUpdateTableRequestBody(tableDto), TEST_USER, true);
+
+    TableDto result =
+        tablesService.getTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+    Assertions.assertEquals(
+        expirationTime,
+        result.getTableProperties().get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+  }
+
+  /** An update that omits policies keeps the stored SYSTEM_ONLY lock, so the flag is rejected. */
+  @Test
+  public void putTableRejectsTemporaryFlagOnSystemOnlyLockedTableWhenPoliciesOmitted() {
+    Mockito.when(
+            authorizationHandler.checkSystemOnlyLockAccess(
+                Mockito.any(), Mockito.any(), Mockito.any()))
+        .thenReturn(true);
+    TableDto tableDto = permanentTableDto("system_locked_table");
+    tablesService.putTable(buildCreateUpdateTableRequestBody(tableDto), TEST_USER, true);
+    tablesService.createLock(
+        tableDto.getDatabaseId(),
+        tableDto.getTableId(),
+        CreateUpdateLockRequestBody.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build(),
+        TEST_USER);
+    TableDto lockedTable =
+        tablesService.getTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+
+    RequestValidationFailureException exception =
+        Assertions.assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesService.putTable(
+                    buildCreateUpdateTableRequestBody(withTemporaryFlag(lockedTable))
+                        .toBuilder()
+                        .policies(null)
+                        .baseTableVersion(lockedTable.getTableLocation())
+                        .build(),
+                    TEST_USER,
+                    false));
+    Assertions.assertTrue(exception.getMessage().contains("table lock"), exception.getMessage());
+
+    tablesService.deleteLock(
+        tableDto.getDatabaseId(), tableDto.getTableId(), LockReason.SYSTEM_ONLY, TEST_USER);
+    tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+  }
+
+  /** A staged replace inherits the stored lock, so the flag is rejected. */
+  @Test
+  public void putTableRejectsTemporaryFlagOnReplaceThatInheritsLock() {
+    TableDto permanentTable = permanentTableDto("inherited_lock_table");
+    TableDto tableDto =
+        permanentTable
+            .toBuilder()
+            .tableProperties(
+                ImmutableMap.<String, String>builder()
+                    .putAll(permanentTable.getTableProperties())
+                    .put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true")
+                    .build())
+            .build();
+    tablesService.putTable(buildCreateUpdateTableRequestBody(tableDto), TEST_USER, true);
+    tablesService.createLock(
+        tableDto.getDatabaseId(),
+        tableDto.getTableId(),
+        CreateUpdateLockRequestBody.builder().locked(true).build(),
+        TEST_USER);
+    TableDto lockedTable =
+        tablesService.getTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+
+    RequestValidationFailureException exception =
+        Assertions.assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesService.putTable(
+                    buildCreateUpdateTableRequestBody(withTemporaryFlag(lockedTable))
+                        .toBuilder()
+                        .policies(null)
+                        .baseTableVersion(lockedTable.getTableLocation())
+                        .stageReplace(true)
+                        .build(),
+                    TEST_USER,
+                    false));
+    Assertions.assertTrue(exception.getMessage().contains("table lock"), exception.getMessage());
+
+    tablesService.deleteLock(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+    tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+  }
+
+  private static TableDto permanentTableDto(String tableId) {
+    return TABLE_DTO
+        .toBuilder()
+        .databaseId("temporary_table_database")
+        .tableId(tableId)
+        .tableUri(CLUSTER_NAME + ".temporary_table_database." + tableId)
+        .policies(null)
+        .build();
+  }
+
+  private static TableDto temporaryTableDto(String tableId, String expirationTime) {
+    TableDto permanentTable = permanentTableDto(tableId);
+    return permanentTable
+        .toBuilder()
+        .tableProperties(
+            ImmutableMap.<String, String>builder()
+                .putAll(permanentTable.getTableProperties())
+                .put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true")
+                .put(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY, expirationTime)
+                .build())
+        .build();
+  }
+
+  private static TableDto withTemporaryFlag(TableDto tableDto) {
+    return tableDto
+        .toBuilder()
+        .tableProperties(
+            ImmutableMap.<String, String>builder()
+                .putAll(tableDto.getTableProperties())
+                .put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true")
+                .build())
+        .build();
+  }
+
+  private boolean isListed(TableDto tableDto) {
+    return tablesService.searchTables(tableDto.getDatabaseId()).stream()
+        .anyMatch(listed -> listed.getTableId().equals(tableDto.getTableId()));
   }
 
   @Test

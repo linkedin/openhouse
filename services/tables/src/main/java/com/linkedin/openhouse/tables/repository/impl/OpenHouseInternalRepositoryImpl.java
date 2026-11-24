@@ -30,6 +30,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.validator.impl.OpenHouseTablesApiValidator;
 import com.linkedin.openhouse.tables.api.validator.impl.RetentionPolicySpecValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -179,6 +180,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       // request's so RTAS consistently merges properties.
       tableDto = mergePoliciesFromExistingTable(tableIdentifier, tableDto);
       validateRetentionPolicyForReplace(tableDto);
+      OpenHouseTablesApiValidator.validateTemporaryTableCompatibility(
+          tableDto.getDatabaseId(),
+          tableDto.getTableId(),
+          tableDto.getTableProperties(),
+          tableDto.getPolicies());
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -201,6 +207,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
       updateEligibilityCheck(table, tableDto);
+      OpenHouseTablesApiValidator.validateTemporaryTableCompatibility(
+          tableDto.getDatabaseId(),
+          tableDto.getTableId(),
+          Optional.ofNullable(tableDto.getTableProperties()).orElseGet(table::properties),
+          tableDto.getPolicies());
 
       UpdateProperties updateProperties = transaction.updateProperties();
       boolean schemaUpdated =
