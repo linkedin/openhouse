@@ -27,7 +27,9 @@ import org.apache.iceberg.TableMetadata;
  *       TBLPROPERTIES}; users cannot modify most {@code openhouse.} keys, which would make the gate
  *       un-settable. A temporary table is published without the opt-in so the Optimizer can find
  *       it, and the commit that removes the flag is published so the Optimizer learns the table is
- *       no longer temporary.
+ *       no longer temporary. The temporary conditions ignore staged creates and replaces, because a
+ *       staged commit does not change the catalog's table and may be abandoned; the commit that
+ *       later adds its snapshots is published instead. The opt-in applies to staged commits too.
  * </ul>
  */
 @Slf4j
@@ -64,8 +66,9 @@ public abstract class AbstractCommitStatsPublishOperation implements PostCommitO
     Map<String, String> properties = context.getCommittedMetadata().properties();
     return Boolean.parseBoolean(
             properties.getOrDefault(COMMIT_STATS_COLLECTION_ENABLED_PROP, "false"))
-        || TemporaryTableProperties.isTemporary(properties)
-        || context.isPreviouslyTemporary();
+        || (!context.isStaged()
+            && (TemporaryTableProperties.isTemporary(properties)
+                || context.isPreviouslyTemporary()));
   }
 
   /**
