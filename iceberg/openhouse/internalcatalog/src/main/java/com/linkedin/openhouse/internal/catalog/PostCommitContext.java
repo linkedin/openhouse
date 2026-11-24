@@ -19,4 +19,10 @@ public class PostCommitContext {
 
   /** The table metadata as committed. */
   TableMetadata committedMetadata;
+
+  /**
+   * True when the table was temporary before this commit, so operations can act on the commit that
+   * ends temporary status. That commit's metadata no longer carries the temporary flag.
+   */
+  boolean previouslyTemporary;
 }

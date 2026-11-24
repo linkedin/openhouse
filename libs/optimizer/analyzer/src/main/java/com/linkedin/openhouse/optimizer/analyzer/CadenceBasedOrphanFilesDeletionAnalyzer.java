@@ -29,9 +29,9 @@ import org.springframework.stereotype.Component;
  * <ol>
  *   <li><b>Opt-in.</b> The table sets {@code maintenance.optimizer.ofd.enabled=true} in its table
  *       properties. Without this flag, the analyzer ignores the table entirely.
- *   <li><b>Not temporary.</b> A table whose {@code openhouse.leaseExpirationTime} property holds
- *       epoch milliseconds is temporary (see {@link TemporaryTable}). The Optimizer runs no
- *       maintenance on temporary tables, even when the opt-in flag is set.
+ *   <li><b>Not temporary.</b> A table whose {@code openhouse.temporary} property is exactly {@code
+ *       true} is temporary (see {@link TemporaryTable}). The analyzer skips it even when the opt-in
+ *       flag is set, because the table is dropped when it expires.
  *   <li><b>No active operation already in flight.</b> If the table has a non-CANCELED operation row
  *       (PENDING, SCHEDULING, or SCHEDULED), the scheduler already owns it and the analyzer stays
  *       out. A CANCELED row does not block — it is treated as if no operation exists.
@@ -97,10 +97,23 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
     return OperationTypeDto.ORPHAN_FILES_DELETION;
   }
 
+  /**
+   * OFD runs on replica tables. Unlike snapshot expiration / retention / compaction, OFD does not
+   * mutate the table's committed Iceberg metadata or snapshots — it only deletes storage files not
+   * referenced by any snapshot. The primary's OFD cleans the primary's storage, not the replica's,
+   * so a replica would otherwise accumulate orphan files indefinitely. This matches the legacy jobs
+   * scheduler, where OFD's {@code shouldRunTask()} returns {@code true} for replicas (with a 3-day
+   * minimum TTL enforced in the Spark OFD app, not here).
+   */
+  @Override
+  public boolean runsOnReplica() {
+    return true;
+  }
+
   @Override
   public boolean isEnabled(TableDto table) {
     return "true".equals(table.getTableProperties().get(OFD_ENABLED_PROPERTY))
-        && TemporaryTable.expirationTime(table.getTableProperties()).isEmpty();
+        && !TemporaryTable.isTemporary(table.getTableProperties());
   }
 
   @Override

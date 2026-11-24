@@ -31,6 +31,9 @@ import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -46,6 +49,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.hadoop.conf.Configuration;
@@ -79,6 +83,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -381,7 +386,32 @@ public class OpenHouseInternalTableOperationsTest {
               .getCommittedMetadata()
               .properties()
               .containsKey(getCanonicalFieldName("tableLocation")));
+      Assertions.assertFalse(context.isPreviouslyTemporary());
     }
+  }
+
+  /**
+   * The commit that removes the temporary flag leaves metadata without the flag, so the context
+   * reports that the table was temporary before the commit.
+   */
+  @Test
+  void testPostCommitContextMarksCommitThatEndsTemporaryStatus() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of(expirationTimeInDays(1)));
+    Map<String, String> flagRemoved = new HashMap<>(base.properties());
+    flagRemoved.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperationsWithPostCommit.doCommit(
+          base, base.replaceProperties(flagRemoved));
+    }
+
+    ArgumentCaptor<PostCommitContext> contextCaptor =
+        ArgumentCaptor.forClass(PostCommitContext.class);
+    Mockito.verify(mockPostCommitOperationRunner).runAll(contextCaptor.capture());
+    PostCommitContext context = contextCaptor.getValue();
+    Assertions.assertTrue(context.isPreviouslyTemporary());
+    Assertions.assertFalse(
+        TemporaryTableProperties.isTemporary(context.getCommittedMetadata().properties()));
   }
 
   /**
@@ -1073,6 +1103,222 @@ public class OpenHouseInternalTableOperationsTest {
     Mockito.verify(mockHouseTableMapper, Mockito.atLeastOnce())
         .toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
     return tblMetadataCaptor.getValue().properties().get(TableProperties.MAX_REF_AGE_MS);
+  }
+
+  /** The flag alone stamps a strict-form time three days after the commit, in whole seconds. */
+  @Test
+  void testDoCommitStampsDefaultExpirationTime() {
+    Instant before = Instant.now();
+    Map<String, String> persisted =
+        committedProperties(null, temporary(BASE_TABLE_METADATA, Optional.empty()));
+    Instant after = Instant.now();
+
+    String stamped = persisted.get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY);
+    Instant expiration = TemporaryTableProperties.parseExpirationTime(stamped).get();
+    Assertions.assertFalse(
+        expiration.isBefore(
+            before.truncatedTo(ChronoUnit.SECONDS).plus(TemporaryTableProperties.DEFAULT_LIFETIME)),
+        stamped);
+    Assertions.assertFalse(
+        expiration.isAfter(
+            after.truncatedTo(ChronoUnit.SECONDS).plus(TemporaryTableProperties.DEFAULT_LIFETIME)),
+        stamped);
+    Assertions.assertEquals("true", persisted.get(CatalogConstants.OPENHOUSE_TEMPORARY_KEY));
+  }
+
+  @Test
+  void testDoCommitKeepsExpirationTimeWithinSevenDays() {
+    String expirationTime =
+        TemporaryTableProperties.formatExpirationTime(
+            Instant.now().plus(TemporaryTableProperties.MAX_LIFETIME).minus(Duration.ofMinutes(1)));
+    Assertions.assertEquals(
+        expirationTime,
+        committedProperties(null, temporary(BASE_TABLE_METADATA, Optional.of(expirationTime)))
+            .get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+  }
+
+  @Test
+  void testDoCommitRejectsExpirationTimeBeyondSevenDays() {
+    String expirationTime =
+        TemporaryTableProperties.formatExpirationTime(
+            Instant.now().plus(TemporaryTableProperties.MAX_LIFETIME).plus(Duration.ofMinutes(1)));
+    assertCommitRejected(
+        null,
+        temporary(BASE_TABLE_METADATA, Optional.of(expirationTime)),
+        "must be at most 7 days after the commit");
+  }
+
+  /** A past time is accepted, and the table expires at once. */
+  @Test
+  void testDoCommitAcceptsPastExpirationTime() {
+    Assertions.assertEquals(
+        "2020-01-01T00:00:00Z",
+        committedProperties(
+                null, temporary(BASE_TABLE_METADATA, Optional.of("2020-01-01T00:00:00Z")))
+            .get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-01T00:00:00+00:00",
+        "2026-01-01 00:00:00Z",
+        "1700000000000",
+        "2026-02-30T00:00:00Z",
+        "+2026-01-01T00:00:00Z",
+        "-2026-01-01T00:00:00Z",
+        "+02026-01-01T00:00:00Z",
+        "12026-01-01T00:00:00Z"
+      })
+  void testDoCommitRejectsMalformedExpirationTime(String expirationTime) {
+    assertCommitRejected(
+        null,
+        temporary(BASE_TABLE_METADATA, Optional.of(expirationTime)),
+        "must be a UTC time in the form YYYY-MM-DDTHH:MM:SSZ");
+  }
+
+  /** Only the exact value true makes a table temporary, so other values cannot carry a time. */
+  @Test
+  void testDoCommitRejectsExpirationTimeWithoutFlag() {
+    Stream.of(Optional.<String>empty(), Optional.of("false"), Optional.of("TRUE"))
+        .forEach(
+            flag -> {
+              Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+              properties.put(
+                  CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY, "2026-01-01T00:00:00Z");
+              flag.ifPresent(
+                  value -> properties.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, value));
+              assertCommitRejected(
+                  null,
+                  BASE_TABLE_METADATA.replaceProperties(properties),
+                  "requires openhouse.temporary=true");
+            });
+  }
+
+  @Test
+  void testDoCommitRejectsChangingOrRemovingExpirationTime() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of(expirationTimeInDays(1)));
+    assertCommitRejected(
+        base,
+        temporary(base, Optional.of(expirationTimeInDays(2))),
+        "cannot be changed or removed");
+    assertCommitRejected(base, temporary(base, Optional.empty()), "cannot be changed or removed");
+  }
+
+  /** An unrelated commit to a temporary table keeps the committed time. */
+  @Test
+  void testDoCommitKeepsCommittedExpirationTime() {
+    String expirationTime = expirationTimeInDays(1);
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of(expirationTime));
+    Map<String, String> properties = new HashMap<>(base.properties());
+    properties.put("random", "value");
+    Assertions.assertEquals(
+        expirationTime,
+        committedProperties(base, base.replaceProperties(properties))
+            .get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+  }
+
+  /** Removing the flag, or setting it to anything but true, removes an echoed or omitted time. */
+  @Test
+  void testDoCommitRemovesExpirationTimeWhenFlagRemovedBeforeExpiry() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of(expirationTimeInDays(1)));
+
+    Map<String, String> flagRemoved = new HashMap<>(base.properties());
+    flagRemoved.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    Map<String, String> persisted = committedProperties(base, base.replaceProperties(flagRemoved));
+    Assertions.assertFalse(persisted.containsKey(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    Assertions.assertFalse(persisted.containsKey(CatalogConstants.OPENHOUSE_TEMPORARY_KEY));
+
+    Map<String, String> flagFalse = new HashMap<>(base.properties());
+    flagFalse.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "false");
+    flagFalse.remove(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY);
+    persisted = committedProperties(base, base.replaceProperties(flagFalse));
+    Assertions.assertFalse(persisted.containsKey(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    Assertions.assertEquals("false", persisted.get(CatalogConstants.OPENHOUSE_TEMPORARY_KEY));
+  }
+
+  @Test
+  void testDoCommitRejectsDifferentExpirationTimeWhenFlagRemoved() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of(expirationTimeInDays(1)));
+    Map<String, String> properties = new HashMap<>(base.properties());
+    properties.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    properties.put(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY, expirationTimeInDays(2));
+    assertCommitRejected(base, base.replaceProperties(properties), "cannot be changed or removed");
+  }
+
+  /** An expired temporary table rejects every commit, including the one that removes the flag. */
+  @Test
+  void testDoCommitRejectsCommitsToExpiredTable() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of("2020-01-01T00:00:00Z"));
+
+    Map<String, String> flagRemoved = new HashMap<>(base.properties());
+    flagRemoved.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    assertCommitRejected(base, base.replaceProperties(flagRemoved), "accepts no further commits");
+
+    Map<String, String> unrelatedChange = new HashMap<>(base.properties());
+    unrelatedChange.put("random", "value");
+    assertCommitRejected(
+        base, base.replaceProperties(unrelatedChange), "accepts no further commits");
+  }
+
+  @Test
+  void testDoCommitStampsNewExpirationTimeWhenFlagSetAgain() {
+    String firstExpirationTime = expirationTimeInDays(1);
+    TableMetadata temporaryBase = temporary(BASE_TABLE_METADATA, Optional.of(firstExpirationTime));
+    Map<String, String> flagRemoved = new HashMap<>(temporaryBase.properties());
+    flagRemoved.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    TableMetadata ordinaryBase =
+        temporaryBase.replaceProperties(
+            committedProperties(temporaryBase, temporaryBase.replaceProperties(flagRemoved)));
+
+    String secondExpirationTime =
+        committedProperties(ordinaryBase, temporary(ordinaryBase, Optional.empty()))
+            .get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY);
+    Assertions.assertNotEquals(firstExpirationTime, secondExpirationTime);
+    Assertions.assertTrue(
+        TemporaryTableProperties.parseExpirationTime(secondExpirationTime)
+            .get()
+            .isAfter(Instant.now().plus(Duration.ofDays(2))),
+        secondExpirationTime);
+  }
+
+  private static String expirationTimeInDays(long days) {
+    return TemporaryTableProperties.formatExpirationTime(Instant.now().plus(Duration.ofDays(days)));
+  }
+
+  /** Returns {@code metadata} with the temporary flag set and the expiration time replaced. */
+  private static TableMetadata temporary(TableMetadata metadata, Optional<String> expirationTime) {
+    Map<String, String> properties = new HashMap<>(metadata.properties());
+    properties.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true");
+    properties.remove(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY);
+    expirationTime.ifPresent(
+        time -> properties.put(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY, time));
+    return metadata.replaceProperties(properties);
+  }
+
+  /** Commits {@code metadata} over {@code base} and returns the persisted properties. */
+  private Map<String, String> committedProperties(TableMetadata base, TableMetadata metadata) {
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(base, metadata);
+    }
+    Mockito.verify(mockHouseTableMapper, Mockito.atLeastOnce())
+        .toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+    return tblMetadataCaptor.getValue().properties();
+  }
+
+  private void assertCommitRejected(
+      TableMetadata base, TableMetadata metadata, String expectedMessagePart) {
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      CommitRejectedException rejection =
+          Assertions.assertThrows(
+              CommitRejectedException.class,
+              () -> openHouseInternalTableOperations.doCommit(base, metadata));
+      Assertions.assertTrue(
+          rejection.getMessage().contains(expectedMessagePart), rejection.getMessage());
+    }
   }
 
   /**

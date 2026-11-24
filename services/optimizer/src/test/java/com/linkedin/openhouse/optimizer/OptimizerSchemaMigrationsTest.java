@@ -32,8 +32,13 @@ import org.testcontainers.utility.DockerImageName;
  */
 class OptimizerSchemaMigrationsTest {
 
-  /** MySQL 8.0, the release line production runs. */
-  private static final DockerImageName MYSQL_IMAGE = DockerImageName.parse("mysql:8.0.46");
+  /** The build's shared MySQL test version; see {@code mysqlTestVersion} in gradle.properties. */
+  private static final DockerImageName MYSQL_IMAGE =
+      DockerImageName.parse(
+          "mysql:"
+              + Objects.requireNonNull(
+                  System.getProperty("openhouse.test.mysql.version"),
+                  "openhouse.test.mysql.version is unset; run tests through Gradle"));
 
   /**
    * How long a connection waits for MySQL to answer before failing. Connector/J has no read timeout

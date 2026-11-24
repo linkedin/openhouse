@@ -45,8 +45,8 @@ public class JobConf {
      */
     TABLE_STATS_COLLECTION_BATCH,
     /**
-     * Deletes each listed temporary table whose expiration time has passed. See {@code
-     * ExpiredTableDeletionSparkApp}.
+     * Drops one expired temporary table. The name ends in {@code _BATCH} because the Optimizer
+     * scheduler names every job type that way. See {@code ExpiredTableDeletionSparkApp}.
      */
     EXPIRED_TABLE_DELETION_BATCH,
     DATA_LAYOUT_STRATEGY_GENERATION,

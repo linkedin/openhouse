@@ -53,9 +53,19 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void isEnabled_returnsFalse_whenOptedInTableIsTemporary() {
     TableDto optedInTable = tableWithProperty(true);
     Map<String, String> properties = new HashMap<>(optedInTable.getTableProperties());
-    properties.put(TemporaryTable.EXPIRATION_TIME_PROPERTY, "1700000000000");
+    properties.put(TemporaryTable.TEMPORARY_PROPERTY, "true");
     TableDto temporaryTable = optedInTable.toBuilder().tableProperties(properties).build();
     assertThat(analyzer.isEnabled(temporaryTable)).isFalse();
+  }
+
+  // --- replica policy ---
+
+  @Test
+  void runsOnReplica_isTrue_soOfdRunsOnReplicaTablesLikeLegacy() {
+    // OFD must run on replicas (it only deletes unreferenced storage files, and the primary's OFD
+    // cleans only the primary's storage). This mirrors the legacy jobs scheduler, where OFD is not
+    // gated by isPrimary(). Guards against a regression back to the default (skip on replica).
+    assertThat(analyzer.runsOnReplica()).isTrue();
   }
 
   // --- shouldSchedule: no existing op ---

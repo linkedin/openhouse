@@ -99,9 +99,13 @@ public final class Operations implements AutoCloseable {
     return catalog.loadTable(TableIdentifier.parse(fqtn));
   }
 
-  /** Drops the table and purges its data. */
-  public void dropTable(String tableName) {
-    getCatalog().dropTable(TableIdentifier.parse(tableName));
+  /**
+   * Drops the table and purges its data without loading it first.
+   *
+   * @return true when the table was dropped, and false when it did not exist
+   */
+  public boolean dropTable(String tableName) {
+    return getCatalog().dropTable(TableIdentifier.parse(tableName), true);
   }
 
   @VisibleForTesting
