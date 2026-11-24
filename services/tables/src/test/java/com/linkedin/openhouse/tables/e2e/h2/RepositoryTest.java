@@ -15,6 +15,7 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
+import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -460,96 +461,144 @@ public class RepositoryTest {
   }
 
   @Test
-  void testLeaseExpirationTimeKeyIsNotPreserved() {
+  void testTemporaryTableKeysAreNotPreserved() {
     Assertions.assertFalse(
-        preservedKeyChecker.isKeyPreserved(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+        preservedKeyChecker.isKeyPreserved(CatalogConstants.OPENHOUSE_TEMPORARY_KEY));
+    Assertions.assertFalse(
+        preservedKeyChecker.isKeyPreserved(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
     Assertions.assertTrue(preservedKeyChecker.isKeyPreserved("openhouse.tableUUID"));
   }
 
   @Test
-  void testCreateTableKeepsLeaseExpirationTime() {
-    TableDto created =
-        openHouseInternalRepository.save(
-            TABLE_DTO
-                .toBuilder()
-                .tableId("leaseOnCreate")
-                .tableVersion(INITIAL_TABLE_VERSION)
-                .tableProperties(
-                    Map.of(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1700000000000"))
-                .build());
-    TableDtoPrimaryKey key = getPrimaryKey(created);
+  void testCreateTemporaryTableStampsExpirationTime() {
+    TableDto created = createTemporaryTable("temporaryOnCreate");
     try {
-      Assertions.assertEquals(
-          "1700000000000",
+      String expirationTime =
           openHouseInternalRepository
-              .findById(key)
+              .findById(getPrimaryKey(created))
               .get()
               .getTableProperties()
-              .get(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+              .get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY);
+      Assertions.assertTrue(
+          TemporaryTableProperties.parseExpirationTime(expirationTime).isPresent(), expirationTime);
     } finally {
-      openHouseInternalRepository.deleteById(key);
+      openHouseInternalRepository.deleteById(getPrimaryKey(created));
+    }
+  }
+
+  /** The client echoes the committed time when it removes the flag; the time is removed. */
+  @Test
+  void testUnsetTemporaryFlagRemovesExpirationTime() {
+    TableDto created = createTemporaryTable("temporaryUnset");
+    try {
+      TableDto ordinary = removeTemporaryFlag(created);
+      Assertions.assertFalse(
+          ordinary.getTableProperties().containsKey(CatalogConstants.OPENHOUSE_TEMPORARY_KEY));
+      Assertions.assertFalse(
+          openHouseInternalRepository
+              .findById(getPrimaryKey(created))
+              .get()
+              .getTableProperties()
+              .containsKey(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    } finally {
+      openHouseInternalRepository.deleteById(getPrimaryKey(created));
     }
   }
 
   @Test
-  void testUpdateTableAddsChangesAndRemovesLeaseExpirationTime() {
+  void testSetTemporaryFlagAgainStampsNewExpirationTime() {
+    TableDto created = createTemporaryTable("temporaryAgain");
+    try {
+      TableDto ordinary = removeTemporaryFlag(created);
+      Map<String, String> properties = new HashMap<>(ordinary.getTableProperties());
+      properties.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true");
+      TableDto temporaryAgain =
+          openHouseInternalRepository.save(
+              ordinary
+                  .toBuilder()
+                  .tableVersion(ordinary.getTableLocation())
+                  .tableProperties(properties)
+                  .build());
+      String expirationTime =
+          temporaryAgain.getTableProperties().get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY);
+      Assertions.assertTrue(
+          TemporaryTableProperties.parseExpirationTime(expirationTime).isPresent(), expirationTime);
+    } finally {
+      openHouseInternalRepository.deleteById(getPrimaryKey(created));
+    }
+  }
+
+  /** A replace retains the temporary flag that its request omits, so the conflict is rejected. */
+  @ParameterizedTest
+  @MethodSource("temporaryTableConflictsOnReplace")
+  void testReplaceRejectsConflictWithRetainedTemporaryFlag(
+      Map<String, String> requestProperties, Policies requestPolicies, String conflictingFeature) {
     TableDto created =
         openHouseInternalRepository.save(
             TABLE_DTO
                 .toBuilder()
-                .tableId("leaseOnUpdate")
+                .tableId("temporaryReplace" + requestProperties.size())
                 .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(null)
+                .tableProperties(
+                    Map.of(
+                        CatalogConstants.OPENHOUSE_TEMPORARY_KEY,
+                        "true",
+                        CatalogConstants.RTAS_ENABLED_TABLE_PROP,
+                        "true"))
                 .build());
-    TableDtoPrimaryKey key = getPrimaryKey(created);
     try {
-      Map<String, String> properties = new HashMap<>(created.getTableProperties());
-      properties.put(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1700000000000");
-      TableDto added =
-          openHouseInternalRepository.save(
-              created
-                  .toBuilder()
-                  .tableVersion(created.getTableLocation())
-                  .tableProperties(properties)
-                  .build());
-      Assertions.assertEquals(
-          "1700000000000",
-          added.getTableProperties().get(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
-
-      properties = new HashMap<>(added.getTableProperties());
-      properties.put(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1800000000000");
-      TableDto changed =
-          openHouseInternalRepository.save(
-              added
-                  .toBuilder()
-                  .tableVersion(added.getTableLocation())
-                  .tableProperties(properties)
-                  .build());
-      Assertions.assertEquals(
-          "1800000000000",
-          changed.getTableProperties().get(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
-
-      properties = new HashMap<>(changed.getTableProperties());
-      properties.remove(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY);
-      TableDto removed =
-          openHouseInternalRepository.save(
-              changed
-                  .toBuilder()
-                  .tableVersion(changed.getTableLocation())
-                  .tableProperties(properties)
-                  .build());
-      Assertions.assertFalse(
-          removed
-              .getTableProperties()
-              .containsKey(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
-      Assertions.assertFalse(
-          openHouseInternalRepository
-              .findById(key)
-              .get()
-              .getTableProperties()
-              .containsKey(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY));
+      RequestValidationFailureException exception =
+          Assertions.assertThrows(
+              RequestValidationFailureException.class,
+              () ->
+                  openHouseInternalRepository.save(
+                      created
+                          .toBuilder()
+                          .tableVersion(created.getTableLocation())
+                          .tableProperties(requestProperties)
+                          .policies(requestPolicies)
+                          .replaceCommit(true)
+                          .build()));
+      Assertions.assertTrue(
+          exception.getMessage().contains(conflictingFeature), exception.getMessage());
     } finally {
-      openHouseInternalRepository.deleteById(key);
+      openHouseInternalRepository.deleteById(getPrimaryKey(created));
     }
+  }
+
+  private static Stream<Arguments> temporaryTableConflictsOnReplace() {
+    return Stream.of(
+        Arguments.of(Map.of(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true"), null, "WAP"),
+        Arguments.of(
+            Map.of(),
+            Policies.builder().replication(TABLE_POLICIES.getReplication()).build(),
+            "replication"));
+  }
+
+  private TableDto createTemporaryTable(String tableId) {
+    return openHouseInternalRepository.save(
+        TABLE_DTO
+            .toBuilder()
+            .tableId(tableId)
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .policies(null)
+            .tableProperties(
+                Collections.singletonMap(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true"))
+            .build());
+  }
+
+  /** Saves {@code temporary} without the flag, echoing every other property. */
+  private TableDto removeTemporaryFlag(TableDto temporary) {
+    Map<String, String> properties = new HashMap<>(temporary.getTableProperties());
+    Assertions.assertTrue(properties.containsKey(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    properties.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    return openHouseInternalRepository.save(
+        temporary
+            .toBuilder()
+            .tableVersion(temporary.getTableLocation())
+            .tableProperties(properties)
+            .build());
   }
 
   @Test
@@ -1455,7 +1504,7 @@ public class RepositoryTest {
         e.getMessage()
             .startsWith(
                 "Bad tblproperties provided: Can't add, alter or drop table properties due to the restriction: "
-                    + "[table properties starting with `openhouse.` (except `openhouse.leaseExpirationTime`) and the `policies` key cannot be modified], diff in existing "
+                    + "[table properties starting with `openhouse.` (except `openhouse.temporary` and `openhouse.expirationTime`) and the `policies` key cannot be modified], diff in existing "
                     + "& provided table properties: {"));
 
     openHouseInternalRepository.deleteById(primaryKey);

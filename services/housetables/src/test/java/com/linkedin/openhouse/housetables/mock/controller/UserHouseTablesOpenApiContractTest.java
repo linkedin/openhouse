@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -27,7 +28,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-public class UserHouseTablesOpenApiContractTest {
+public class UserHouseTablesOpenApiContractTest extends HtsDatabaseTestBase {
 
   @Autowired private MockMvc mvc;
 

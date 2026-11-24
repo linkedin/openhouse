@@ -383,6 +383,50 @@ public class TablesControllerTest {
   }
 
   @Test
+  public void testTemporaryTableRuleRejectionIsBadRequest() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    GetTableResponseBody update =
+        buildGetTableResponseBody(
+            mvcResult, GetTableResponseBody.builder().tableProperties(null).build());
+    update
+        .getTableProperties()
+        .put(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY, "2026-01-01T00:00:00Z");
+    String tablePath =
+        String.format(
+            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+            update.getDatabaseId(),
+            update.getTableId());
+
+    mvc.perform(
+            MockMvcRequestBuilders.put(tablePath)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(buildCreateUpdateTableRequestBody(update).toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))))
+        .andExpect(
+            jsonPath(
+                "$.message",
+                is(
+                    equalTo(
+                        String.format(
+                            "Table property %s on table %s.%s requires %s=true.",
+                            CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY,
+                            update.getDatabaseId(),
+                            update.getTableId(),
+                            CatalogConstants.OPENHOUSE_TEMPORARY_KEY)))));
+    mvc.perform(MockMvcRequestBuilders.get(tablePath).accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.tableProperties['" + CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY + "']")
+                .doesNotExist());
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
   public void testTblPropsThruFeatureToggle() throws Exception {
     /**
      * This is just to ensure the ToggleStatusesRepository#findById is activated to the correct
