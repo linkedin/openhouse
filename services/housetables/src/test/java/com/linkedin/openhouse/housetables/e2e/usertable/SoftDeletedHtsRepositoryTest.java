@@ -9,7 +9,6 @@ import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import java.time.Instant;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,11 +35,6 @@ public class SoftDeletedHtsRepositoryTest extends HtsDatabaseTestBase {
           .build();
 
   @Autowired private SoftDeletedUserTableHtsJdbcRepository softDeletedUserTableHtsJdbcRepository;
-
-  @AfterEach
-  public void tearDown() {
-    softDeletedUserTableHtsJdbcRepository.deleteAll();
-  }
 
   @Test
   public void testSoftDeleteExists() {

@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,16 +30,20 @@ import org.testcontainers.containers.MySQLContainer;
  * the canonical {@code services/housetables/ddl} files. There is deliberately no H2 fallback: a
  * missing Docker daemon or a failed startup fails the run.
  *
- * <p>Each test starts from the same store: the four HTS tables are emptied and the test {@code
- * data.sql} toggle rules are loaded before every method, and the tables are emptied again after it.
- * The reset is raw SQL through the real service datasource, so it never hydrates a corrupt
- * discriminator and works unchanged in mock-application contexts, whose datasource is real.
+ * <p>Each test starts from the same store: every table is emptied and the test {@code data.sql}
+ * toggle rules are loaded before every method. The reset is raw SQL through the real service
+ * datasource, so it never hydrates a corrupt discriminator and works unchanged in mock-application
+ * contexts, whose datasource is real.
  */
 public abstract class HtsDatabaseTestBase {
 
-  protected static final String DATABASE = "hts_test";
+  private static final String DATABASE = "hts_test";
 
-  private static final String MYSQL_IMAGE = "mysql:8.4.11";
+  private static final String MYSQL_IMAGE =
+      "mysql:"
+          + Objects.requireNonNull(
+              System.getProperty("openhouse.test.mysql.version"),
+              "openhouse.test.mysql.version is unset; run tests through Gradle");
 
   /** Started and populated once, before any context builds a datasource; never stopped early. */
   private static final class Holder {
@@ -79,13 +84,6 @@ public abstract class HtsDatabaseTestBase {
     properties.add("spring.sql.init.mode", () -> "never");
     properties.add("spring.jpa.hibernate.ddl-auto", () -> "none");
     properties.add("spring.datasource.hikari.minimum-idle", () -> "0");
-  }
-
-  /** An unpooled connection to the test database, independent of any service session. */
-  protected static Connection openInspectionConnection() throws SQLException {
-    MySQLContainer<?> container = Holder.CONTAINER;
-    return DriverManager.getConnection(
-        Holder.JDBC_URL, container.getUsername(), container.getPassword());
   }
 
   @Autowired private DataSource mysqlFixtureDataSource;

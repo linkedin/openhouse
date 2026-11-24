@@ -8,7 +8,6 @@ import com.linkedin.openhouse.common.exception.EntityConcurrentModificationExcep
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -21,7 +20,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -65,19 +63,9 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
 
   @Autowired UserTableHtsJdbcRepository htsRepository;
 
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
-
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
   @Autowired DataSource dataSource;
-
-  @AfterEach
-  public void tearDown() {
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-  }
 
   private UserTableRow row(String databaseId, String tableId, EntityType entityType) {
     return UserTableRow.builder()
@@ -680,11 +668,8 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
    * be selected by the query and then explode while loading, which is worse than either matching or
    * skipping it consistently.
    *
-   * <p>The MySQL column collation is case-insensitive, so this behaviour alone cannot tell an
-   * explicit {@code upper(...)} from collation folding; {@code
-   * HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates} proves the normalization is
-   * in the query. No writer can produce such a row: the enum boundary normalizes before the value
-   * reaches the column.
+   * <p>No writer can produce such a row: the enum boundary normalizes before the value reaches the
+   * column.
    */
   @Test
   public void testLegacyNonCanonicalSpellingIsMatchedAndHydrates() {
@@ -1017,12 +1002,7 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
     assertThat(pageTableIds(page1)).containsExactly("match_t05_view");
   }
 
-  /**
-   * Every spelling of VIEW is listed and counted; NULL and garbage are not. Matching here does not
-   * by itself prove {@code upper(...)} under the case-insensitive column collation; {@code
-   * HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates} guards both view queries and
-   * their counts.
-   */
+  /** Every spelling of VIEW is listed and counted; NULL and garbage are not. */
   @Test
   public void testViewQueriesIncludeEverySpellingAndExcludeNullAndGarbage() {
     seedCaseNormalizationRows();
@@ -1129,8 +1109,7 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
    * Pins this exact {@code UNKNOWN} value, which the pinned {@code utf8mb4_0900_ai_ci} column
    * collation does not equate with either type. It is not a universal exclusion of corrupt
    * spellings: that collation still matches an accented spelling Java rejects, which is why the
-   * read paths translate corruption loudly. The typed DELETEs and rename keep {@code upper(...)}
-   * per {@code HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates}.
+   * read paths translate corruption loudly.
    */
   @Test
   public void testTypedDeletesAndTableRenameSkipAnUnknownSpelling() {
@@ -1173,10 +1152,6 @@ public class HtsRepositoryTest extends HtsDatabaseTestBase {
         .isInstanceOf(UnsupportedOperationException.class);
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "sealed_view")).hasValue("VIEW");
-
-    // Teardown owns whole-store cleanup now, and it still reaches every row.
-    userTableStoreCleaner.clear();
-    assertThat(htsRepository.existsById(sealedKey)).isFalse();
   }
 
   /**
