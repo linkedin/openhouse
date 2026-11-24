@@ -112,6 +112,42 @@ public class OpenHouseInternalCatalogTest {
   }
 
   @Test
+  void dropTableDelegatesToActingPrincipalOverloadWithNull() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder().databaseId(DB).tableId(TABLE).tableLocation(METADATA_LOCATION).build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    RecordingPrincipalCatalog catalog = new RecordingPrincipalCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true));
+
+    Assertions.assertEquals(1, catalog.invocations);
+    Assertions.assertNull(catalog.lastActingPrincipal);
+  }
+
+  @Test
+  void dropTableWithActingPrincipalPassesItThrough() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder().databaseId(DB).tableId(TABLE).tableLocation(METADATA_LOCATION).build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    RecordingPrincipalCatalog catalog = new RecordingPrincipalCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true, "urn:li:gridUser:dropper"));
+
+    Assertions.assertEquals(1, catalog.invocations);
+    Assertions.assertEquals("urn:li:gridUser:dropper", catalog.lastActingPrincipal);
+    verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(true));
+    verify((SupportsPrefixOperations) fileIO).deletePrefix(EXPECTED_BASE);
+  }
+
+  @Test
   void dropTableRefusesWhenMetadataLocationIsNotAMetadataJsonFile() {
     // Defensive: if metadata_location somehow points at a directory (bad migration, manual
     // MySQL edit, future regression), the derived parent would be a level too high — e.g. the
@@ -263,6 +299,23 @@ public class OpenHouseInternalCatalogTest {
     @Override
     protected FileIO resolveFileIO(TableIdentifier identifier) {
       return fileIO;
+    }
+  }
+
+  /** Captures the acting principal a subclass would use to impersonate while purging storage. */
+  private static class RecordingPrincipalCatalog extends FixedFileIOCatalog {
+    private String lastActingPrincipal;
+    private int invocations;
+
+    RecordingPrincipalCatalog(FileIO fileIO) {
+      super(fileIO);
+    }
+
+    @Override
+    public boolean dropTable(TableIdentifier identifier, boolean purge, String actingPrincipal) {
+      this.lastActingPrincipal = actingPrincipal;
+      this.invocations++;
+      return super.dropTable(identifier, purge, actingPrincipal);
     }
   }
 

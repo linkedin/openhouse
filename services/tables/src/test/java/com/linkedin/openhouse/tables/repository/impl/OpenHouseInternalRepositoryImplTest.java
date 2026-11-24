@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.repository.impl;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
@@ -54,6 +55,27 @@ public class OpenHouseInternalRepositoryImplTest {
     when(preservedKeyChecker.allowKeyInCreation(anyString(), any())).thenReturn(true);
     when(policiesMapper.toPoliciesJsonString(any())).thenReturn("{}");
     when(clusterProperties.getClusterIcebergWriteFormatDefault()).thenReturn("parquet");
+  }
+
+  @Test
+  void deleteByIdForwardsActingPrincipalToCatalog() {
+    TableDtoPrimaryKey key =
+        TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build();
+    String actingPrincipal = "dropper";
+
+    openHouseInternalRepository.deleteById(key, actingPrincipal);
+
+    verify(catalog).dropTable(TableIdentifier.of(DB_ID, TABLE_ID), true, actingPrincipal);
+  }
+
+  @Test
+  void deleteByIdWithoutPrincipalKeepsIcebergEntrypoint() {
+    TableDtoPrimaryKey key =
+        TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build();
+
+    openHouseInternalRepository.deleteById(key);
+
+    verify(catalog).dropTable(TableIdentifier.of(DB_ID, TABLE_ID), true);
   }
 
   @Test

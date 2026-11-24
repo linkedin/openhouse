@@ -43,6 +43,16 @@ public interface OpenHouseInternalRepository
    */
   Page<TableDto> searchTables(String databaseId, Pageable pageable, List<String> fields);
 
+  /**
+   * Drops the table as the requesting principal, allowing catalogs to impersonate that user while
+   * purging storage.
+   *
+   * @param tableDtoPrimaryKey identifier of the table to drop
+   * @param actingPrincipal identity of the user executing the drop, or null when the drop did not
+   *     originate from an authenticated request
+   */
+  void deleteById(TableDtoPrimaryKey tableDtoPrimaryKey, String actingPrincipal);
+
   void rename(TableDtoPrimaryKey from, TableDtoPrimaryKey to);
 
   Page<SoftDeletedTableDto> searchSoftDeletedTables(
