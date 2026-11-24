@@ -19,7 +19,7 @@ public class PostCommitOperationRunnerTest {
 
   private static final PostCommitContext CONTEXT =
       new PostCommitContext(
-          TableIdentifier.of("db", "tbl"), Mockito.mock(TableMetadata.class), false);
+          TableIdentifier.of("db", "tbl"), Mockito.mock(TableMetadata.class), false, false);
 
   private static PostCommitOperationRunner newRunner(
       List<PostCommitOperation> ops, SimpleMeterRegistry registry) {

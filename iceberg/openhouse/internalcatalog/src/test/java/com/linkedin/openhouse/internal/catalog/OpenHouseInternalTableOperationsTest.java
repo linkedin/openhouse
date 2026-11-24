@@ -45,6 +45,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -412,6 +413,147 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertTrue(context.isPreviouslyTemporary());
     Assertions.assertFalse(
         TemporaryTableProperties.isTemporary(context.getCommittedMetadata().properties()));
+  }
+
+  /**
+   * A staged replace that makes an ordinary table temporary is not published, because it may be
+   * abandoned. The snapshots commit that follows is published as temporary.
+   */
+  @Test
+  void testStagedReplaceSettingTemporaryFlagPublishesOnlyAtSnapshotsCommit() throws Exception {
+    TableMetadata base = BASE_TABLE_METADATA.replaceProperties(withTableUuid(BASE_TABLE_METADATA));
+    Map<String, String> stagedProperties =
+        new HashMap<>(temporary(base, Optional.empty()).properties());
+    stagedProperties.put(CatalogConstants.IS_STAGE_REPLACE_KEY, "true");
+
+    List<PostCommitContext> contexts =
+        commitStagedThenSnapshots(
+            base,
+            base.replaceProperties(stagedProperties),
+            withSnapshots(temporary(base, Optional.empty())));
+
+    Assertions.assertTrue(contexts.get(0).isStaged());
+    Assertions.assertFalse(publishes(contexts.get(0)));
+    Assertions.assertFalse(contexts.get(1).isStaged());
+    Assertions.assertFalse(contexts.get(1).isPreviouslyTemporary());
+    Assertions.assertTrue(publishes(contexts.get(1)));
+  }
+
+  /**
+   * A staged replace that ends temporary status is not published. The snapshots commit that follows
+   * is published and reports the table as previously temporary.
+   */
+  @Test
+  void testStagedReplaceEndingTemporaryStatusPublishesOnlyAtSnapshotsCommit() throws Exception {
+    TableMetadata base =
+        temporary(
+            BASE_TABLE_METADATA.replaceProperties(withTableUuid(BASE_TABLE_METADATA)),
+            Optional.of(expirationTimeInDays(1)));
+    Map<String, String> flagFalse = new HashMap<>(base.properties());
+    flagFalse.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "false");
+    Map<String, String> stagedProperties = new HashMap<>(flagFalse);
+    stagedProperties.put(CatalogConstants.IS_STAGE_REPLACE_KEY, "true");
+
+    List<PostCommitContext> contexts =
+        commitStagedThenSnapshots(
+            base,
+            base.replaceProperties(stagedProperties),
+            withSnapshots(base.replaceProperties(flagFalse)));
+
+    Assertions.assertTrue(contexts.get(0).isStaged());
+    Assertions.assertFalse(publishes(contexts.get(0)));
+    Assertions.assertTrue(contexts.get(1).isPreviouslyTemporary());
+    Assertions.assertTrue(publishes(contexts.get(1)));
+  }
+
+  /**
+   * A staged create of a temporary table is not published. The create that adds snapshots is
+   * published as temporary.
+   */
+  @Test
+  void testStagedCreateOfTemporaryTablePublishesOnlyAtSnapshotsCommit() throws Exception {
+    TableMetadata temporaryTable =
+        temporary(
+            BASE_TABLE_METADATA.replaceProperties(withTableUuid(BASE_TABLE_METADATA)),
+            Optional.empty());
+    Map<String, String> stagedProperties = new HashMap<>(temporaryTable.properties());
+    stagedProperties.put(CatalogConstants.IS_STAGE_CREATE_KEY, "true");
+
+    List<PostCommitContext> contexts =
+        commitStagedThenSnapshots(
+            null,
+            temporaryTable.replaceProperties(stagedProperties),
+            withSnapshots(temporaryTable));
+
+    Assertions.assertTrue(contexts.get(0).isStaged());
+    Assertions.assertFalse(publishes(contexts.get(0)));
+    Assertions.assertFalse(contexts.get(1).isPreviouslyTemporary());
+    Assertions.assertTrue(publishes(contexts.get(1)));
+  }
+
+  /** The opt-in publishes a staged commit, as it did before temporary tables. */
+  @Test
+  void testStagedCreatePublishesWhenOptedIn() throws Exception {
+    Map<String, String> stagedProperties = withTableUuid(BASE_TABLE_METADATA);
+    stagedProperties.put(
+        AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
+    stagedProperties.put(CatalogConstants.IS_STAGE_CREATE_KEY, "true");
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      openHouseInternalTableOperationsWithPostCommit.doCommit(
+          null, BASE_TABLE_METADATA.replaceProperties(stagedProperties));
+    }
+
+    ArgumentCaptor<PostCommitContext> contextCaptor =
+        ArgumentCaptor.forClass(PostCommitContext.class);
+    Mockito.verify(mockPostCommitOperationRunner).runAll(contextCaptor.capture());
+    Assertions.assertTrue(contextCaptor.getValue().isStaged());
+    Assertions.assertTrue(publishes(contextCaptor.getValue()));
+  }
+
+  /** Commits {@code staged}, then {@code snapshots}, over {@code base}; returns both contexts. */
+  private List<PostCommitContext> commitStagedThenSnapshots(
+      TableMetadata base, TableMetadata staged, TableMetadata snapshots) {
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
+      openHouseInternalTableOperationsWithPostCommit.doCommit(base, staged);
+      openHouseInternalTableOperationsWithPostCommit.doCommit(base, snapshots);
+    }
+    ArgumentCaptor<PostCommitContext> contextCaptor =
+        ArgumentCaptor.forClass(PostCommitContext.class);
+    Mockito.verify(mockPostCommitOperationRunner, Mockito.times(2)).runAll(contextCaptor.capture());
+    return contextCaptor.getAllValues();
+  }
+
+  private static Map<String, String> withTableUuid(TableMetadata metadata) {
+    Map<String, String> properties = new HashMap<>(metadata.properties());
+    properties.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    return properties;
+  }
+
+  private static TableMetadata withSnapshots(TableMetadata metadata) throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(metadata.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+    properties.put(
+        CatalogConstants.SNAPSHOTS_REFS_KEY,
+        SnapshotsUtil.serializeMap(
+            IcebergTestUtil.createMainBranchRefPointingTo(
+                testSnapshots.get(testSnapshots.size() - 1))));
+    return metadata.replaceProperties(properties);
+  }
+
+  /** Returns whether the commit stats publisher publishes for {@code context}. */
+  private static boolean publishes(PostCommitContext context) throws Exception {
+    AtomicBoolean published = new AtomicBoolean();
+    new AbstractCommitStatsPublishOperation() {
+      @Override
+      protected void publish(CommitStats stats) {
+        published.set(true);
+      }
+    }.execute(context);
+    return published.get();
   }
 
   /**

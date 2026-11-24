@@ -25,4 +25,10 @@ public class PostCommitContext {
    * ends temporary status. That commit's metadata no longer carries the temporary flag.
    */
   boolean previouslyTemporary;
+
+  /**
+   * True for a staged create or replace. A staged commit writes a metadata file but does not change
+   * the catalog's table until the later commit that adds snapshots, and it may be abandoned.
+   */
+  boolean staged;
 }
