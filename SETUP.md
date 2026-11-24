@@ -41,6 +41,20 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
+## HouseTables tests
+
+**Java 17 and Docker are required** for the HouseTables (HTS) tests. They share one disposable
+MySQL Testcontainers instance per test JVM, built from the canonical
+`services/housetables/ddl/*.sql` files in filename order; data is reset before each test. A
+container or schema failure fails the tests; there is no H2 fallback. The MySQL version is
+`mysqlTestVersion` in `gradle.properties`, shared with the optimizer tests.
+
+```bash
+./gradlew :services:housetables:test
+```
+
+JUnit reports are under `build/housetables/reports/tests/`.
+
 ## Available Recipes
 
 Recipes for setting up OpenHouse in local docker are available [here](infra/recipes/docker-compose)

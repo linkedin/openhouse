@@ -7,12 +7,13 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.housetables.api.spec.model.Job;
 import com.linkedin.openhouse.housetables.api.spec.model.JobKey;
 import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-public class OpenHouseJobTablesValidatorTest {
+public class OpenHouseJobTablesValidatorTest extends HtsDatabaseTestBase {
   @Autowired private HouseTablesApiValidator<JobKey, Job> jobTablesHtsApiValidator;
 
   @Test
