@@ -16,10 +16,12 @@ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageE
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
 import com.linkedin.openhouse.javaclient.mapper.SparkMapper;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
+import com.linkedin.openhouse.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.api.ViewApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateNamespaceRequest;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
@@ -27,13 +29,21 @@ import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.NamespaceResponse;
 import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.client.model.UpdateNamespacePropertiesRequest;
+import com.linkedin.openhouse.tables.client.model.UpdateNamespacePropertiesResponse;
 import java.net.MalformedURLException;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLException;
@@ -57,10 +67,13 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
+import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
+import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
@@ -71,6 +84,8 @@ import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewBuilder;
 import org.apache.iceberg.view.ViewOperations;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
@@ -117,6 +132,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   private DatabaseApi databaseApi;
 
+  private NamespaceApi namespaceApi;
+
   private FileIO fileIO;
 
   private Configuration conf;
@@ -149,6 +166,17 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   /** Catalog property that gates view support. Off by default. */
   private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
 
+  private static final Duration NAMESPACE_READ_TIMEOUT = Duration.ofSeconds(30);
+
+  private static final Duration NAMESPACE_WRITE_TIMEOUT = Duration.ofSeconds(60);
+
+  enum NamespaceOperation {
+    CREATE,
+    LOAD,
+    DROP,
+    UPDATE
+  }
+
   /** Whether view operations are enabled for this catalog instance (set in {@link #initialize}). */
   private boolean viewsEnabled = false;
 
@@ -169,6 +197,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
     HttpHeaders headers = CatalogRequestHeaders.from(properties, capabilities());
+    ApiClient namespaceClient;
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -178,19 +207,24 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
       }
       this.apiClient = tablesApiClientFactory.createApiClient(uri, token, truststore);
+      namespaceClient = tablesApiClientFactory.createNamespaceApiClient(uri, token, truststore);
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
     }
     if (actionType != null) {
       this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
+      namespaceClient.addDefaultHeader(
+          HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
     }
     headers.toSingleValueMap().forEach(this.apiClient::addDefaultHeader);
+    headers.toSingleValueMap().forEach(namespaceClient::addDefaultHeader);
     log.info("Catalog {} sends configured headers {}", name, headers.keySet());
     this.tableApi = new TableApi(apiClient);
     this.viewApi = new ViewApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
+    this.namespaceApi = new NamespaceApi(namespaceClient);
 
     this.fileIO = loadFileIO(properties);
 
@@ -232,6 +266,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     if (token != null && !token.isEmpty()) {
       this.properties.put(AUTH_TOKEN, token);
       this.apiClient.addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
+      this.namespaceApi
+          .getApiClient()
+          .addDefaultHeader(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", token));
     }
   }
 
@@ -397,8 +434,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   /**
    * it's necessary to return null. This function only gets called from {@link
    * BaseMetastoreCatalog}, just before doCommit(). {@link
-   * OpenHouseTableOperations#doCommit(org.apache.iceberg.TableMetadata,
-   * org.apache.iceberg.TableMetadata)} currently ignores the return value of null.
+   * OpenHouseTableOperations#doCommit(TableMetadata, TableMetadata)} currently ignores the return
+   * value of null.
    *
    * <p>Without this return, an error will be thrown for a simple (CREATE TABLE) statement.
    *
@@ -412,8 +449,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   /**
    * A {@link BaseMetastoreCatalog} needs to be set as {@link Configurable}.
    *
-   * <p>The {@link org.apache.iceberg.spark.SparkCatalog} extensions will provide the right Hadoop
-   * configurations from the spark environment when building a custom catalog.
+   * <p>The {@code SparkCatalog} extensions will provide the right Hadoop configurations from the
+   * spark environment when building a custom catalog.
    */
   @Override
   public void setConf(Configuration conf) {
@@ -427,13 +464,21 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public void createNamespace(Namespace namespace) throws UnsupportedOperationException {
-    createNamespace(namespace, null);
+    createNamespace(namespace, Collections.emptyMap());
   }
 
   @Override
-  public void createNamespace(Namespace namespace, Map<String, String> map)
-      throws UnsupportedOperationException {
-    throw new UnsupportedOperationException("Create Database is not supported");
+  public void createNamespace(Namespace namespace, Map<String, String> properties) {
+    validateNamespace(namespace);
+    validateNamespaceProperties(properties);
+    executeNamespaceRequest(
+        namespaceApi.createNamespaceV1WithHttpInfo(
+            name,
+            new CreateNamespaceRequest()
+                .namespace(Arrays.asList(namespace.levels()))
+                .properties(properties)),
+        NAMESPACE_WRITE_TIMEOUT,
+        NamespaceOperation.CREATE);
   }
 
   /**
@@ -471,32 +516,129 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   }
 
   /**
-   * Support for "describe database". Implement this if needed.
-   *
-   * @return
+   * Loads immutable namespace properties. A missing namespace throws {@link
+   * NoSuchNamespaceException}.
    */
   @Override
-  public Map<String, String> loadNamespaceMetadata(Namespace namespace)
-      throws NoSuchNamespaceException, UnsupportedOperationException {
-    throw new UnsupportedOperationException("Describing database is not supported");
+  public Map<String, String> loadNamespaceMetadata(Namespace namespace) {
+    return loadNamespaceProperties(namespace);
+  }
+
+  /** Drops a namespace, returning false when it is absent. */
+  @Override
+  public boolean dropNamespace(Namespace namespace) {
+    validateNamespace(namespace);
+    try {
+      executeNamespaceRequest(
+          namespaceApi.dropNamespaceV1WithHttpInfo(name, namespace.level(0)),
+          NAMESPACE_WRITE_TIMEOUT,
+          NamespaceOperation.DROP);
+      return true;
+    } catch (NoSuchNamespaceException failure) {
+      return false;
+    }
   }
 
   @Override
-  public boolean dropNamespace(Namespace namespace)
-      throws NamespaceNotEmptyException, UnsupportedOperationException {
-    throw new UnsupportedOperationException("Drop database is not supported");
+  public boolean setProperties(Namespace namespace, Map<String, String> properties) {
+    return updateNamespaceProperties(namespace, properties, Collections.emptySet());
   }
 
   @Override
-  public boolean setProperties(Namespace namespace, Map<String, String> map)
-      throws NoSuchNamespaceException {
-    throw new UnsupportedOperationException("Set properties on a database is not supported");
+  public boolean removeProperties(Namespace namespace, Set<String> properties) {
+    return updateNamespaceProperties(namespace, Collections.emptyMap(), properties);
   }
 
-  @Override
-  public boolean removeProperties(Namespace namespace, Set<String> set)
-      throws NoSuchNamespaceException {
-    throw new UnsupportedOperationException("Remove properties of a database is not supported");
+  private Map<String, String> loadNamespaceProperties(Namespace namespace) {
+    validateNamespace(namespace);
+    NamespaceResponse response =
+        executeNamespaceRequest(
+                namespaceApi.loadNamespaceMetadataV1WithHttpInfo(name, namespace.level(0)),
+                NAMESPACE_READ_TIMEOUT,
+                NamespaceOperation.LOAD)
+            .getBody();
+    return Collections.unmodifiableMap(
+        new HashMap<>(
+            Optional.ofNullable(response.getProperties()).orElseGet(Collections::emptyMap)));
+  }
+
+  private boolean updateNamespaceProperties(
+      Namespace namespace, Map<String, String> updates, Set<String> removals) {
+    validateNamespace(namespace);
+    validateNamespaceProperties(updates);
+    if (removals.stream().anyMatch(Objects::isNull)) {
+      throw new ValidationException("Namespace removal keys must be strings");
+    }
+    ResponseEntity<UpdateNamespacePropertiesResponse> response =
+        executeNamespaceRequest(
+            namespaceApi.updateNamespacePropertiesV1WithHttpInfo(
+                name,
+                namespace.level(0),
+                new UpdateNamespacePropertiesRequest().updates(updates).removals(removals)),
+            NAMESPACE_WRITE_TIMEOUT,
+            NamespaceOperation.UPDATE);
+    return !response.getBody().getUpdated().isEmpty() || !response.getBody().getRemoved().isEmpty();
+  }
+
+  private static void validateNamespace(Namespace namespace) {
+    if (namespace.length() != 1 || !namespace.level(0).matches("[a-zA-Z0-9_]{1,128}")) {
+      throw new ValidationException(
+          String.format(
+              "Namespace '%s' must contain one name of 1 to 128 letters, digits, or underscores",
+              namespace));
+    }
+  }
+
+  private static void validateNamespaceProperties(Map<String, String> properties) {
+    if (properties.entrySet().stream()
+        .anyMatch(
+            entry ->
+                !Optional.ofNullable(entry.getKey()).isPresent()
+                    || !Optional.ofNullable(entry.getValue()).isPresent())) {
+      throw new ValidationException("Namespace properties must have string keys and values");
+    }
+  }
+
+  /** Blocks each generated namespace request for its timeout and translates expected failures. */
+  static <T> ResponseEntity<T> executeNamespaceRequest(
+      Mono<ResponseEntity<T>> request, Duration timeout, NamespaceOperation operation) {
+    try {
+      return request.block(timeout);
+    } catch (WebClientResponseException failure) {
+      HttpStatus status = failure.getStatusCode();
+      if (operation == NamespaceOperation.DROP && status == HttpStatus.BAD_REQUEST) {
+        throw new NamespaceNotEmptyException(failure, "Namespace contains tables or views");
+      }
+      if ((status == HttpStatus.BAD_REQUEST
+              && (operation == NamespaceOperation.CREATE || operation == NamespaceOperation.UPDATE))
+          || (status == HttpStatus.UNPROCESSABLE_ENTITY
+              && operation == NamespaceOperation.UPDATE)) {
+        throw new ValidationException(failure, "Invalid namespace request");
+      }
+      if (status == HttpStatus.UNAUTHORIZED) {
+        throw new NotAuthorizedException(failure, "Namespace authentication required");
+      }
+      if (status == HttpStatus.FORBIDDEN) {
+        throw new ForbiddenException(failure, "Namespace access denied");
+      }
+      if (status == HttpStatus.NOT_FOUND && operation != NamespaceOperation.CREATE) {
+        throw new NoSuchNamespaceException(failure, "Namespace metadata does not exist");
+      }
+      if (status == HttpStatus.CONFLICT && operation == NamespaceOperation.CREATE) {
+        throw new AlreadyExistsException(failure, "Namespace already exists");
+      }
+      if (status == HttpStatus.CONFLICT
+          && (operation == NamespaceOperation.UPDATE || operation == NamespaceOperation.DROP)) {
+        throw new org.apache.iceberg.exceptions.CommitFailedException(
+            failure, "Namespace was concurrently modified");
+      }
+      throw new RESTException(failure, "Namespace operation failed");
+    } catch (RuntimeException failure) {
+      if (failure.getCause() instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      throw new RESTException(failure, "Namespace operation failed");
+    }
   }
 
   @Override
