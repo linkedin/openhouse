@@ -177,6 +177,20 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
+    return dropTable(identifier, purge, null);
+  }
+
+  /**
+   * Drops a table with the requesting principal available to subclasses that impersonate users
+   * while purging storage. The Iceberg entrypoint delegates here with a null principal.
+   *
+   * @param identifier a table identifier
+   * @param purge if true, delete all data and metadata files of the table
+   * @param actingPrincipal identity of the user executing the drop, or null when the drop did not
+   *     originate from an authenticated request
+   * @return true if the table was dropped
+   */
+  public boolean dropTable(TableIdentifier identifier, boolean purge, String actingPrincipal) {
     // Look up the HouseTable row directly instead of calling loadTable(), so drop works even when
     // the table's metadata.json is corrupted and cannot be parsed by TableMetadataParser.
     HouseTable houseTable =
@@ -190,7 +204,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
             .build();
     String tableLocation = getTableBaseLocation(houseTable, identifier);
     FileIO fileIO = resolveFileIO(identifier);
-    log.debug("Dropping table {}, purge:{}", tableLocation, purge);
+    log.debug(
+        "Dropping table {}, purge:{}, actingPrincipal:{}", tableLocation, purge, actingPrincipal);
     try {
       houseTableRepository.deleteById(primaryKey, purge);
     } catch (HouseTableRepositoryException houseTableRepositoryException) {

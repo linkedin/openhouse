@@ -53,6 +53,28 @@ public class TablesServiceTest {
   }
 
   @Test
+  public void testDeleteTablePassesActingPrincipalToRepository() {
+    final String dbId = TEST_CREATE_TABLE_REQUEST_BODY.getDatabaseId();
+    final String tableId = TEST_CREATE_TABLE_REQUEST_BODY.getTableId();
+    final TableDtoPrimaryKey key =
+        TableDtoPrimaryKey.builder().databaseId(dbId).tableId(tableId).build();
+    final TableDto tableDto =
+        TableDto.builder()
+            .databaseId(dbId)
+            .tableId(tableId)
+            .tableUUID("uuid")
+            .tableCreator(TEST_TABLE_CREATOR)
+            .build();
+    Mockito.when(mockRepository.findTableRefById(key)).thenReturn(Optional.of(tableDto));
+
+    String actingPrincipal = "dropper";
+    service.deleteTable(dbId, tableId, actingPrincipal);
+
+    Mockito.verify(mockRepository).deleteById(key, actingPrincipal);
+    Mockito.verify(mockRepository, Mockito.never()).deleteById(key);
+  }
+
+  @Test
   public void testHouseTableConcurrentUpdateException() {
     final String dbId = TEST_CREATE_TABLE_REQUEST_BODY.getDatabaseId();
     final String tableId = TEST_CREATE_TABLE_REQUEST_BODY.getTableId();

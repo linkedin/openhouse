@@ -35,6 +35,18 @@ public class MetricsAspect {
     return reportExecutionTime(joinPoint, timed.metricKey(), Optional.of("table " + tableId));
   }
 
+  @Around("@annotation(timed) && args(tableDtoPrimaryKey, actingPrincipal)")
+  public Object reportExecutionTime(
+      ProceedingJoinPoint joinPoint,
+      Timed timed,
+      TableDtoPrimaryKey tableDtoPrimaryKey,
+      String actingPrincipal)
+      throws Throwable {
+    TableIdentifier tableId =
+        TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId());
+    return reportExecutionTime(joinPoint, timed.metricKey(), Optional.of("table " + tableId));
+  }
+
   @Around("@annotation(timed) && args(databaseId)")
   public Object reportExecutionTime(ProceedingJoinPoint joinPoint, Timed timed, String databaseId)
       throws Throwable {

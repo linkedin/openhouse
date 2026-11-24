@@ -264,7 +264,7 @@ public class TablesServiceImpl implements TablesService {
 
     authorizationUtils.checkTableDropPrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
 
-    openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
+    openHouseInternalRepository.deleteById(tableDtoPrimaryKey, actingPrincipal);
   }
 
   @Override
