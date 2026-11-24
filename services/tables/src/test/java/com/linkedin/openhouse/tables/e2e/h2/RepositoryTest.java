@@ -509,38 +509,40 @@ public class RepositoryTest {
             .tableId("tblReplaceMergesPolicies")
             .tableVersion(INITIAL_TABLE_VERSION)
             .timePartitioning(null)
-            .clustering(
-                Collections.singletonList(ClusteringColumn.builder().columnName("name").build()))
+            .clustering(null)
             .tableProperties(props)
             .policies(TABLE_POLICIES_COMPLEX)
             .build();
     TableDto createdDto = openHouseInternalRepository.save(createDto);
-    TableDtoPrimaryKey replacePk = getPrimaryKey(createDto);
-    try {
-      Assertions.assertNotNull(createdDto.getPolicies());
-      Assertions.assertNotNull(createdDto.getPolicies().getRetention());
+    Assertions.assertNotNull(createdDto.getPolicies());
+    Assertions.assertNotNull(createdDto.getPolicies().getRetention());
 
-      // CREATE OR REPLACE (RTAS) the table WITHOUT specifying policies.
-      TableDto replaceDto =
-          createdDto
-              .toBuilder()
-              .tableVersion(createdDto.getTableLocation())
-              .policies(null)
-              .replaceCommit(true)
-              .build();
-      TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+    // CREATE OR REPLACE (RTAS) the table WITHOUT specifying policies.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(null)
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
 
-      // Policies must be carried forward (merged), not silently wiped.
-      Assertions.assertNotNull(replacedDto.getPolicies(), "RTAS wiped the policies plane");
-      Assertions.assertNotNull(
-          replacedDto.getPolicies().getRetention(), "RTAS dropped the retention policy");
-      Assertions.assertEquals(
-          createdDto.getPolicies().getRetention().getCount(),
-          replacedDto.getPolicies().getRetention().getCount(),
-          "RTAS changed the retention policy");
-    } finally {
-      openHouseInternalRepository.deleteById(replacePk);
-    }
+    // Policies must be carried forward (merged), not silently wiped.
+    Assertions.assertNotNull(replacedDto.getPolicies(), "RTAS wiped the policies plane");
+    Assertions.assertNotNull(
+        replacedDto.getPolicies().getRetention(), "RTAS dropped the retention policy");
+    Assertions.assertEquals(
+        createdDto.getPolicies().getRetention().getCount(),
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS changed the retention policy");
+
+    // Cleanup
+    TableDtoPrimaryKey replacePk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceMergesPolicies")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(replacePk);
     Assertions.assertFalse(openHouseInternalRepository.existsById(replacePk));
   }
 
@@ -965,7 +967,7 @@ public class RepositoryTest {
   @Test
   public void testReplaceSucceedsWhenRetentionColumnRetained() {
     // Same setup as testReplaceFailsWhenRetentionColumnDroppedFromSchema, except the new schema
-    // keeps the retention column and its partitioning. The replace must be allowed.
+    // keeps the retention column. The replace must be allowed.
     Schema schema =
         new Schema(
             required(1, "id", Types.StringType.get()),
@@ -989,9 +991,7 @@ public class RepositoryTest {
             .tableVersion(INITIAL_TABLE_VERSION)
             .schema(SchemaParser.toJson(schema, false))
             .timePartitioning(null)
-            .clustering(
-                Collections.singletonList(
-                    ClusteringColumn.builder().columnName("datepartition").build()))
+            .clustering(null)
             .tableProperties(props)
             .policies(Policies.builder().retention(retention).build())
             .build();
@@ -1011,14 +1011,6 @@ public class RepositoryTest {
             .policies(null)
             .stageReplace(true)
             .build();
-    RequestValidationFailureException thrown =
-        Assertions.assertThrows(
-            RequestValidationFailureException.class,
-            () ->
-                openHouseInternalRepository.save(
-                    stageReplaceDto.toBuilder().clustering(null).build()));
-    Assertions.assertTrue(thrown.getMessage().contains("must be part of the partition spec"));
-
     TableDto replacedDto = openHouseInternalRepository.save(stageReplaceDto);
 
     Assertions.assertEquals(

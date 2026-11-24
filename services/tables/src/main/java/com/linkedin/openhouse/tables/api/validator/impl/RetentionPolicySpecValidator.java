@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -13,8 +12,6 @@ import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
 import java.util.Optional;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
@@ -30,12 +27,11 @@ import org.springframework.stereotype.Component;
 public class RetentionPolicySpecValidator extends PolicySpecValidator {
 
   /**
-   * Invalid cases for retention object 0. retention column not found in the schema or partition
-   * spec. 1. retention column pattern containing invalid characters. 2. missing retention column
-   * pattern in provided retention object when table is not time-partitioned. (Otherwise such
-   * retention isn't useful) 3(1). when table is time-partitioned: providing retention column type
-   * is invalid. 3(2) when table is time-partitioned: Granularity mismatch with retention column is
-   * invalid.
+   * Invalid cases for retention object 0. retention column not found in the schema object. 1.
+   * retention column pattern containing invalid characters. 2. missing retention column pattern in
+   * provided retention object when table is not time-partitioned. (Otherwise such retention isn't
+   * useful) 3(1). when table is time-partitioned: providing retention column type is invalid. 3(2)
+   * when table is time-partitioned: Granularity mismatch with retention column is invalid.
    *
    * @param createUpdateTableRequestBody {@link CreateUpdateTableRequestBody} API request body for
    *     creation and updating tables
@@ -48,7 +44,6 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
         findViolation(
             createUpdateTableRequestBody.getPolicies().getRetention(),
             createUpdateTableRequestBody.getTimePartitioning(),
-            createUpdateTableRequestBody.getClustering(),
             createUpdateTableRequestBody.getSchema(),
             tableUri);
     if (violation.isPresent()) {
@@ -61,23 +56,18 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
 
   /**
    * Stateless equivalent of {@link #validate(CreateUpdateTableRequestBody, TableUri)} that checks a
-   * retention policy for compatibility with the given schema and partition spec. Callers that do
-   * not operate on a {@link CreateUpdateTableRequestBody}, such as the REPLACE TABLE path where
-   * retention is carried over from the existing table, should use this method.
+   * retention policy for compatibility with the given schema and time-partitioning spec. Callers
+   * that do not operate on a {@link CreateUpdateTableRequestBody}, such as the REPLACE TABLE path
+   * where retention is carried over from the existing table, should use this method.
    *
    * @param retention retention policy to check, a null retention is always compatible
    * @param timePartitioning time-partitioning spec of the table, null when not time-partitioned
-   * @param clustering non-timestamp partition columns of the table
    * @param schema Iceberg schema of the table in its JSON representation
    * @param tableUri identifier of the table used in failure messages
    * @return the {@link Violation} found, or {@link Optional#empty()} when retention is compatible
    */
   public Optional<Violation> findViolation(
-      Retention retention,
-      TimePartitionSpec timePartitioning,
-      List<ClusteringColumn> clustering,
-      String schema,
-      TableUri tableUri) {
+      Retention retention, TimePartitionSpec timePartitioning, String schema, TableUri tableUri) {
     if (retention == null) {
       return Optional.empty();
     }
@@ -157,22 +147,6 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
               "retention",
               String.format(
                   "Retention time zone requires a string column for table[%s]", tableUri)));
-    }
-
-    if (retention.getColumnPattern() != null
-        && Optional.ofNullable(clustering).orElse(Collections.emptyList()).stream()
-            .noneMatch(
-                column ->
-                    column != null
-                        && column
-                            .getColumnName()
-                            .equals(retention.getColumnPattern().getColumnName()))) {
-      return Optional.of(
-          new Violation(
-              "retention",
-              String.format(
-                  "Retention column[%s] must be part of the partition spec for table[%s]",
-                  retention.getColumnPattern().getColumnName(), tableUri)));
     }
 
     return Optional.empty();

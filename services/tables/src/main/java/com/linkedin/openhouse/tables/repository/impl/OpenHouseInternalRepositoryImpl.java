@@ -491,12 +491,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   /**
    * A replace carries the existing table's retention policy over to the new schema, which can leave
-   * the policy pointing at a column that the new schema or partition spec no longer has, or at a
-   * granularity that no longer matches the new time-partitioning. Reject such a replace upfront, at
-   * CREATE TABLE time, instead of letting the write proceed and fail at commit time.
+   * the policy pointing at a column that the new schema no longer has, or at a granularity that no
+   * longer matches the new time-partitioning. Reject such a replace upfront, at CREATE TABLE time,
+   * instead of letting the write proceed and fail at commit time.
    *
    * @param tableDto table state to be persisted, with policies already merged and the new schema
-   *     and partition spec applied
+   *     and time-partitioning applied
    */
   private void validateRetentionPolicyForReplace(TableDto tableDto) {
     Policies policies = tableDto.getPolicies();
@@ -511,11 +511,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             .build();
     retentionPolicySpecValidator
         .findViolation(
-            policies.getRetention(),
-            tableDto.getTimePartitioning(),
-            tableDto.getClustering(),
-            tableDto.getSchema(),
-            tableUri)
+            policies.getRetention(), tableDto.getTimePartitioning(), tableDto.getSchema(), tableUri)
         .ifPresent(
             violation -> {
               throw new RequestValidationFailureException(

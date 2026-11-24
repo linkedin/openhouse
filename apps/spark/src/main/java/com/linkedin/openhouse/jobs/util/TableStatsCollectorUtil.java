@@ -288,7 +288,7 @@ public final class TableStatsCollectorUtil {
         retentionStatsSchema.getColumnName() != null
             ? retentionStatsSchema.getColumnName()
             : getPartitionColumnName(table);
-    // Legacy policies may reference a schema column that is not a partition field.
+    // Retention policies may reference a schema column that is not a partition field.
     if (partitionColumnName == null
         || table.spec().partitionType().field(partitionColumnName) == null) {
       return null;

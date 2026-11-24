@@ -5,14 +5,11 @@ import static org.apache.iceberg.types.Types.NestedField.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import java.lang.reflect.Field;
-import java.util.Arrays;
-import java.util.Collections;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -187,8 +184,6 @@ class RetentionPolicySpecValidatorTest {
         CreateUpdateTableRequestBody.builder()
             .policies(Policies.builder().retention(retention).build())
             .schema(getSchemaJsonFromSchema(dummySchema))
-            .clustering(
-                Collections.singletonList(ClusteringColumn.builder().columnName("id").build()))
             .build();
     Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
   }
@@ -207,10 +202,6 @@ class RetentionPolicySpecValidatorTest {
         CreateUpdateTableRequestBody.builder()
             .policies(Policies.builder().retention(retention).build())
             .schema(getSchemaJsonFromSchema(nestedSchema))
-            .clustering(
-                Arrays.asList(
-                    ClusteringColumn.builder().columnName("top1.aa").build(),
-                    ClusteringColumn.builder().columnName("top2").build()))
             .build();
     Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
 
@@ -350,7 +341,7 @@ class RetentionPolicySpecValidatorTest {
     // Positive: Only have pattern but no timepartitionSpec
     CreateUpdateTableRequestBody requestBodyNoTimePartitionSpec =
         createRequestBodyWithRetentionPolicy(
-            RetentionColumnPattern.builder().columnName("aa").pattern("yyyy-mm-dd-hh").build(),
+            RetentionColumnPattern.builder().pattern("yyyy-mm-dd-hh").build(),
             1,
             TimePartitionSpec.Granularity.DAY,
             null);
@@ -420,63 +411,6 @@ class RetentionPolicySpecValidatorTest {
 
   }
 
-  @Test
-  void testRetentionColumnMustBePartitioned() {
-    CreateUpdateTableRequestBody request =
-        createRequestBodyWithRetentionPolicy(
-            RetentionColumnPattern.builder().columnName("aa").pattern("yyyy-MM-dd").build(),
-            1,
-            TimePartitionSpec.Granularity.DAY,
-            null);
-    TableUri tableUri = TableUri.builder().build();
-    Assertions.assertTrue(validator.validate(request, tableUri));
-
-    Assertions.assertFalse(
-        validator.validate(request.toBuilder().clustering(null).build(), tableUri));
-    Assertions.assertTrue(validator.getMessage().contains("must be part of the partition spec"));
-    Assertions.assertFalse(
-        validator.validate(
-            request.toBuilder().clustering(Collections.emptyList()).build(), tableUri));
-    Assertions.assertFalse(
-        validator.validate(
-            request
-                .toBuilder()
-                .clustering(
-                    Collections.singletonList(ClusteringColumn.builder().columnName("id").build()))
-                .build(),
-            tableUri));
-  }
-
-  @Test
-  void testTimePartitionedRetentionRemainsValid() {
-    CreateUpdateTableRequestBody request =
-        createRequestBodyWithRetentionPolicy(
-                null,
-                1,
-                TimePartitionSpec.Granularity.DAY,
-                TimePartitionSpec.builder()
-                    .columnName("ts")
-                    .granularity(TimePartitionSpec.Granularity.DAY)
-                    .build())
-            .toBuilder()
-            .schema(
-                getSchemaJsonFromSchema(
-                    new Schema(required(1, "ts", Types.TimestampType.withoutZone()))))
-            .clustering(null)
-            .build();
-    Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
-  }
-
-  @Test
-  void testUnpartitionedTableWithoutRetentionRemainsValid() {
-    CreateUpdateTableRequestBody request =
-        CreateUpdateTableRequestBody.builder()
-            .schema(getSchemaJsonFromSchema(dummySchema))
-            .policies(Policies.builder().build())
-            .build();
-    Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
-  }
-
   private CreateUpdateTableRequestBody createRequestBodyWithRetentionPolicy(
       RetentionColumnPattern pattern,
       int retentionCount,
@@ -493,7 +427,6 @@ class RetentionPolicySpecValidatorTest {
         .policies(policiesInvalidColumnNameCasing)
         .schema(getSchemaJsonFromSchema(dummySchema))
         .timePartitioning(timePartitioning)
-        .clustering(Collections.singletonList(ClusteringColumn.builder().columnName("aa").build()))
         .build();
   }
 }

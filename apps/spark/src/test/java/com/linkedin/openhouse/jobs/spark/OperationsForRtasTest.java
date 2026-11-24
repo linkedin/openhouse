@@ -23,11 +23,11 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
-import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
+import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -39,11 +39,12 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Retention is the job that a replace can actually invalidate: the scheduler snapshots {@code
  * policies.retention} and freezes it into the job's CLI args, and {@link Operations#runRetention}
- * never re-reads the policy before issuing its DELETE. Tests cover policy validation that prevents
- * retention on non-partition columns, the replace changing what the DELETE lands on, and the two
- * commit-time races that decide whether a DELETE holding a pre-replace base snapshot is rejected or
- * waved through. The remaining two cover snapshot expiration and orphan file deletion, which carry
- * no such frozen state and are expected to simply work on a replaced table.
+ * never re-reads the policy before issuing its DELETE. Five tests pin the ways that goes wrong: the
+ * frozen config no longer describing the table, the replace changing what the DELETE lands on, the
+ * replace making the same config far more expensive to apply, and the two commit-time races that
+ * decide whether a DELETE holding a pre-replace base snapshot is rejected or waved through. The
+ * remaining two cover snapshot expiration and orphan file deletion, which carry no such frozen
+ * state and are expected to simply work on a replaced table.
  */
 @Slf4j
 public class OperationsForRtasTest extends OpenHouseSparkITest {
@@ -52,10 +53,25 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
   private final OtelEmitter otelEmitter =
       new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
+  /**
+   * Mismatch between the old retention config and the current schema.
+   *
+   * <p>The job was launched with {@code --columnName datepartition}. The replace drops that column,
+   * so the frozen args describe a schema the table no longer has. Nothing revalidates them, so the
+   * mismatch only surfaces when the generated DELETE fails to resolve.
+   *
+   * <p>Note the replace is only accepted because the policy was re-pointed at a surviving column
+   * first: OpenHouse rejects a replace that would leave {@code policies.retention} referencing a
+   * dropped column. It does not extend that protection to a job already holding the old config.
+   */
   @Test
-  public void testRetentionRejectsNonPartitionColumnBeforeRtas() throws Exception {
+  public void testRetentionConfigMismatchesSchemaAfterRtas() throws Exception {
     final String tableName = "db.test_retention_config_schema_mismatch";
+    final String sourceName = "db.test_retention_config_schema_mismatch_source";
+    ZonedDateTime now = ZonedDateTime.now();
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // Table retains on `datepartition`. Neither retention column is a partition field: a replace
+      // cannot drop a column the retained partition spec still binds to.
       ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
       ops.spark()
           .sql(
@@ -67,21 +83,74 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
       ops.spark()
           .sql(
               String.format(
+                  "ALTER TABLE %s SET POLICY (RETENTION = 30d ON COLUMN datepartition"
+                      + " WHERE PATTERN = 'yyyy-MM-dd')",
+                  tableName));
+      ops.spark()
+          .sql(
+              String.format(
                   "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName))
           .show();
-      BadRequestException e =
+      String today = DATE_FORMATTER.format(now);
+      String longAgo = DATE_FORMATTER.format(now.minusDays(40));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('d0', '%s', '%s', 'p0'), ('d40', '%s', '%s', 'p1')",
+                  tableName, today, today, longAgo, longAgo))
+          .show();
+      verifyRowCount(ops, tableName, 2);
+
+      // The scheduler snapshots the policy here and launches the job, freezing
+      // `--columnName datepartition --columnPattern yyyy-MM-dd --granularity day --count 30`.
+
+      // The owner migrates the retention column and replaces the table, dropping the old column.
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET POLICY (RETENTION = 30d ON COLUMN newdate"
+                      + " WHERE PATTERN = 'yyyy-MM-dd')",
+                  tableName));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName)).show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, newdate string, part string)", sourceName))
+          .show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('d0', '%s', 'p0'), ('d40', '%s', 'p1')",
+                  sourceName, today, longAgo))
+          .show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg PARTITIONED BY (part)"
+                      + " AS SELECT data, newdate, part FROM %s",
+                  tableName, sourceName));
+      Table replaced = ops.getTable(tableName);
+      Assertions.assertNull(
+          replaced.schema().findField("datepartition"),
+          "Replace should have dropped the column the in-flight job was launched with");
+      Assertions.assertNotNull(
+          replaced.schema().findField("newdate"), "Replace should keep the new retention column");
+      verifyRowCount(ops, tableName, 2);
+
+      // The in-flight job runs with its frozen args, which no longer match the schema.
+      AnalysisException e =
           Assertions.assertThrows(
-              BadRequestException.class,
+              AnalysisException.class,
               () ->
-                  ops.spark()
-                      .sql(
-                          String.format(
-                              "ALTER TABLE %s SET POLICY (RETENTION = 30d ON COLUMN datepartition"
-                                  + " WHERE PATTERN = 'yyyy-MM-dd')",
-                              tableName)));
-      Assertions.assertTrue(e.getMessage().contains("must be part of the partition spec"));
-      Assertions.assertEquals(
-          Collections.singletonList("part"), identityPartitionSources(ops.getTable(tableName)));
+                  ops.runRetention(
+                      tableName, "datepartition", "yyyy-MM-dd", "day", 30, false, "", now),
+              "Retention should not resolve against a schema missing its configured column");
+      Assertions.assertTrue(
+          e.getMessage().contains("datepartition"),
+          "Failure should name the stale retention column, but was: " + e.getMessage());
+
+      // The mismatch is fatal rather than destructive: the replaced table is untouched.
+      verifyRowCount(ops, tableName, 2);
     }
   }
 
@@ -163,9 +232,27 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
     }
   }
 
-  /** A replace cannot drop the partitioning required by a carried-over retention policy. */
+  /**
+   * Retention stops being a metadata-only delete once a replace drops the partitioning.
+   *
+   * <p>The table is partitioned by identity on the string {@code datepartition} column that
+   * retention is configured against, which is what makes the retention DELETE cheap: Iceberg can
+   * satisfy it by dropping whole partition files, without reading or rewriting a single row. The
+   * replace keeps the schema and the retention policy exactly as they were and only drops the
+   * partitioning, so nothing about the job's frozen args stops matching and nothing fails.
+   *
+   * <p>The cost changes anyway. {@code SparkTable.canDeleteWhere} refuses a metadata delete once
+   * {@code table.specs().size() > 1}, and it also requires the predicate to reference only identity
+   * partition sources. Dropping the partitioning trips both: the replace adds an unpartitioned spec
+   * alongside the original one, and leaves no identity source for {@code datepartition}. Spark
+   * falls back to a copy-on-write rewrite, so the same retention window that used to delete
+   * metadata now reads the surviving rows and writes them out again.
+   *
+   * <p>This is permanent, not transient. The extra spec stays in the table's metadata, so no later
+   * retention run recovers the metadata-only path.
+   */
   @Test
-  public void testRetentionPreventsRtasDroppingPartitioning() throws Exception {
+  public void testRetentionLosesMetadataOnlyDeleteAfterRtasDropsPartitioning() throws Exception {
     final String tableName = "db.test_retention_metadata_only_after_rtas";
     final String sourceName = "db.test_retention_metadata_only_after_rtas_source";
     ZonedDateTime now = ZonedDateTime.now();
@@ -219,38 +306,56 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
       ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
       verifyRowCount(ops, tableName, 1);
 
-      // Keeping the retention column in the schema is insufficient without its partitioning.
+      // The owner replaces the table, dropping the partitioning. The retention column and the
+      // policy that names it are untouched, so nothing revalidates and nothing warns.
       ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName)).show();
       ops.spark()
           .sql(String.format("CREATE TABLE %s (data string, datepartition string)", sourceName))
           .show();
       insertDatePartitionRows(ops, sourceName, today, longAgo);
-      BadRequestException e =
-          Assertions.assertThrows(
-              BadRequestException.class,
-              () ->
-                  ops.spark()
-                      .sql(
-                          String.format(
-                              "REPLACE TABLE %s USING iceberg AS SELECT data, datepartition FROM %s",
-                              tableName, sourceName)));
-      Assertions.assertTrue(e.getMessage().contains("must be part of the partition spec"));
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT data, datepartition FROM %s",
+                  tableName, sourceName));
 
       Table afterRtas = ops.getTable(tableName);
       Assertions.assertEquals(
           schemaBeforeRtas,
           afterRtas.schema().asStruct(),
-          "Rejected replace should leave the schema intact");
+          "Replace should leave the schema intact");
+      Assertions.assertTrue(
+          afterRtas.spec().isUnpartitioned(), "Replace should have dropped the partitioning");
       Assertions.assertEquals(
-          1,
+          2,
           afterRtas.specs().size(),
-          "Rejected replace should preserve the original partition spec");
+          "Replace should retain the original spec alongside the unpartitioned one");
+      Assertions.assertTrue(
+          identityPartitionSources(afterRtas).isEmpty(),
+          "Replace should leave no identity partition source for the retention column");
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      verifyRowCount(ops, tableName, 2);
+
+      // Second retention run, same config against the same schema and the same rows. It still
+      // resolves and still deletes the right rows, but no longer as a metadata-only delete.
+      ops.runRetention(tableName, "datepartition", "yyyy-MM-dd", "day", 30, false, "", now);
+      Snapshot secondRetention = ops.getTable(tableName).currentSnapshot();
       Assertions.assertEquals(
-          Collections.singletonList("datepartition"), identityPartitionSources(afterRtas));
-      Assertions.assertEquals(
-          firstRetention.snapshotId(), afterRtas.currentSnapshot().snapshotId());
+          "overwrite",
+          secondRetention.operation(),
+          "Retention after the replace should degrade to a copy-on-write rewrite");
+      Assertions.assertTrue(
+          addedDataFiles(secondRetention) > 0,
+          "The rewrite should have rewritten the surviving rows, but wrote no files: "
+              + secondRetention.summary());
       ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
       verifyRowCount(ops, tableName, 1);
+      Assertions.assertEquals(
+          0,
+          ops.spark()
+              .sql(String.format("SELECT * FROM %s WHERE datepartition = '%s'", tableName, longAgo))
+              .count(),
+          "Retention should still drop the out-of-window rows");
     }
   }
 
@@ -358,8 +463,8 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
    * <p>The uncomfortable pairing is that the cheap path is the unprotected one. A table partitioned
    * by identity on its retention column keeps the metadata-only path across a replace, because the
    * spec is reused and stays a single spec, and therefore keeps zero validation. The table in
-   * {@link #testRetentionPreventsRtasDroppingPartitioning} cannot drop that partitioning while
-   * retaining its policy.
+   * {@link #testRetentionLosesMetadataOnlyDeleteAfterRtasDropsPartitioning} loses that path and
+   * picks up serializable validation as a side effect of getting slower.
    */
   @Test
   public void testRetentionMetadataOnlyDeleteCommitsAcrossRtasUnvalidated() throws Exception {
