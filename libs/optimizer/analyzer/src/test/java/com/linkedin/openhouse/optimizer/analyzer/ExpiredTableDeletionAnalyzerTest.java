@@ -11,6 +11,8 @@ import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.model.TemporaryTable;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,40 @@ class ExpiredTableDeletionAnalyzerTest {
   @Test
   void isEnabled_returnsFalse_forOrdinaryTable() {
     assertThat(analyzer.isEnabled(TableDto.builder().tableUuid("test-uuid").build())).isFalse();
+  }
+
+  @Test
+  void isEnabled_returnsFalse_whenFlagIsNotTrue() {
+    TableDto table =
+        TableDto.builder()
+            .tableUuid("test-uuid")
+            .tableProperties(
+                Map.of(
+                    TemporaryTable.TEMPORARY_PROPERTY,
+                    "TRUE",
+                    TemporaryTable.EXPIRATION_TIME_PROPERTY,
+                    format(Instant.now().minus(Duration.ofHours(1)))))
+            .build();
+    assertThat(analyzer.isEnabled(table)).isFalse();
+  }
+
+  @Test
+  void triggersOnCommit_returnsFalse() {
+    TableDto table = temporaryTable(Instant.now().minus(Duration.ofHours(1)));
+    assertThat(analyzer.triggersOnCommit(table)).isFalse();
+  }
+
+  @Test
+  void isActiveOpTimedOut_returnsFalse_untilTwentyFourHoursAfterSubmission() {
+    assertThat(analyzer.isActiveOpTimedOut(submittedAgo(Duration.ofHours(4)))).isFalse();
+    assertThat(analyzer.isActiveOpTimedOut(submittedAgo(Duration.ofHours(25)))).isTrue();
+  }
+
+  @Test
+  void shouldSchedule_returnsTrue_atExpirationTime() {
+    // The stored time has whole seconds, so the current second is at or past it.
+    TableDto table = temporaryTable(Instant.now().truncatedTo(ChronoUnit.SECONDS));
+    assertThat(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty(), 0)).isTrue();
   }
 
   @Test
@@ -85,8 +121,21 @@ class ExpiredTableDeletionAnalyzerTest {
         .tableId("tbl1")
         .tableProperties(
             Map.of(
+                TemporaryTable.TEMPORARY_PROPERTY,
+                "true",
                 TemporaryTable.EXPIRATION_TIME_PROPERTY,
-                Long.toString(expirationTime.toEpochMilli())))
+                format(expirationTime)))
+        .build();
+  }
+
+  private static String format(Instant time) {
+    return DateTimeFormatter.ISO_INSTANT.format(time.truncatedTo(ChronoUnit.SECONDS));
+  }
+
+  private static TableOperationDto submittedAgo(Duration age) {
+    return TableOperationDto.builder()
+        .status(OperationStatusDto.SCHEDULED)
+        .scheduledAt(Instant.now().minus(age))
         .build();
   }
 
