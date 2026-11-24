@@ -8,10 +8,10 @@ import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceReques
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
 
-/** Operations on namespace documents stored in HouseTables. */
+/** Operations on namespaces stored in HouseTables. */
 public interface NamespacesApiHandler {
   /**
-   * Creates a document.
+   * Creates a namespace.
    *
    * @throws DuplicateCreationException if the namespace name already exists
    */
@@ -19,7 +19,7 @@ public interface NamespacesApiHandler {
       throws DuplicateCreationException;
 
   /**
-   * Loads a document.
+   * Loads a namespace.
    *
    * @throws NotFoundException if the namespace does not exist
    */
@@ -27,7 +27,7 @@ public interface NamespacesApiHandler {
       throws NotFoundException;
 
   /**
-   * Deletes a document.
+   * Deletes a namespace.
    *
    * @throws NotFoundException if the namespace does not exist
    * @throws EntityConcurrentModificationException if a concurrent write wins
@@ -35,10 +35,10 @@ public interface NamespacesApiHandler {
   ApiResponse<Void> deleteNamespace(String namespaceName) throws NotFoundException;
 
   /**
-   * Replaces a document if its identity and revision still match the stored document.
+   * Replaces a namespace if its identity and revision still match the stored namespace.
    *
    * @throws NotFoundException if the namespace does not exist
-   * @throws EntityConcurrentModificationException if the document is stale or a concurrent write
+   * @throws EntityConcurrentModificationException if the namespace is stale or a concurrent write
    *     wins
    */
   ApiResponse<NamespaceMetadataResponse> updateNamespace(

@@ -18,7 +18,6 @@ import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
 import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
-import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.metrics.UserTableMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -39,7 +38,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,8 +66,6 @@ public class UserTablesServiceTest extends HtsDatabaseTestBase {
   @Autowired UserTablesService userTablesService;
 
   @SpyBean UserTableHtsJdbcRepository htsRepository;
-
-  @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
@@ -110,15 +106,6 @@ public class UserTablesServiceTest extends HtsDatabaseTestBase {
     // Clear any mocks
     Mockito.reset(htsRepository);
     Mockito.reset(softDeletedHtsJdbcRepository);
-  }
-
-  @AfterEach
-  public void tearDown() {
-    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
-    new JdbcTemplate(dataSource)
-        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    userTableStoreCleaner.clear();
-    softDeletedHtsJdbcRepository.deleteAll();
   }
 
   @Test

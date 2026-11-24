@@ -17,7 +17,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,11 +62,6 @@ public class JobControllerTest extends HtsDatabaseTestBase {
   @BeforeEach
   public void setup() {
     htsRepository.save(testJobRow);
-  }
-
-  @AfterEach
-  public void tearDown() {
-    htsRepository.deleteAll();
   }
 
   @Test

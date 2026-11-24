@@ -21,11 +21,12 @@ Do not change HouseTables' schema or data.
 
 ## Tests
 
-The optimizer repository, service, and scheduler integration tests run on MySQL 8.0.46, the release
-production runs, in Docker, so start Docker before you run them. The test modules include Flyway on
-their test runtime classpath. The shared `optimizer-mysql-testcontainers.properties` (optimizer-common
-test fixtures) points the optimizer's datasource at a Testcontainers
-[JDBC URL](https://java.testcontainers.org/modules/databases/jdbc/), `jdbc:tc:mysql:8.0.46:///...`,
+The optimizer repository, service, and scheduler integration tests run on the MySQL version set by
+`mysqlTestVersion` in `gradle.properties` (the 8.0 line production runs), in Docker, so start Docker
+before you run them. The test modules include Flyway on their test runtime classpath. The shared
+`optimizer-mysql-testcontainers.properties` (optimizer-common test fixtures) points the optimizer's
+datasource at a Testcontainers [JDBC URL](https://java.testcontainers.org/modules/databases/jdbc/),
+`jdbc:tc:mysql:${openhouse.test.mysql.version}:///...`,
 which starts a [MySQL container](https://java.testcontainers.org/modules/databases/mysql/) at the
 first connection and stops it when the context closes its datasource. Flyway migrates the database
 as the service does at startup. The URL carries a UUID that Spring resolves once per context, so

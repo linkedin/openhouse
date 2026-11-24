@@ -123,8 +123,8 @@ public class NamespacesServiceImpl implements NamespacesService {
   }
 
   @Override
-  public NamespaceMetadata updateNamespace(String namespaceName, NamespaceMetadata document)
-      throws NotFoundException {
+  public NamespaceMetadata updateNamespace(
+      String namespaceName, NamespaceMetadata namespaceMetadata) throws NotFoundException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
@@ -138,22 +138,28 @@ public class NamespacesServiceImpl implements NamespacesService {
                       .findByNamespaceName(namespaceName)
                       .map(
                           namespace -> {
-                            if (!namespace.getNamespaceUuid().equals(document.getNamespaceUuid())
+                            if (!namespace
+                                    .getNamespaceUuid()
+                                    .equals(namespaceMetadata.getNamespaceUuid())
                                 || !Long.toString(namespace.getVersion())
-                                    .equals(document.getRevision())) {
+                                    .equals(namespaceMetadata.getRevision())) {
                               throw new EntityConcurrentModificationException(namespaceName, null);
                             }
-                            if (!namespace.getNamespaceName().equals(document.getNamespaceName())
-                                || document.getProperties() == null) {
+                            if (!namespace
+                                    .getNamespaceName()
+                                    .equals(namespaceMetadata.getNamespaceName())
+                                || namespaceMetadata.getProperties() == null) {
                               throw new InvalidNamespaceDocumentException();
                             }
                             long version;
-                            if (namespace.getProperties().equals(document.getProperties())) {
+                            if (namespace
+                                .getProperties()
+                                .equals(namespaceMetadata.getProperties())) {
                               entityManager.lock(
                                   namespace, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
                               version = namespace.getVersion() + 1;
                             } else {
-                              namespace.replaceProperties(document.getProperties());
+                              namespace.replaceProperties(namespaceMetadata.getProperties());
                               repository.flush();
                               version = namespace.getVersion();
                             }
