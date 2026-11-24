@@ -528,6 +528,54 @@ public class RepositoryTest {
     }
   }
 
+  /** A replace retains the temporary flag that its request omits, so the conflict is rejected. */
+  @ParameterizedTest
+  @MethodSource("temporaryTableConflictsOnReplace")
+  void testReplaceRejectsConflictWithRetainedTemporaryFlag(
+      Map<String, String> requestProperties, Policies requestPolicies, String conflictingFeature) {
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("temporaryReplace" + requestProperties.size())
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(null)
+                .tableProperties(
+                    Map.of(
+                        CatalogConstants.OPENHOUSE_TEMPORARY_KEY,
+                        "true",
+                        CatalogConstants.RTAS_ENABLED_TABLE_PROP,
+                        "true"))
+                .build());
+    try {
+      RequestValidationFailureException exception =
+          Assertions.assertThrows(
+              RequestValidationFailureException.class,
+              () ->
+                  openHouseInternalRepository.save(
+                      created
+                          .toBuilder()
+                          .tableVersion(created.getTableLocation())
+                          .tableProperties(requestProperties)
+                          .policies(requestPolicies)
+                          .replaceCommit(true)
+                          .build()));
+      Assertions.assertTrue(
+          exception.getMessage().contains(conflictingFeature), exception.getMessage());
+    } finally {
+      openHouseInternalRepository.deleteById(getPrimaryKey(created));
+    }
+  }
+
+  private static Stream<Arguments> temporaryTableConflictsOnReplace() {
+    return Stream.of(
+        Arguments.of(Map.of(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true"), null, "WAP"),
+        Arguments.of(
+            Map.of(),
+            Policies.builder().replication(TABLE_POLICIES.getReplication()).build(),
+            "replication"));
+  }
+
   private TableDto createTemporaryTable(String tableId) {
     return openHouseInternalRepository.save(
         TABLE_DTO
