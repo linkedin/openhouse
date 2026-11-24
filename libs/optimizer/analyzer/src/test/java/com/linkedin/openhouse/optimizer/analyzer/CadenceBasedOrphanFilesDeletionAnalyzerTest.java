@@ -53,7 +53,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void isEnabled_returnsFalse_whenOptedInTableIsTemporary() {
     TableDto optedInTable = tableWithProperty(true);
     Map<String, String> properties = new HashMap<>(optedInTable.getTableProperties());
-    properties.put(TemporaryTable.EXPIRATION_TIME_PROPERTY, "1700000000000");
+    properties.put(TemporaryTable.TEMPORARY_PROPERTY, "true");
     TableDto temporaryTable = optedInTable.toBuilder().tableProperties(properties).build();
     assertThat(analyzer.isEnabled(temporaryTable)).isFalse();
   }

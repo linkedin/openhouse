@@ -29,9 +29,9 @@ import org.springframework.stereotype.Component;
  * <ol>
  *   <li><b>Opt-in.</b> The table sets {@code maintenance.optimizer.ofd.enabled=true} in its table
  *       properties. Without this flag, the analyzer ignores the table entirely.
- *   <li><b>Not temporary.</b> A table whose {@code openhouse.leaseExpirationTime} property holds
- *       epoch milliseconds is temporary (see {@link TemporaryTable}). The Optimizer runs no
- *       maintenance on temporary tables, even when the opt-in flag is set.
+ *   <li><b>Not temporary.</b> A table whose {@code openhouse.temporary} property is exactly {@code
+ *       true} is temporary (see {@link TemporaryTable}). The analyzer skips it even when the opt-in
+ *       flag is set, because the table is dropped when it expires.
  *   <li><b>No active operation already in flight.</b> If the table has a non-CANCELED operation row
  *       (PENDING, SCHEDULING, or SCHEDULED), the scheduler already owns it and the analyzer stays
  *       out. A CANCELED row does not block — it is treated as if no operation exists.
@@ -113,7 +113,7 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
   @Override
   public boolean isEnabled(TableDto table) {
     return "true".equals(table.getTableProperties().get(OFD_ENABLED_PROPERTY))
-        && TemporaryTable.expirationTime(table.getTableProperties()).isEmpty();
+        && !TemporaryTable.isTemporary(table.getTableProperties());
   }
 
   @Override
