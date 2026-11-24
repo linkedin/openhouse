@@ -163,7 +163,10 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
         && Optional.ofNullable(clustering).orElse(Collections.emptyList()).stream()
             .noneMatch(
                 column ->
-                    column.getColumnName().equals(retention.getColumnPattern().getColumnName()))) {
+                    column != null
+                        && column
+                            .getColumnName()
+                            .equals(retention.getColumnPattern().getColumnName()))) {
       return Optional.of(
           new Violation(
               "retention",

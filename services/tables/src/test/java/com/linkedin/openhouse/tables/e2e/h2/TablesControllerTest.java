@@ -74,6 +74,7 @@ import org.json.JSONObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -85,6 +86,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
@@ -837,6 +839,33 @@ public class TablesControllerTest {
     } finally {
       RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"POST,false", "POST,true", "PUT,false", "PUT,true"})
+  public void testRetentionRejectsNullClusteringEntry(String method, boolean includePartitionColumn)
+      throws Exception {
+    CreateUpdateTableRequestBody request =
+        buildCreateUpdateTableRequestBody(
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
+                .timePartitioning(null)
+                .clustering(
+                    includePartitionColumn
+                        ? Arrays.asList(null, ClusteringColumn.builder().columnName("name").build())
+                        : Collections.singletonList(null))
+                .policies(TABLE_POLICIES_COMPLEX)
+                .build());
+    String path =
+        CURRENT_MAJOR_VERSION_PREFIX + "/databases/" + request.getDatabaseId() + "/tables";
+    if (method.equals("PUT")) {
+      path += "/" + request.getTableId();
+    }
+    mvc.perform(
+            MockMvcRequestBuilders.request(HttpMethod.valueOf(method), path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(request.toJson()))
+        .andExpect(status().isBadRequest());
   }
 
   @Test
