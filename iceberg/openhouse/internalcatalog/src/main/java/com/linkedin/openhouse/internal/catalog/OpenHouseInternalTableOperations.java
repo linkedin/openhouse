@@ -653,7 +653,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
         case SUCCESS:
-          runPostCommitOperations(committedMetadata);
+          runPostCommitOperations(
+              committedMetadata,
+              base != null && TemporaryTableProperties.isTemporary(base.properties()));
           break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
@@ -849,15 +851,19 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * Fires best-effort post-commit operations for a successful commit, gated by a server-side kill
    * switch. Never throws: the commit has already durably succeeded and post-commit work must not
    * affect its outcome.
+   *
+   * @param previouslyTemporary whether the table was temporary before this commit
    */
-  private void runPostCommitOperations(Optional<TableMetadata> committedMetadata) {
+  private void runPostCommitOperations(
+      Optional<TableMetadata> committedMetadata, boolean previouslyTemporary) {
     if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
       return;
     }
     try {
       committedMetadata.ifPresent(
           metadata ->
-              postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, metadata)));
+              postCommitOperationRunner.runAll(
+                  new PostCommitContext(tableIdentifier, metadata, previouslyTemporary)));
     } catch (Throwable t) {
       log.error(
           "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);

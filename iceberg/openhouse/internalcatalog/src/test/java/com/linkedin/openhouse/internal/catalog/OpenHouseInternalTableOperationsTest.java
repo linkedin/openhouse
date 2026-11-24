@@ -386,7 +386,32 @@ public class OpenHouseInternalTableOperationsTest {
               .getCommittedMetadata()
               .properties()
               .containsKey(getCanonicalFieldName("tableLocation")));
+      Assertions.assertFalse(context.isPreviouslyTemporary());
     }
+  }
+
+  /**
+   * The commit that removes the temporary flag leaves metadata without the flag, so the context
+   * reports that the table was temporary before the commit.
+   */
+  @Test
+  void testPostCommitContextMarksCommitThatEndsTemporaryStatus() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of(expirationTimeInDays(1)));
+    Map<String, String> flagRemoved = new HashMap<>(base.properties());
+    flagRemoved.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperationsWithPostCommit.doCommit(
+          base, base.replaceProperties(flagRemoved));
+    }
+
+    ArgumentCaptor<PostCommitContext> contextCaptor =
+        ArgumentCaptor.forClass(PostCommitContext.class);
+    Mockito.verify(mockPostCommitOperationRunner).runAll(contextCaptor.capture());
+    PostCommitContext context = contextCaptor.getValue();
+    Assertions.assertTrue(context.isPreviouslyTemporary());
+    Assertions.assertFalse(
+        TemporaryTableProperties.isTemporary(context.getCommittedMetadata().properties()));
   }
 
   /**
