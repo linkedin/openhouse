@@ -534,6 +534,7 @@ public class RepositoryTest {
             .toBuilder()
             .tableId(tableId)
             .tableVersion(INITIAL_TABLE_VERSION)
+            .policies(null)
             .tableProperties(
                 Collections.singletonMap(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true"))
             .build());

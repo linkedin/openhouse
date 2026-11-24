@@ -7,9 +7,11 @@ import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -26,8 +28,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Schema;
@@ -235,9 +238,9 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
   private static final class Feature {
     private final String label;
-    private final Predicate<CreateUpdateTableRequestBody> enabled;
+    private final BiPredicate<Map<String, String>, Policies> enabled;
 
-    private Feature(String label, Predicate<CreateUpdateTableRequestBody> enabled) {
+    private Feature(String label, BiPredicate<Map<String, String>, Policies> enabled) {
       this.label = label;
       this.enabled = enabled;
     }
@@ -254,47 +257,98 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   private static boolean isTablePropertyEnabled(
-      CreateUpdateTableRequestBody requestBody, String propertyName) {
-    return Boolean.parseBoolean(requestBody.getTableProperties().get(propertyName));
+      Map<String, String> properties, String propertyName) {
+    return Boolean.parseBoolean(properties.get(propertyName));
   }
 
   private static final Feature RTAS_FEATURE =
       new Feature(
           String.format("RTAS ('%s=true')", CatalogConstants.RTAS_ENABLED_TABLE_PROP),
-          requestBody ->
-              isTablePropertyEnabled(requestBody, CatalogConstants.RTAS_ENABLED_TABLE_PROP));
+          (properties, policies) ->
+              isTablePropertyEnabled(properties, CatalogConstants.RTAS_ENABLED_TABLE_PROP));
   private static final Feature WAP_FEATURE =
       new Feature(
           String.format("WAP ('%s=true')", CatalogConstants.WAP_ENABLED_TABLE_PROP),
-          requestBody ->
-              isTablePropertyEnabled(requestBody, CatalogConstants.WAP_ENABLED_TABLE_PROP));
+          (properties, policies) ->
+              isTablePropertyEnabled(properties, CatalogConstants.WAP_ENABLED_TABLE_PROP));
   private static final Feature REPLICATION_FEATURE =
       new Feature(
           "replication",
-          requestBody ->
-              Optional.ofNullable(requestBody.getPolicies())
-                  .map(Policies::getReplication)
+          (properties, policies) ->
+              Optional.ofNullable(policies.getReplication())
                   .map(Replication::getConfig)
                   .filter(config -> !config.isEmpty())
                   .isPresent());
+  // An exact match, because Boolean.parseBoolean would also accept values such as "TRUE".
+  private static final Feature TEMPORARY_FEATURE =
+      new Feature(
+          String.format("temporary table ('%s=true')", CatalogConstants.OPENHOUSE_TEMPORARY_KEY),
+          (properties, policies) -> TemporaryTableProperties.isTemporary(properties));
+  private static final Feature LOCK_FEATURE =
+      new Feature(
+          "table lock",
+          (properties, policies) ->
+              Optional.ofNullable(policies.getLockState()).filter(LockState::isLocked).isPresent());
+
+  private static final List<IncompatibleFeatures> TEMPORARY_TABLE_EXCLUSIONS =
+      Arrays.asList(
+          new IncompatibleFeatures(TEMPORARY_FEATURE, REPLICATION_FEATURE),
+          new IncompatibleFeatures(TEMPORARY_FEATURE, WAP_FEATURE),
+          new IncompatibleFeatures(TEMPORARY_FEATURE, LOCK_FEATURE));
 
   private static final List<IncompatibleFeatures> MUTUALLY_EXCLUSIVE_FEATURES =
-      Arrays.asList(
-          new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
-          new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE));
+      Stream.concat(
+              Stream.of(
+                  new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
+                  new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE)),
+              TEMPORARY_TABLE_EXCLUSIONS.stream())
+          .collect(Collectors.toList());
 
-  private void validateFeatureCompatibility(
+  /**
+   * Rejects a table state that would keep a temporary table together with replication, WAP, or a
+   * lock. The request check in {@link #validateCreateTable} and {@link #validateUpdateTable} sees
+   * only the request, but the server restores policies that a request omits: an active SYSTEM_ONLY
+   * lock survives an ordinary update, and a replace inherits the existing table's policies. Callers
+   * pass the properties and policies that the commit will persist.
+   *
+   * @param policies the policies to persist, or null when the table has none
+   * @throws RequestValidationFailureException when the state enables two incompatible features and
+   *     {@link CatalogConstants#FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP} is not true
+   */
+  public static void validateTemporaryTableCompatibility(
+      String databaseId, String tableId, Map<String, String> properties, Policies policies) {
+    validateFeatureCompatibility(
+        databaseId, tableId, properties, policies, TEMPORARY_TABLE_EXCLUSIONS);
+  }
+
+  private static void validateFeatureCompatibility(
       CreateUpdateTableRequestBody requestBody, List<IncompatibleFeatures> incompatibleFeatures) {
+    validateFeatureCompatibility(
+        requestBody.getDatabaseId(),
+        requestBody.getTableId(),
+        requestBody.getTableProperties(),
+        requestBody.getPolicies(),
+        incompatibleFeatures);
+  }
+
+  private static void validateFeatureCompatibility(
+      String databaseId,
+      String tableId,
+      Map<String, String> properties,
+      Policies nullablePolicies,
+      List<IncompatibleFeatures> incompatibleFeatures) {
     if (isTablePropertyEnabled(
-        requestBody, CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
+        properties, CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
       return;
     }
+    Policies policies =
+        Optional.ofNullable(nullablePolicies).orElseGet(() -> Policies.builder().build());
 
     incompatibleFeatures.stream()
         .filter(
             incompatibleFeature ->
-                incompatibleFeature.feature.enabled.test(requestBody)
-                    && incompatibleFeature.conflictingFeature.enabled.test(requestBody))
+                incompatibleFeature.feature.enabled.test(properties, policies)
+                    && incompatibleFeature.conflictingFeature.enabled.test(properties, policies))
         .findFirst()
         .ifPresent(
             incompatibleFeature -> {
@@ -302,8 +356,8 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
                   String.format(
                       "Table %s.%s cannot enable %s and %s together. "
                           + "Disable either feature so only one remains enabled.",
-                      requestBody.getDatabaseId(),
-                      requestBody.getTableId(),
+                      databaseId,
+                      tableId,
                       incompatibleFeature.feature.label,
                       incompatibleFeature.conflictingFeature.label));
             });
