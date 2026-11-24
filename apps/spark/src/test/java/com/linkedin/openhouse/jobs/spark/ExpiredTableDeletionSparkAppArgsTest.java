@@ -12,21 +12,43 @@ public class ExpiredTableDeletionSparkAppArgsTest {
       new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
 
   @Test
-  public void createAppRejectsListsOfDifferentLengths() {
-    Assertions.assertThrows(
-        IllegalArgumentException.class,
+  public void createAppAcceptsOneTableAndOneOperation() {
+    Assertions.assertDoesNotThrow(
         () ->
-            ExpiredTableDeletionSparkApp.createApp(
-                arguments("db.a,db.b", "operation-a"), otelEmitter));
+            ExpiredTableDeletionSparkApp.createApp(arguments("db.a", "operation-a"), otelEmitter));
+  }
+
+  @Test
+  public void createAppRejectsTwoTableNames() {
+    IllegalArgumentException exception =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                ExpiredTableDeletionSparkApp.createApp(
+                    arguments("db.a,db.b", "operation-a"), otelEmitter));
+    Assertions.assertEquals(
+        "Each job drops one table, so --tableNames must hold exactly one entry, but it holds 2.",
+        exception.getMessage());
+  }
+
+  @Test
+  public void createAppRejectsTwoOperationIds() {
+    IllegalArgumentException exception =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                ExpiredTableDeletionSparkApp.createApp(
+                    arguments("db.a", "operation-a,operation-b"), otelEmitter));
+    Assertions.assertEquals(
+        "Each job drops one table, so --operationIds must hold exactly one entry, but it holds 2.",
+        exception.getMessage());
   }
 
   @Test
   public void createAppRejectsTableNameWithoutDatabase() {
     Assertions.assertThrows(
         IllegalArgumentException.class,
-        () ->
-            ExpiredTableDeletionSparkApp.createApp(
-                arguments("db.a,b", "operation-a,operation-b"), otelEmitter));
+        () -> ExpiredTableDeletionSparkApp.createApp(arguments("a", "operation-a"), otelEmitter));
   }
 
   private static String[] arguments(String tableNames, String operationIds) {

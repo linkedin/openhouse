@@ -7,14 +7,12 @@ import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Transaction;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,15 +20,19 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
+  private static final String DATABASE = "db_expired_table_deletion";
+
   private final OtelEmitter otelEmitter =
       new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
   private final OptimizerServiceClient optimizerClient = Mockito.mock(OptimizerServiceClient.class);
 
   @Test
   public void testExpiredTableIsDroppedAndReportsSuccess() throws Exception {
-    String tableName = "db.expired_table_deletion_expired";
+    String tableName = DATABASE + ".expired";
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      createTemporaryTable(ops, tableName, 1000L);
+      ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      createExpiredTemporaryTable(ops, tableName);
+      Assertions.assertTrue(listedTableNames(ops).contains("expired"));
 
       runApp(ops, tableName);
 
@@ -39,50 +41,16 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           UpdateOperationRequest.OperationTypeEnum.EXPIRED_TABLE_DELETION,
           request.getOperationType());
-      Assertions.assertEquals("db", request.getDatabaseName());
-      Assertions.assertEquals("expired_table_deletion_expired", request.getTableName());
-      Assertions.assertThrows(NoSuchTableException.class, () -> ops.getTable(tableName));
-    }
-  }
-
-  @Test
-  public void testTableThatExpiresLaterIsKeptAndReportsFailure() throws Exception {
-    String tableName = "db.expired_table_deletion_future";
-    long expirationMillis = Instant.now().plus(Duration.ofDays(1)).toEpochMilli();
-    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      createTemporaryTable(ops, tableName, expirationMillis);
-
-      runApp(ops, tableName);
-
-      UpdateOperationRequest request = reportedRequest(tableName);
-      Assertions.assertEquals(UpdateOperationRequest.StatusEnum.FAILED, request.getStatus());
-      Assertions.assertEquals(
-          "Table " + tableName + " expires at " + Instant.ofEpochMilli(expirationMillis) + ".",
-          request.getFailureReason());
-      Assertions.assertDoesNotThrow(() -> ops.getTable(tableName));
-    }
-  }
-
-  @Test
-  public void testOrdinaryTableIsKeptAndReportsFailure() throws Exception {
-    String tableName = "db.expired_table_deletion_ordinary";
-    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
-      ops.spark().sql(String.format("CREATE TABLE %s (data string)", tableName));
-
-      runApp(ops, tableName);
-
-      UpdateOperationRequest request = reportedRequest(tableName);
-      Assertions.assertEquals(UpdateOperationRequest.StatusEnum.FAILED, request.getStatus());
-      Assertions.assertEquals(
-          "Table " + tableName + " is not a temporary table.", request.getFailureReason());
-      Assertions.assertDoesNotThrow(() -> ops.getTable(tableName));
+      Assertions.assertEquals(DATABASE, request.getDatabaseName());
+      Assertions.assertEquals("expired", request.getTableName());
+      Assertions.assertNull(request.getFailureReason());
+      Assertions.assertFalse(listedTableNames(ops).contains("expired"));
     }
   }
 
   @Test
   public void testMissingTableReportsSuccess() throws Exception {
-    String tableName = "db.expired_table_deletion_missing";
+    String tableName = DATABASE + ".missing";
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
 
@@ -94,40 +62,52 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testUnexpectedFailureIsReportedAndLaterTablesAreStillDeleted() {
+  public void testFailedDropReportsFailure() {
+    String tableName = DATABASE + ".unreachable";
     Operations ops = Mockito.mock(Operations.class);
-    Mockito.when(ops.getTable("db.unreadable"))
+    Mockito.when(ops.dropTable(tableName))
         .thenThrow(new IllegalStateException("Catalog unavailable."));
-    Table expiredTable = Mockito.mock(Table.class);
-    Mockito.when(expiredTable.properties())
-        .thenReturn(Collections.singletonMap("openhouse.leaseExpirationTime", "1000"));
-    Mockito.when(ops.getTable("db.expired")).thenReturn(expiredTable);
 
-    runApp(ops, "db.unreadable", "db.expired");
+    runApp(ops, tableName);
 
-    UpdateOperationRequest unreadableTableRequest = reportedRequest("db.unreadable");
+    UpdateOperationRequest request = reportedRequest(tableName);
+    Assertions.assertEquals(UpdateOperationRequest.StatusEnum.FAILED, request.getStatus());
     Assertions.assertEquals(
-        UpdateOperationRequest.StatusEnum.FAILED, unreadableTableRequest.getStatus());
-    Assertions.assertEquals(
-        "java.lang.IllegalStateException: Catalog unavailable.",
-        unreadableTableRequest.getFailureReason());
-    Assertions.assertEquals(
-        UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest("db.expired").getStatus());
-    Mockito.verify(ops).dropTable("db.expired");
+        "java.lang.IllegalStateException: Catalog unavailable.", request.getFailureReason());
   }
 
-  private void runApp(Operations ops, String... tableNames) {
-    List<String> tableNameList = Arrays.asList(tableNames);
+  private void runApp(Operations ops, String tableName) {
     new ExpiredTableDeletionSparkApp(
             "test-job",
             Mockito.mock(StateManager.class),
             otelEmitter,
-            tableNameList,
-            tableNameList.stream()
-                .map(ExpiredTableDeletionSparkAppTest::operationId)
-                .collect(Collectors.toList()),
+            tableName,
+            operationId(tableName),
             optimizerClient)
         .runInner(ops);
+  }
+
+  /**
+   * Creates the table through the Iceberg catalog API. A Spark {@code CREATE TABLE} loads the table
+   * after creating it, and that load fails because the tables service reports an expired temporary
+   * table as not found.
+   */
+  private static void createExpiredTemporaryTable(Operations ops, String tableName) {
+    Transaction transaction =
+        ops.createTransaction(
+            tableName, new Schema(Types.NestedField.optional(1, "data", Types.StringType.get())));
+    transaction
+        .updateProperties()
+        .set("openhouse.temporary", "true")
+        .set("openhouse.expirationTime", "2020-01-01T00:00:00Z")
+        .commit();
+    transaction.commitTransaction();
+  }
+
+  private static List<String> listedTableNames(Operations ops) {
+    return ops.spark().sql("SHOW TABLES IN " + DATABASE).collectAsList().stream()
+        .map(row -> row.<String>getAs("tableName"))
+        .collect(Collectors.toList());
   }
 
   private UpdateOperationRequest reportedRequest(String tableName) {
@@ -140,15 +120,5 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
 
   private static String operationId(String tableName) {
     return "operation-" + tableName;
-  }
-
-  private static void createTemporaryTable(
-      Operations ops, String tableName, long expirationMillis) {
-    ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
-    ops.spark()
-        .sql(
-            String.format(
-                "CREATE TABLE %s (data string) TBLPROPERTIES ('openhouse.leaseExpirationTime'='%d')",
-                tableName, expirationMillis));
   }
 }

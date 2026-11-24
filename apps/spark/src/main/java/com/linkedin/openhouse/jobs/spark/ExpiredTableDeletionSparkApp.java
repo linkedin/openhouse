@@ -6,98 +6,71 @@ import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
-import com.linkedin.openhouse.optimizer.model.TemporaryTable;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.exceptions.NoSuchTableException;
 
 /**
- * Deletes temporary tables whose expiration time has passed. The Optimizer scheduler passes the
- * tables and their operation IDs as parallel lists, and the app reports the result of each
- * operation to the Optimizer service.
+ * Drops and purges one expired temporary table, then reports the result to the Optimizer service.
+ *
+ * <p>The Optimizer's analyzer decides that the table has expired. The app drops the table by name
+ * without loading it first, because the tables service reports an expired temporary table as not
+ * found on load. A table that no longer exists counts as deleted, so a retried job succeeds.
+ *
+ * <p>The scheduler passes {@code --tableNames} and {@code --operationIds} for every operation type.
+ * For this job, each must hold exactly one entry.
  *
  * <p>Example invocation:
  *
  * <pre>{@code
  * com.linkedin.openhouse.jobs.spark.ExpiredTableDeletionSparkApp \
- *   --tableNames db.t1,db.t2 \
- *   --operationIds op-uuid-1,op-uuid-2 \
+ *   --tableNames db.t1 \
+ *   --operationIds op-uuid-1 \
  *   --resultsEndpoint http://optimizer.svc:8080
  * }</pre>
  */
 @Slf4j
 public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
 
-  private final List<String> tableNames;
-  private final List<String> operationIds;
+  private final String tableName;
+  private final String operationId;
   private final OptimizerServiceClient optimizerClient;
 
   public ExpiredTableDeletionSparkApp(
       String jobId,
       StateManager stateManager,
       OtelEmitter otelEmitter,
-      List<String> tableNames,
-      List<String> operationIds,
+      String tableName,
+      String operationId,
       OptimizerServiceClient optimizerClient) {
     super(jobId, stateManager, otelEmitter);
-    this.tableNames = tableNames;
-    this.operationIds = operationIds;
+    this.tableName = tableName;
+    this.operationId = operationId;
     this.optimizerClient = optimizerClient;
   }
 
   @Override
   protected void runInner(Operations ops) {
-    IntStream.range(0, tableNames.size())
-        .forEach(index -> deleteAndReport(ops, tableNames.get(index), operationIds.get(index)));
-  }
-
-  private void deleteAndReport(Operations ops, String tableName, String operationId) {
     Optional<String> failureReason;
     try {
-      failureReason = deleteIfExpired(ops, tableName);
+      if (ops.dropTable(tableName)) {
+        log.info("Dropped expired table {}.", tableName);
+      } else {
+        log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
+      }
+      failureReason = Optional.empty();
     } catch (RuntimeException e) {
-      log.error("Deleting table {} failed with an unexpected exception.", tableName, e);
+      log.error("Dropping table {} failed.", tableName, e);
       failureReason = Optional.of(e.toString());
     }
-    reportResult(tableName, operationId, failureReason);
+    reportResult(failureReason);
   }
 
-  /**
-   * Drops the table if its expiration time has passed and returns the reason the operation failed,
-   * or empty when the table no longer exists. The app reloads the table to read its expiration time
-   * because the Optimizer's copy of the table properties may be stale. A table whose expiration
-   * time has not passed always fails, because a successful operation tells the Optimizer that the
-   * table is deleted.
-   */
-  private Optional<String> deleteIfExpired(Operations ops, String tableName) {
-    Table table;
-    try {
-      table = ops.getTable(tableName);
-    } catch (NoSuchTableException e) {
-      return Optional.empty();
-    }
-    Optional<Instant> expirationTime = TemporaryTable.expirationTime(table.properties());
-    if (!expirationTime.isPresent()) {
-      return Optional.of("Table " + tableName + " is not a temporary table.");
-    }
-    if (expirationTime.get().isAfter(Instant.now())) {
-      return Optional.of("Table " + tableName + " expires at " + expirationTime.get() + ".");
-    }
-    log.info("Table {} expired at {} and is being dropped.", tableName, expirationTime.get());
-    ops.dropTable(tableName);
-    return Optional.empty();
-  }
-
-  private void reportResult(String tableName, String operationId, Optional<String> failureReason) {
+  private void reportResult(Optional<String> failureReason) {
     String[] databaseAndTable = tableName.split("\\.", 2);
     UpdateOperationRequest request =
         new UpdateOperationRequest()
@@ -129,42 +102,32 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
         createCommandLine(
             args,
             Arrays.asList(
-                new Option(null, "tableNames", true, "Comma-separated fully qualified table names"),
-                new Option(
-                    null,
-                    "operationIds",
-                    true,
-                    "Comma-separated operation IDs, parallel to tableNames"),
+                new Option(null, "tableNames", true, "The fully qualified name of one table"),
+                new Option(null, "operationIds", true, "The ID of the table's operation"),
                 new Option(null, "resultsEndpoint", true, "Base URL of the Optimizer service")));
-    List<String> tableNames = requireListOption(cmdLine, "tableNames");
-    List<String> operationIds = requireListOption(cmdLine, "operationIds");
-    if (tableNames.size() != operationIds.size()) {
+    String tableName = requireSingleEntry(cmdLine, "tableNames");
+    if (!tableName.matches("[^.]+\\..+")) {
       throw new IllegalArgumentException(
-          String.format(
-              "--tableNames and --operationIds must list the same number of entries, but they list %d and %d.",
-              tableNames.size(), operationIds.size()));
-    }
-    Optional<String> unqualifiedTableName =
-        tableNames.stream().filter(tableName -> !tableName.matches("[^.]+\\..+")).findFirst();
-    if (unqualifiedTableName.isPresent()) {
-      throw new IllegalArgumentException(
-          "--tableNames entries must have the form db.table, but "
-              + unqualifiedTableName.get()
-              + " does not.");
+          "--tableNames must have the form db.table, but " + tableName + " does not.");
     }
     return new ExpiredTableDeletionSparkApp(
         getJobId(cmdLine),
         createStateManager(cmdLine, otelEmitter),
         otelEmitter,
-        tableNames,
-        operationIds,
+        tableName,
+        requireSingleEntry(cmdLine, "operationIds"),
         new OptimizerServiceClient(requireOption(cmdLine, "resultsEndpoint")));
   }
 
-  private static List<String> requireListOption(CommandLine cmdLine, String name) {
-    return Arrays.stream(requireOption(cmdLine, name).split(","))
-        .map(String::trim)
-        .collect(Collectors.toList());
+  private static String requireSingleEntry(CommandLine cmdLine, String name) {
+    List<String> entries = Arrays.asList(requireOption(cmdLine, name).split(",", -1));
+    if (entries.size() != 1) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Each job drops one table, so --%s must hold exactly one entry, but it holds %d.",
+              name, entries.size()));
+    }
+    return entries.get(0).trim();
   }
 
   private static String requireOption(CommandLine cmdLine, String name) {

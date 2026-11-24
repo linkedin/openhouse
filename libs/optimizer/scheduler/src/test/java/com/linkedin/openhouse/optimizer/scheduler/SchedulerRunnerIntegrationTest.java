@@ -28,6 +28,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,7 +74,10 @@ class SchedulerRunnerIntegrationTest {
   }
 
   @ParameterizedTest
-  @EnumSource(OperationTypeDto.class)
+  @EnumSource(
+      value = OperationTypeDto.class,
+      names = "EXPIRED_TABLE_DELETION",
+      mode = EnumSource.Mode.EXCLUDE)
   void schedule_groupsByDatabaseAndAccount_andCommitsEachJob(OperationTypeDto type) {
     TableOperationsRow a = seed(type, "db1", "a", "alice", 600_000L);
     TableOperationsRow b = seed(type, "db1", "b", "alice", 500_000L);
@@ -100,6 +104,22 @@ class SchedulerRunnerIntegrationTest {
     clearInvocations(jobsClient);
     runner.schedule(type);
     verifyNoInteractions(jobsClient);
+  }
+
+  @Test
+  void schedule_launchesOneJobPerExpiredTable() {
+    OperationTypeDto type = OperationTypeDto.EXPIRED_TABLE_DELETION;
+    TableOperationsRow a = seed(type, "db1", "a", "alice", 10L);
+    TableOperationsRow b = seed(type, "db1", "b", "alice", 10L);
+    TableOperationsRow c = seed(type, "db1", "c", "alice", 10L);
+    stubSuccessfulLaunch();
+
+    runner.schedule(type);
+
+    assertSubmitted(type, "alice", a);
+    assertSubmitted(type, "alice", b);
+    assertSubmitted(type, "alice", c);
+    verifyNoMoreInteractions(jobsClient);
   }
 
   @ParameterizedTest
