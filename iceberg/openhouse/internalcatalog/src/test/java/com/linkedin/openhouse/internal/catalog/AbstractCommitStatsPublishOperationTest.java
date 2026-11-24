@@ -42,7 +42,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false));
 
     Assertions.assertEquals(1, op.publishCount);
     Assertions.assertNotNull(op.published);
@@ -58,7 +58,7 @@ public class AbstractCommitStatsPublishOperationTest {
     // no opt-in property
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -70,7 +70,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "false");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -79,10 +79,34 @@ public class AbstractCommitStatsPublishOperationTest {
   void testPublishesTemporaryTableWithoutOptIn() throws Exception {
     Map<String, String> props = new HashMap<>();
     props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
-    props.put(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY, "1893456000000");
+    props.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false));
+
+    Assertions.assertEquals(1, op.publishCount);
+  }
+
+  @Test
+  void testDoesNotPublishWhenTemporaryFlagIsNotTrue() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    props.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "false");
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false));
+
+    Assertions.assertEquals(0, op.publishCount);
+  }
+
+  @Test
+  void testPublishesCommitThatEndsTemporaryStatus() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    // no flag and no opt-in: the commit removed the flag
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), true));
 
     Assertions.assertEquals(1, op.publishCount);
   }
@@ -94,7 +118,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false));
 
     Assertions.assertEquals(0, op.publishCount);
   }

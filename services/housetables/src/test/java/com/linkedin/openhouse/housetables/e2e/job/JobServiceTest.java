@@ -4,7 +4,8 @@ import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.housetables.api.spec.model.Job;
 import com.linkedin.openhouse.housetables.dto.mapper.JobMapper;
 import com.linkedin.openhouse.housetables.dto.model.JobDto;
-import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.e2e.HtsDatabaseTestBase;
+import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.model.JobRow;
 import com.linkedin.openhouse.housetables.model.JobRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
@@ -14,7 +15,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.commons.collections.CollectionUtils;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,8 +22,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.util.Pair;
 
-@SpringBootTest(classes = SpringH2HtsApplication.class)
-public class JobServiceTest {
+@SpringBootTest(classes = SpringHtsTestApplication.class)
+public class JobServiceTest extends HtsDatabaseTestBase {
 
   private final JobRow testJobRow =
       JobRow.builder()
@@ -56,11 +56,6 @@ public class JobServiceTest {
     htsRepository.save(testJobRow);
     htsRepository.save(testJobRow2);
     htsRepository.save(testJobRow3);
-  }
-
-  @AfterEach
-  public void tearDown() {
-    htsRepository.deleteAll();
   }
 
   @Test

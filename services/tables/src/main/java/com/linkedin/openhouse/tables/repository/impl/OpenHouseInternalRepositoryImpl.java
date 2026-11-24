@@ -30,6 +30,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.validator.impl.OpenHouseTablesApiValidator;
 import com.linkedin.openhouse.tables.api.validator.impl.RetentionPolicySpecValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -46,6 +47,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -173,12 +175,18 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           System.currentTimeMillis() - startTime);
     } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
-      validateReplaceTable(tableIdentifier, writeSchema);
+      Table existingTable = catalog.loadTable(tableIdentifier);
+      validateReplaceTable(tableIdentifier, existingTable, writeSchema);
       // Policies are governance metadata (retention, sharing, PII column tags, replication,
       // history, lock) that must survive a replace. Merge the existing table's policies with the
       // request's so RTAS consistently merges properties.
-      tableDto = mergePoliciesFromExistingTable(tableIdentifier, tableDto);
+      tableDto = mergePoliciesFromExistingTable(existingTable, tableDto);
       validateRetentionPolicyForReplace(tableDto);
+      OpenHouseTablesApiValidator.validateTemporaryTableCompatibility(
+          tableDto.getDatabaseId(),
+          tableDto.getTableId(),
+          propertiesAfterReplace(existingTable, tableDto),
+          tableDto.getPolicies());
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -201,6 +209,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       table = catalog.loadTable(tableIdentifier);
       Transaction transaction = table.newTransaction();
       updateEligibilityCheck(table, tableDto);
+      OpenHouseTablesApiValidator.validateTemporaryTableCompatibility(
+          tableDto.getDatabaseId(),
+          tableDto.getTableId(),
+          Optional.ofNullable(tableDto.getTableProperties()).orElseGet(table::properties),
+          tableDto.getPolicies());
 
       UpdateProperties updateProperties = transaction.updateProperties();
       boolean schemaUpdated =
@@ -403,9 +416,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * @param tableIdentifier identifier for the table
    * @param writeSchema replacement schema
    */
-  protected void validateReplaceTable(TableIdentifier tableIdentifier, Schema writeSchema) {
+  protected void validateReplaceTable(
+      TableIdentifier tableIdentifier, Table table, Schema writeSchema) {
     // A replace is only permitted when RTAS is enabled on the table.
-    Table table = catalog.loadTable(tableIdentifier);
     Map<String, String> existingProperties = table.properties();
     if (!Boolean.parseBoolean(existingProperties.get(RTAS_ENABLED_TABLE_PROP))) {
       throw new UnsupportedClientOperationException(
@@ -478,15 +491,24 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * drop: each plane the request provides wins, and every plane it omits is carried forward from
    * the existing table.
    */
-  private TableDto mergePoliciesFromExistingTable(
-      TableIdentifier tableIdentifier, TableDto requested) {
+  private TableDto mergePoliciesFromExistingTable(Table existingTable, TableDto requested) {
     Policies existingPolicies =
-        policiesMapper.toPoliciesObject(
-            catalog.loadTable(tableIdentifier).properties().get(POLICIES_KEY));
+        policiesMapper.toPoliciesObject(existingTable.properties().get(POLICIES_KEY));
     return requested
         .toBuilder()
         .policies(mergePolicies(existingPolicies, requested.getPolicies()))
         .build();
+  }
+
+  /**
+   * A replace keeps every existing property that the request omits, so the replaced table holds the
+   * existing properties with the request's properties on top.
+   */
+  private static Map<String, String> propertiesAfterReplace(
+      Table existingTable, TableDto requested) {
+    Map<String, String> properties = new HashMap<>(existingTable.properties());
+    Optional.ofNullable(requested.getTableProperties()).ifPresent(properties::putAll);
+    return properties;
   }
 
   /**

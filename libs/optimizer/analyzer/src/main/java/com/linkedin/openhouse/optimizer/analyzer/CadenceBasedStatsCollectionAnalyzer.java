@@ -4,7 +4,6 @@ import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
-import com.linkedin.openhouse.optimizer.model.TemporaryTable;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -27,9 +26,6 @@ import org.springframework.stereotype.Component;
  * <ol>
  *   <li><b>Opt-in.</b> The table sets {@code maintenance.optimizer.stats.enabled=true} in its table
  *       properties. Without this flag, the analyzer ignores the table entirely.
- *   <li><b>Not temporary.</b> A table whose {@code openhouse.leaseExpirationTime} property holds
- *       epoch milliseconds is temporary (see {@link TemporaryTable}). The Optimizer runs no
- *       maintenance on temporary tables, even when the opt-in flag is set.
  *   <li><b>No <i>live</i> operation already in flight.</b> If the table has a non-CANCELED
  *       operation row — PENDING or in-progress (SCHEDULING/SCHEDULED) — the scheduler owns it and
  *       the analyzer stays out. A CANCELED row does not block. <b>Exception (deadline):</b> a
@@ -95,10 +91,18 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
     return OperationTypeDto.TABLE_STATS_COLLECTION;
   }
 
+  /**
+   * Stats collection only reads the table, so it is safe on a replica (which the primary maintains
+   * in another cluster). Opt in so replicas still get stats while maintenance operations stay off.
+   */
+  @Override
+  public boolean runsOnReplica() {
+    return true;
+  }
+
   @Override
   public boolean isEnabled(TableDto table) {
-    return "true".equals(table.getTableProperties().get(STATS_ENABLED_PROPERTY))
-        && TemporaryTable.expirationTime(table.getTableProperties()).isEmpty();
+    return "true".equals(table.getTableProperties().get(STATS_ENABLED_PROPERTY));
   }
 
   @Override

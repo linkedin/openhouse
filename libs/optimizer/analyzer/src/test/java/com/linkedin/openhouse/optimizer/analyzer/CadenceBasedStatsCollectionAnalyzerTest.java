@@ -8,10 +8,8 @@ import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
-import com.linkedin.openhouse.optimizer.model.TemporaryTable;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,15 +52,6 @@ class CadenceBasedStatsCollectionAnalyzerTest {
   @Test
   void isEnabled_returnsFalse_whenTablePropertiesEmpty() {
     assertThat(analyzer.isEnabled(TableDto.builder().tableUuid("uuid").build())).isFalse();
-  }
-
-  @Test
-  void isEnabled_returnsFalse_whenOptedInTableIsTemporary() {
-    TableDto optedInTable = tableWithProperty(true);
-    Map<String, String> properties = new HashMap<>(optedInTable.getTableProperties());
-    properties.put(TemporaryTable.EXPIRATION_TIME_PROPERTY, "1700000000000");
-    TableDto temporaryTable = optedInTable.toBuilder().tableProperties(properties).build();
-    assertThat(analyzer.isEnabled(temporaryTable)).isFalse();
   }
 
   // --- shouldSchedule: no active op → cadence on history ---

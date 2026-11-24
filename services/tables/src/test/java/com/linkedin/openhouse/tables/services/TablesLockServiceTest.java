@@ -6,6 +6,8 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.common.exception.LockConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -15,6 +17,7 @@ import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
+import java.util.Collections;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -116,6 +119,25 @@ class TablesLockServiceTest {
     LockState lock = savedTable().getPolicies().getLockState();
     assertEquals("updated legacy", lock.getMessage());
     assertEquals(LockReason.LEGACY, lock.getReason());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void createLockRejectsTemporaryTable(boolean systemOnly) {
+    table =
+        table
+            .toBuilder()
+            .tableProperties(
+                Collections.singletonMap(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true"))
+            .build();
+    RequestValidationFailureException exception =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                service.createLock(
+                    "db", "table", systemOnly ? systemOnlyRequest() : legacyRequest(), OWNER));
+    assertTrue(exception.getMessage().contains("table lock"), exception.getMessage());
+    verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test

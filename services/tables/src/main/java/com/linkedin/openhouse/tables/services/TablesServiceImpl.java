@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
@@ -19,6 +20,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
+import com.linkedin.openhouse.tables.api.validator.impl.OpenHouseTablesApiValidator;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -32,6 +34,8 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,13 +72,16 @@ public class TablesServiceImpl implements TablesService {
    * @param databaseId
    * @param tableId
    * @return Table DTO object.
-   * @throws com.linkedin.openhouse.common.exception.NoSuchUserTableException if table is not found.
+   * @throws com.linkedin.openhouse.common.exception.NoSuchUserTableException if table is not found,
+   *     or if it is a temporary table whose expiration time has passed.
    */
   @Override
   public TableDto getTable(String databaseId, String tableId, String actingPrincipal) {
     TableDto tableDto =
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .filter(
+                table -> !TemporaryTableProperties.isExpired(tableProperties(table), Instant.now()))
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     // Restricts reading table to users with lock admin Privileges
     if (LockPolicyValidator.isLegacyLocked(tableDto)) {
@@ -229,6 +236,11 @@ public class TablesServiceImpl implements TablesService {
               "Commit regarding to the requested table is not acknowledged."),
           commitStateUnknownException);
     }
+  }
+
+  /** A table loaded without its metadata, such as a table reference, has no property map. */
+  private static Map<String, String> tableProperties(TableDto tableDto) {
+    return Optional.ofNullable(tableDto.getTableProperties()).orElseGet(Collections::emptyMap);
   }
 
   private void checkIfLockPoliciesUpdated(
@@ -421,6 +433,8 @@ public class TablesServiceImpl implements TablesService {
               .policies(policiesToSave)
               .tableVersion(tableDto.getTableLocation())
               .build();
+      OpenHouseTablesApiValidator.validateTemporaryTableCompatibility(
+          databaseId, tableId, tableProperties(tableDto), policiesToSave);
       saveTableDto(tableDtoToSave, Optional.of(tableDto));
     }
   }

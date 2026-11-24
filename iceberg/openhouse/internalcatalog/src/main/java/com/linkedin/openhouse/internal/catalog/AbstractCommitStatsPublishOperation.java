@@ -20,12 +20,14 @@ import org.apache.iceberg.TableMetadata;
  * <ul>
  *   <li><b>Global runner switch</b> {@code cluster.tables.postcommit.enabled} (owns the seam), and
  *   <li><b>Per-table condition</b>: the table opts in with the table property {@value
- *       #COMMIT_STATS_COLLECTION_ENABLED_PROP}{@code =true}, or the table is a temporary table (it
- *       has the {@value CatalogConstants#OPENHOUSE_LEASE_EXPIRATION_TIME_KEY} property). The opt-in
- *       property is a plain user property (no reserved {@code openhouse.} prefix) so table owners
- *       can set it via {@code ALTER TABLE ... SET TBLPROPERTIES}; users cannot modify most {@code
- *       openhouse.} keys, which would make the gate un-settable. A temporary table is published
- *       without the opt-in so the Optimizer can find it.
+ *       #COMMIT_STATS_COLLECTION_ENABLED_PROP}{@code =true}, or the committed table is temporary
+ *       ({@value CatalogConstants#OPENHOUSE_TEMPORARY_KEY}{@code =true}), or the table was
+ *       temporary before the commit. The opt-in property is a plain user property (no reserved
+ *       {@code openhouse.} prefix) so table owners can set it via {@code ALTER TABLE ... SET
+ *       TBLPROPERTIES}; users cannot modify most {@code openhouse.} keys, which would make the gate
+ *       un-settable. A temporary table is published without the opt-in so the Optimizer can find
+ *       it, and the commit that removes the flag is published so the Optimizer learns the table is
+ *       no longer temporary.
  * </ul>
  */
 @Slf4j
@@ -48,7 +50,7 @@ public abstract class AbstractCommitStatsPublishOperation implements PostCommitO
   @Override
   public void execute(PostCommitContext context) throws Exception {
     TableMetadata committedMetadata = context.getCommittedMetadata();
-    if (committedMetadata == null || !isCollectionEnabled(committedMetadata)) {
+    if (committedMetadata == null || !isCollectionEnabled(context)) {
       return;
     }
     Optional<CommitStats> stats =
@@ -58,11 +60,12 @@ public abstract class AbstractCommitStatsPublishOperation implements PostCommitO
     }
   }
 
-  private boolean isCollectionEnabled(TableMetadata committedMetadata) {
-    Map<String, String> properties = committedMetadata.properties();
+  private boolean isCollectionEnabled(PostCommitContext context) {
+    Map<String, String> properties = context.getCommittedMetadata().properties();
     return Boolean.parseBoolean(
             properties.getOrDefault(COMMIT_STATS_COLLECTION_ENABLED_PROP, "false"))
-        || properties.containsKey(CatalogConstants.OPENHOUSE_LEASE_EXPIRATION_TIME_KEY);
+        || TemporaryTableProperties.isTemporary(properties)
+        || context.isPreviouslyTemporary();
   }
 
   /**
