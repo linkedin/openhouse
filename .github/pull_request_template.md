@@ -22,7 +22,7 @@ For all the boxes checked, please include additional details of the changes made
 ## Testing Done
 <!--- Check any relevant boxes with "x" -->
 
-- [ ] Manually Tested on local docker setup. Please include commands ran, and their output.
+- [ ] Tested in Gradle, integration tooling, acceptance tests, or CD tooling ([TESTING.md](https://github.com/linkedin/openhouse/blob/main/TESTING.md)). Name which one, and which tests.
 - [ ] Added new tests for the changes made.
 - [ ] Updated existing tests to reflect the changes made.
 - [ ] No tests added or updated. Please explain why. If unsure, please feel free to ask for help.
