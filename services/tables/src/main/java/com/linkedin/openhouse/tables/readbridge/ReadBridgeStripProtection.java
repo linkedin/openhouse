@@ -14,17 +14,25 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 /**
- * Type 1 / Type 2 strip protection for column defaults. Type 1 reads the {@code initial-default}
- * values a commit's schema carries to check that stamped columns keep their defaults; Type 2 asks
- * {@link ClientCapabilityGate} whether the commit's client is default-aware. Every {@code
- * initial-default} is dropped before persist so overlays cannot land in Iceberg metadata.
+ * Type 1 / Type 2 strip protection for column defaults. Type 1 holds a table that has opted in to
+ * Iceberg's rules for {@code initial-default}: a commit declares a default only on a column it
+ * adds, and keeps every stamped column's default, unchanged. Type 2 asks {@link
+ * ClientCapabilityGate} whether the commit's client is default-aware. Every {@code initial-default}
+ * is dropped before persist so overlays cannot land in Iceberg metadata.
+ *
+ * <p>The commit that opts a table in, or creates it opted in, may declare a default on any column
+ * the table has. Type 1 applies to every commit after it.
  *
  * <p>The catalog applies the rules only after its stale-base check, so they always judge a commit
  * against the table's current version. A commit built on an older version gets the retryable
@@ -41,6 +49,10 @@ import org.apache.iceberg.types.Types;
  * rewrites data or is new at all, so the check needs nothing from the table's existing snapshots. A
  * client that is not default-aware cannot append, overwrite, move refs or expire snapshots on such
  * a table. See https://github.com/linkedin/openhouse/issues/693.
+ *
+ * <p>A declared default must also fit its column's type in every schema version of the table, the
+ * versions time travel, branches and tags read with: clients overlay it on all of them, and one it
+ * does not fit fails every load of the table.
  *
  * <p>A request with the column-default policy bypass ({@link
  * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips the rules and the default
@@ -84,34 +96,38 @@ public class ReadBridgeStripProtection {
 
   /**
    * Checks {@code commit} against the table's current version: the defaults the base declares, then
-   * the ones the commit declares, must be usable, and the commit must pass Type 1 and Type 2. A
-   * commit that creates the table only has its declared defaults checked.
+   * the ones the commit declares, must be usable, the commit must pass Type 1, its defaults must
+   * fit every schema version, and it must pass Type 2. Type 1 comes first, so a changed default is
+   * refused as such even when it also does not fit. A commit that creates the table or opts it in
+   * only has its declared defaults checked.
    *
    * @param clients the gate that says whether the commit's client declares the {@code
    *     column-defaults} capability and words the rejection
    * @throws TableConfigUnavailableException if a default the base declares cannot be applied
-   * @throws CommitRejectedException if a default the commit declares cannot be applied, or the
-   *     commit breaks Type 1 or Type 2
+   * @throws CommitRejectedException if a default the commit declares cannot be applied or does not
+   *     fit a schema version, or the commit breaks Type 1 or Type 2
    */
   public void enforce(PendingCommit commit, ClientCapabilityGate clients) {
     TableIdentifier table = commit.getTableIdentifier();
     TableMetadata base = commit.getBase().orElse(null);
     Schema schema = commit.getMetadata().schema();
     String location = base == null ? null : base.metadataFileLocation();
+    boolean optedInBefore = base != null && resolver.isBridged(base.properties());
     Map<Integer, String> previousStamped =
-        base == null || !resolver.isBridged(base.properties())
-            ? Collections.emptyMap()
-            : resolver.storedColumnDefaults(
-                tableDto(table, base.schema(), base.properties(), location));
-    boolean bridged = resolver.isBridged(commit.getProperties());
+        optedInBefore
+            ? resolver.storedColumnDefaults(
+                tableDto(table, base.schema(), base.properties(), location))
+            : Collections.emptyMap();
+    boolean optedInAfter = resolver.isBridged(commit.getProperties());
     Map<Integer, String> declared =
-        bridged
+        optedInAfter
             ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
-    if (base != null) {
-      rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
-      rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
+    if (optedInBefore) {
+      rejectChangedDefaults(table, previousStamped, base.schema(), declared, schema);
     }
+    rejectDefaultsThatDoNotFit(table, declared, commit.getMetadata().schemas());
+    rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
   }
 
   /** The defaults {@code committed} declares; one that cannot be applied rejects the commit. */
@@ -124,27 +140,92 @@ public class ReadBridgeStripProtection {
   }
 
   /**
-   * Type 1: a still-present stamped column must keep its default. Tables that are unstamped or not
-   * opted in skip — there is no default to protect.
+   * Each declared default must fit its column's type in every schema version that has the column,
+   * parsed as clients parse it when they overlay it.
    */
-  private static void rejectRemovedDefaults(
+  private static void rejectDefaultsThatDoNotFit(
+      TableIdentifier table, Map<Integer, String> declared, List<Schema> versions) {
+    for (Schema version : versions) {
+      for (Map.Entry<Integer, String> entry : declared.entrySet()) {
+        Types.NestedField field = version.findField(entry.getKey());
+        if (field == null) {
+          continue;
+        }
+        try {
+          SingleValueParser.fromJson(field.type(), entry.getValue());
+        } catch (RuntimeException e) {
+          throw new CommitRejectedException(
+              String.format(
+                  "COLUMN_DEFAULT_UNUSABLE: OpenHouse cannot apply the column defaults declared on"
+                      + " %s (TYPE_MISMATCH, column %s, field ID %d). The default does not fit %s,"
+                      + " the column's type in schema version %d. Defaults apply to every schema"
+                      + " version, so declare a default that fits every type the column has had.",
+                  table,
+                  version.findColumnName(field.fieldId()),
+                  field.fieldId(),
+                  field.type(),
+                  version.schemaId()),
+              e);
+        }
+      }
+    }
+  }
+
+  /**
+   * Type 1: a column the table already has keeps its default as it is, as Iceberg sets {@code
+   * initial-default} only when it adds a field and never changes it. Rewrites store the default as
+   * a value in the files they write, so a default that came later, changed or went away would read
+   * differently in rewritten and untouched files.
+   */
+  private static void rejectChangedDefaults(
       TableIdentifier table,
       Map<Integer, String> previousStamped,
+      Schema previousSchema,
       Map<Integer, String> declared,
-      boolean bridged,
       Schema schema) {
-    if (previousStamped.isEmpty() || !bridged) {
-      return;
-    }
-    for (Integer fieldId : previousStamped.keySet()) {
+    Set<Integer> fieldIds = new TreeSet<>(previousStamped.keySet());
+    fieldIds.addAll(declared.keySet());
+    for (Integer fieldId : fieldIds) {
+      Types.NestedField previous = previousSchema.findField(fieldId);
       Types.NestedField field = schema.findField(fieldId);
-      if (field != null && !declared.containsKey(fieldId)) {
+      if (previous == null || field == null) {
+        continue;
+      }
+      String stamped = previousStamped.get(fieldId);
+      String value = declared.get(fieldId);
+      if (value == null) {
         throw new CommitRejectedException(
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s still has a column default on %s, and this commit"
                     + " omitted it. %s",
                 table, fieldLabel(field), ClientCapabilityGate.remedy(COLUMN_DEFAULTS)));
       }
+      if (stamped == null || !sameDefault(previous.type(), stamped, value)) {
+        throw new CommitRejectedException(
+            String.format(
+                "COLUMN_DEFAULT_CHANGED: this commit to %s changes the column default on %s. A"
+                    + " column gets a default only in the commit that adds the column, and keeps"
+                    + " it unchanged.",
+                table, fieldLabel(field)));
+      }
+    }
+  }
+
+  /**
+   * Whether two defaults are the same value of {@code type}, the column's type before the commit. A
+   * promotion can render an unchanged default anew for the wider type: a float 0.1 becomes the
+   * double 0.10000000149011612.
+   */
+  private static boolean sameDefault(Type type, String previous, String declared) {
+    if (previous.equals(declared)) {
+      return true;
+    }
+    try {
+      return SingleValueParser.toJson(type, SingleValueParser.fromJson(type, previous))
+          .equals(SingleValueParser.toJson(type, SingleValueParser.fromJson(type, declared)));
+    } catch (RuntimeException e) {
+      // One of them is not a value of the type, such as 8000000000 for an int.
+      return false;
     }
   }
 

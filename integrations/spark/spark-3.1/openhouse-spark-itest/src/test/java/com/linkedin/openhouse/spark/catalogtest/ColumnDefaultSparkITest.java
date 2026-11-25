@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.spark.catalogtest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import com.linkedin.openhouse.tablestest.SparkItestColumnDefaults;
@@ -9,6 +11,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.spark.Spark3Util;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Disabled;
@@ -56,6 +59,43 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
           table.schema().findField("tier").initialDefault(),
           "ReadBridge overlay missing on tier");
 
+      spark.sql("DROP TABLE " + fqtn);
+    }
+  }
+
+  /**
+   * Clients apply a default to every schema version of its column, so a default declared at the
+   * opt-in must fit every type the column has had. The stub declares a default for {@code wide}
+   * that only a long holds: opting in after promoting {@code wide} from int is refused, and the
+   * table stays readable, alterable and droppable.
+   */
+  @Test
+  public void optInWithDefaultThatDoesNotFitAnOlderTypeIsRefused() throws Exception {
+    String fqtn = "openhouse." + DATABASE + ".members_wide";
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("DROP TABLE IF EXISTS " + fqtn);
+      spark.sql("CREATE TABLE " + fqtn + " (id bigint, wide int) USING iceberg");
+      spark.sql("INSERT INTO " + fqtn + " VALUES (1, 5)");
+      spark.sql("ALTER TABLE " + fqtn + " ALTER COLUMN wide TYPE bigint");
+
+      BadRequestException refused =
+          assertThrows(
+              BadRequestException.class,
+              () ->
+                  spark.sql(
+                      "ALTER TABLE "
+                          + fqtn
+                          + " SET TBLPROPERTIES ('"
+                          + CAPABILITY_PROP
+                          + "'='true')"));
+      assertTrue(
+          refused.getMessage().contains("(TYPE_MISMATCH, column wide, field ID 2)"),
+          refused.getMessage());
+
+      spark.sql("REFRESH TABLE " + fqtn);
+      assertRowsEqual(
+          Collections.singletonList(row(1L, 5L)), rows(spark, "SELECT id, wide FROM " + fqtn));
+      spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN country string");
       spark.sql("DROP TABLE " + fqtn);
     }
   }

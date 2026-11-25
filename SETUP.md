@@ -455,14 +455,33 @@ not declare (X-Client-Name: trino, User-Agent: ..., X-OpenHouse-Client-Capabilit
 client that declares column-defaults in X-OpenHouse-Client-Capabilities.` It does not mention the
 escape hatch.
 
+On an opted-in table, a column gets a default only in the commit that adds it, and keeps that
+default, unchanged, while it exists, as Iceberg treats `initial-default`. Rewrites store the
+default as a value in the files they write, so a default that came later, changed or went away
+would read differently in rewritten and untouched files. A commit fails with HTTP **400** if it
+changes the default of a column the table already has, including a first default on a column
+without one, with `COLUMN_DEFAULT_CHANGED: this commit to db.tbl changes the column default on
+country (field-id 2). ...`, and if it removes one, with `COLUMN_DEFAULT_REMOVED`. The commit that
+opts a table in, or creates it opted in, may declare a default on any column the table has.
+
+A commit fails with HTTP **400** if a column default it declares does not fit the column's type in
+every schema version of the table: clients apply a default to every schema version, including the
+older ones time travel reads, so one that does not fit would fail every load. For example, if an
+`int` column `n` was promoted to `bigint` before the opt-in, an opt-in that declares a default of
+`8000000000` for `n` is refused with
+`COLUMN_DEFAULT_UNUSABLE: OpenHouse cannot apply the column defaults declared on db.tbl
+(TYPE_MISMATCH, column n, field ID 2). The default does not fit int, the column's type in schema
+version 0. ...`
+
 The default-off escape hatch is the request header
 `X-OpenHouse-Dangerously-Bypass-Column-Default-Policy: true`. A catalog sends it when configured with
 `spark.sql.catalog.openhouse.header.X-OpenHouse-Dangerously-Bypass-Column-Default-Policy=true` (or
 the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
 request header. It bypasses only column-default policy checks: the `column-defaults` capability (no
 other capability), the rule that a committed `required-capability.column-defaults=true` cannot be
-changed or removed, and the checks that a commit keeps a column's default and that a snapshot commit
-comes from a client that declares `column-defaults`. Incorrect reads or writes may result.
+changed or removed, and the checks that a commit keeps existing columns' defaults as they are, that
+its defaults fit every schema version, and that a snapshot commit comes from a client that declares
+`column-defaults`. Incorrect reads or writes may result.
 Authentication, authorization and default resolution still apply, and `initial-default` is still
 stripped from writes. JARs without `header.` catalog properties need an upgrade/backport to send it.
 Removing table opt-in in a write is not a bypass.
