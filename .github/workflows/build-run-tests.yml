@@ -36,8 +36,30 @@ jobs:
       - name: Start Docker Containers
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
 
-      - name: Wait for Docker Containers to start
-        run: sleep 30
+      - name: Wait for Docker Containers to be ready
+        run: |
+          echo "Waiting for openhouse-tables and openhouse-housetables..."
+          token=$(cat ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token)
+          probe() {
+            local status
+            status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 5 "$@") && printf '%s' "$status" || printf '000'
+          }
+          SECONDS=0
+          i=0
+          while [ "$SECONDS" -lt 300 ]; do
+            i=$((i + 1))
+            tables_status=$(probe -H "Authorization: Bearer $token" http://localhost:8000/v1/databases)
+            hts_status=$(probe http://localhost:8001/hts/tables/query)
+            echo "Poll $i: tables=$tables_status hts=$hts_status"
+            if [ "$tables_status" = "200" ] && [ "$hts_status" = "200" ]; then
+              echo "Services ready after ${SECONDS}s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for services after 300s"
+          docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml ps
+          exit 1
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -51,4 +73,5 @@ jobs:
         run: python scripts/python/integration_test.py ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
 
       - name: Stop Docker Containers
+        if: always()
         run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
