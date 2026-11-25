@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
 import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
@@ -21,7 +22,9 @@ import java.util.Optional;
  *       {@code activeOpStaleTimeout} — it died, hung, or its completion callback was missed — the
  *       row is treated as dead and no longer blocks, so the table is rescheduled rather than wedged
  *       forever. The timeout length encodes the bias: short for cheap/idempotent work (prefer an
- *       extra job), long for expensive/mutating work (prefer a missed job over a duplicate).
+ *       extra job), long for expensive/mutating work (prefer a missed job over a duplicate). A
+ *       {@code SCHEDULED} row with no job id has the shorter {@link #LAUNCH_DEADLINE}: its job
+ *       request failed, or its scheduler stopped before it wrote the job id.
  *   <li><b>Cadence guard.</b> With no live op, the decision is based on the most recent completed
  *       history entry: re-evaluate after {@code successRetryInterval} on success, or after {@code
  *       failureRetryInterval} on failure (shorter, for quick recovery).
@@ -55,6 +58,14 @@ public class CadencePolicy {
   static final Duration DEFAULT_FAILURE_BACKOFF_MAX = Duration.ofHours(24);
 
   /**
+   * How long a {@code SCHEDULED} operation may wait for its job id. The scheduler writes the job id
+   * when the Jobs Service accepts the job request, and the request times out after 30 seconds. An
+   * operation with no job id after this deadline had a failed job request, or its scheduler stopped
+   * before it wrote the job id. The analyzer then treats it as a dead job.
+   */
+  static final Duration LAUNCH_DEADLINE = Duration.ofMinutes(5);
+
+  /**
    * How long to wait after a successful operation before re-evaluating the table. For example, if
    * set to 16 hours and OFD succeeded at 10:00 AM Monday, the table becomes eligible again at 2:00
    * AM Tuesday. Configured below 24h so that at least one re-evaluation is guaranteed within any
@@ -70,9 +81,9 @@ public class CadencePolicy {
   private final Duration failureRetryInterval;
 
   /**
-   * How long a {@code SCHEDULED} operation may sit without reaching a terminal history entry before
-   * it is considered dead (missed/hung job) and stops blocking reschedule. Measured from the op's
-   * {@code scheduledAt}; an op without one cannot be proven stale.
+   * How long a {@code SCHEDULED} operation with a job id may sit without reaching a terminal
+   * history entry before it is considered dead (missed/hung job) and stops blocking reschedule.
+   * Measured from the op's {@code scheduledAt}; an op without one cannot be proven stale.
    */
   private final Duration activeOpStaleTimeout;
 
@@ -167,10 +178,10 @@ public class CadencePolicy {
    * Whether an existing operation row should keep the analyzer from issuing a new recommendation,
    * or {@link Optional#empty()} when the row's status is not one this policy classifies. CANCELED
    * never blocks; PENDING always blocks (waiting for the scheduler to claim it); a SCHEDULED row
-   * blocks only until it passes {@link #activeOpStaleTimeout}, after which it is treated as a dead
-   * job eligible for rescheduling. The caller decides how to treat an unclassified status; {@link
-   * #shouldSchedule} conservatively treats it as blocking so we never schedule over an op we cannot
-   * reason about.
+   * blocks only until it passes its deadline ({@link #isSubmissionTimedOut}), after which it is
+   * treated as a dead job eligible for rescheduling. The caller decides how to treat an
+   * unclassified status; {@link #shouldSchedule} conservatively treats it as blocking so we never
+   * schedule over an op we cannot reason about.
    */
   private Optional<Boolean> isBlockingActiveOp(TableOperationDto op) {
     switch (op.getStatus()) {
@@ -186,23 +197,29 @@ public class CadencePolicy {
   }
 
   /**
-   * Whether a submitted op has exceeded the stale-timeout with no success — i.e. it looks dead.
-   * Measured from the submission time ({@code scheduledAt}); an op without one cannot be proven
-   * stale, so it is treated as live. This is both the rescheduling trigger and the "logical
-   * timeout" the per-table retry backoff counts as a non-success — keeping the two in lockstep.
+   * Whether a submitted op has passed its deadline with no success — i.e. it looks dead. The
+   * deadline is {@link #LAUNCH_DEADLINE} for a {@code SCHEDULED} op with no job id, and {@link
+   * #activeOpStaleTimeout} otherwise. Measured from the submission time ({@code scheduledAt}); an
+   * op without one cannot be proven stale, so it is treated as live. This is both the rescheduling
+   * trigger and the "logical timeout" the per-table retry backoff counts as a non-success — keeping
+   * the two in lockstep.
    *
    * <p>TODO (heartbeats): a fixed deadline flags healthy long-running jobs as dead; see the
    * class-level note on heartbeat-based ownership renewal.
    */
   public boolean isSubmissionTimedOut(TableOperationDto op) {
-    // Stale-timeout is measured from when the job was submitted (scheduledAt). Without a submission
+    // The deadline is measured from when the job was submitted (scheduledAt). Without a submission
     // time we cannot prove the job is stale, so conservatively treat it as live and never
     // reschedule a job we can't prove is dead.
     Instant submittedAt = op.getScheduledAt();
     if (submittedAt == null) {
       return false;
     }
-    return Duration.between(submittedAt, Instant.now()).compareTo(activeOpStaleTimeout) > 0;
+    Duration deadline =
+        op.getStatus() == OperationStatusDto.SCHEDULED && op.getJobId() == null
+            ? LAUNCH_DEADLINE
+            : activeOpStaleTimeout;
+    return Duration.between(submittedAt, Instant.now()).compareTo(deadline) > 0;
   }
 
   private boolean readyAfterHistoryEntry(TableOperationsHistoryDto entry, int consecutiveFailures) {
