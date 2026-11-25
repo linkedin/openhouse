@@ -277,19 +277,20 @@ public final class TableStatsCollectorUtil {
     return result;
   }
 
-  private static String getEarliestPartitionDate(
+  static String getEarliestPartitionDate(
       Table table, SparkSession spark, RetentionStatsSchema retentionStatsSchema) {
 
     // Check if retention policy is present by checking if granularity exists
-    if (retentionStatsSchema.getGranularity() == null) {
+    if (retentionStatsSchema.getGranularity() == null || table.spec().isUnpartitioned()) {
       return null;
     }
     String partitionColumnName =
         retentionStatsSchema.getColumnName() != null
             ? retentionStatsSchema.getColumnName()
             : getPartitionColumnName(table);
-    // Table has no partition, we need to avoid AnalysisException
-    if (partitionColumnName == null) {
+    // Retention policies may reference a schema column that is not a partition field.
+    if (partitionColumnName == null
+        || table.spec().partitionType().field(partitionColumnName) == null) {
       return null;
     }
 
