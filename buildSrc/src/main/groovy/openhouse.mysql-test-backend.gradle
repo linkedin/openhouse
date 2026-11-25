@@ -1,0 +1,21 @@
+plugins {
+  id 'java'
+}
+
+// Test-only: runs every Test task against the real HTS (bootJar) backed by a MySQL Testcontainer.
+// The backend is a runtime-only test dependency; it must never leak into published artifacts.
+evaluationDependsOn(':services:housetables')
+
+dependencies {
+  testRuntimeOnly project(':test-infra:mysql-hts')
+}
+
+def htsJar = project(':services:housetables').tasks.named('bootJar').flatMap { it.archiveFile }
+
+tasks.withType(Test).configureEach { testTask ->
+  dependsOn(htsJar)
+  inputs.file(htsJar).withPropertyName('openhouseHtsJar').withPathSensitivity(PathSensitivity.NONE)
+  jvmArgumentProviders.add({
+    ["-Dopenhouse.test.hts.jar=${htsJar.get().asFile.absolutePath}".toString()]
+  } as CommandLineArgumentProvider)
+}
