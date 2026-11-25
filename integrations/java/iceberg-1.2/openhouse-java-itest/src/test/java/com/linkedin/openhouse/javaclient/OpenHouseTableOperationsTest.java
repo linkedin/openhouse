@@ -806,6 +806,30 @@ public class OpenHouseTableOperationsTest {
     verifyNoInteractions(mockFileIO);
   }
 
+  /** A default that does not fit its column fails the load the way the server words it. */
+  @Test
+  public void testDefaultThatDoesNotFitFailsAsColumnDefaultUnusable() {
+    String location = writeTempMetadata();
+    TableApi mockTableApi = mock(TableApi.class);
+    GetTableResponseBody body = mock(GetTableResponseBody.class);
+    when(body.getTableLocation()).thenReturn(location);
+    when(body.getConfig())
+        .thenReturn(Collections.singletonMap(ReadBridge.COLUMN_DEFAULT_PREFIX + "1", "8000000000"));
+    when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
+    Tasks.UnrecoverableException thrown =
+        Assertions.assertThrows(Tasks.UnrecoverableException.class, ops::doRefresh);
+
+    Assertions.assertTrue(
+        thrown
+            .getMessage()
+            .startsWith(
+                "COLUMN_DEFAULT_UNUSABLE: OpenHouse cannot apply the column defaults declared on"
+                    + " db.tbl (TYPE_MISMATCH, column id, field ID 1)"),
+        thrown.getMessage());
+  }
+
   /** Config arrives as a string map on the table-load JSON. */
   @Test
   public void testConfigDeserializeFromResponse() throws Exception {
