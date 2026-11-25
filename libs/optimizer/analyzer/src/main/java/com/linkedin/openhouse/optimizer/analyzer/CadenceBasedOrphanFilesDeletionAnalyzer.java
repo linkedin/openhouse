@@ -29,8 +29,8 @@ import org.springframework.stereotype.Component;
  *   <li><b>Opt-in.</b> The table sets {@code maintenance.optimizer.ofd.enabled=true} in its table
  *       properties. Without this flag, the analyzer ignores the table entirely.
  *   <li><b>No active operation already in flight.</b> If the table has a non-CANCELED operation row
- *       (PENDING, SCHEDULING, or SCHEDULED), the scheduler already owns it and the analyzer stays
- *       out. A CANCELED row does not block — it is treated as if no operation exists.
+ *       (PENDING or SCHEDULED), the scheduler already owns it and the analyzer stays out. A
+ *       CANCELED row does not block — it is treated as if no operation exists.
  *   <li><b>Cadence elapsed since the last completed run.</b>
  *       <ul>
  *         <li>If the table has <i>no</i> prior history, schedule immediately.

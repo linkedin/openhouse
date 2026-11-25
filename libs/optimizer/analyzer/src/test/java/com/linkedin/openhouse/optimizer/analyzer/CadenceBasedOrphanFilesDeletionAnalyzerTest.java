@@ -128,17 +128,6 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   }
 
   @Test
-  void shouldSchedule_scheduling_returnsFalse() {
-    assertThat(
-            analyzer.shouldSchedule(
-                tableWithProperty(true),
-                Optional.of(opWithStatus(OperationStatusDto.SCHEDULING)),
-                Optional.empty(),
-                0))
-        .isFalse();
-  }
-
-  @Test
   void shouldSchedule_scheduled_returnsFalse_regardlessOfHistory() {
     Instant historyAt = Instant.now().minus(TEST_SUCCESS_INTERVAL).minusSeconds(60);
     assertThat(
@@ -187,7 +176,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
         .isTrue();
   }
 
-  // --- shouldSchedule: SCHEDULING/SCHEDULED past the stale timeout → dead job, reschedule ---
+  // --- shouldSchedule: SCHEDULED past the stale timeout → dead job, reschedule ---
 
   @Test
   void shouldSchedule_scheduledPastStaleTimeout_noHistory_returnsTrue() {
@@ -214,19 +203,6 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
                 Optional.empty(),
                 0))
         .isFalse();
-  }
-
-  @Test
-  void shouldSchedule_schedulingPastStaleTimeout_returnsTrue() {
-    // A scheduler that claimed the row but died before recording a jobId also wedges without this.
-    Instant staleAt = Instant.now().minus(TEST_STALE_TIMEOUT).minusSeconds(60);
-    assertThat(
-            analyzer.shouldSchedule(
-                tableWithProperty(true),
-                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULING, staleAt)),
-                Optional.empty(),
-                0))
-        .isTrue();
   }
 
   @Test
