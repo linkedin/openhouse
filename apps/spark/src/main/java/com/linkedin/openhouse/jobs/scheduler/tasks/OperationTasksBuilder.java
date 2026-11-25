@@ -187,7 +187,12 @@ public class OperationTasksBuilder {
     DataLayoutCandidateSelector candidateSelector =
         new GreedyMaxBudgetCandidateSelector(maxComputeCost, maxStrategiesCount);
     List<TableDataLayoutMetadata> selectedTableDataLayoutMetadataList =
-        DataLayoutUtil.selectStrategies(scorer, candidateSelector, tableDataLayoutMetadataList);
+        DataLayoutUtil.selectStrategies(
+            scorer,
+            candidateSelector,
+            tableDataLayoutMetadataList.stream()
+                .filter(metadata -> !metadata.isTemporary())
+                .collect(Collectors.toList()));
     log.info("Selected {} strategies", selectedTableDataLayoutMetadataList.size());
     for (TableDataLayoutMetadata metadata : selectedTableDataLayoutMetadataList) {
       log.info("Selected metadata {}", metadata);
