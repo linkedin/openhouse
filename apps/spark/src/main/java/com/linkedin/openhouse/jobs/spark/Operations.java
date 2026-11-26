@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
+import com.linkedin.openhouse.maintenance.SnapshotRetention;
 import com.linkedin.openhouse.spark.maintenance.FileRemover;
 import com.linkedin.openhouse.spark.maintenance.OrphanTableDirectory;
 import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
@@ -231,7 +232,7 @@ public final class Operations implements AutoCloseable {
         .expireSnapshots(
             table,
             maxAge,
-            TableMaintenance.toChronoUnit(granularity.toUpperCase()),
+            SnapshotRetention.toChronoUnit(granularity),
             versions,
             deleteFiles ? fileRemover(table, backupDir) : null);
   }

@@ -1,0 +1,7 @@
+plugins {
+  id 'openhouse.java-conventions'
+  id 'openhouse.maven-publish'
+}
+
+// Plain Java, no dependencies: the jobs scheduler, which runs without the Spark runtime, and the
+// Spark runtime both load it.

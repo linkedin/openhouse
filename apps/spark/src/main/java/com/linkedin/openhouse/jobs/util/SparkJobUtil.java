@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.util;
 
-import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
+import com.linkedin.openhouse.maintenance.SnapshotRetention;
 import java.io.IOException;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -106,8 +106,7 @@ public final class SparkJobUtil {
 
   public static Expression createDeleteFilter(
       String columnName, String columnPattern, String granularity, int count, ZonedDateTime now) {
-    ChronoUnit timeUnitGranularity =
-        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
+    ChronoUnit timeUnitGranularity = SnapshotRetention.toChronoUnit(granularity);
     if (!StringUtils.isBlank(columnPattern)) {
       String formattedCutoffDate =
           DateTimeFormatter.ofPattern(columnPattern)
@@ -138,9 +137,5 @@ public final class SparkJobUtil {
     for (FileStatus file : files) {
       fs.setTimes(file.getPath(), timestamp, -1);
     }
-  }
-
-  public static ChronoUnit convertGranularityToChrono(String granularity) {
-    return TableMaintenance.toChronoUnit(granularity);
   }
 }

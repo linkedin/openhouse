@@ -2,6 +2,7 @@ package com.linkedin.openhouse.spark.maintenance;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.openhouse.maintenance.SnapshotRetention;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -43,10 +44,6 @@ public final class TableMaintenance {
   public static final String ONE_DAY_ORPHAN_FILE_TTL_KEY = "ofd.one_day_ttl.enabled";
   public static final int MIN_REPLICA_ORPHAN_FILE_TTL_DAYS = 3;
   public static final int MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
-  /** Snapshot age kept when a table has no time-based history policy. */
-  public static final int DEFAULT_SNAPSHOT_MAX_AGE = 3;
-
-  public static final ChronoUnit DEFAULT_SNAPSHOT_GRANULARITY = ChronoUnit.DAYS;
   /** Orphan file age VACUUM TABLE starts from, before {@link #orphanFileTtlSeconds}. */
   public static final int VACUUM_ORPHAN_FILE_TTL_DAYS = 3;
 
@@ -75,7 +72,7 @@ public final class TableMaintenance {
   public Map<String, Long> vacuum(Table table, boolean dryRun) throws IOException {
     Map<String, Long> result = new LinkedHashMap<>();
     if (!isReplica(table)) {
-      SnapshotRetention retention = SnapshotRetention.of(table);
+      SnapshotRetention retention = snapshotRetention(table);
       FileRemover expired = new FileRemover(fs(), table, BACKUP_DIR, dryRun);
       long expiredSnapshots;
       if (dryRun) {
@@ -233,25 +230,6 @@ public final class TableMaintenance {
         .build();
   }
 
-  /**
-   * Convert a policy granularity (HOUR, DAY, MONTH, YEAR) or a {@link ChronoUnit} name to a {@link
-   * ChronoUnit}.
-   */
-  public static ChronoUnit toChronoUnit(String granularity) {
-    switch (granularity) {
-      case "HOUR":
-        return ChronoUnit.HOURS;
-      case "DAY":
-        return ChronoUnit.DAYS;
-      case "MONTH":
-        return ChronoUnit.MONTHS;
-      case "YEAR":
-        return ChronoUnit.YEARS;
-      default:
-        return ChronoUnit.valueOf(granularity);
-    }
-  }
-
   /** Replace the table location part of {@code filePath} with {@code <location>/<trashDir>}. */
   public static Path trashPath(String location, String filePath, String trashDir) {
     return new Path(filePath.replace(location, new Path(location, trashDir).toString()));
@@ -316,58 +294,23 @@ public final class TableMaintenance {
   }
 
   /**
-   * The snapshot retention the scheduled snapshot expiration job applies to a table. The scheduler
-   * passes the history policy's maxAge and granularity only when both are set, and versions only
-   * when positive; the job then falls back to {@link #DEFAULT_SNAPSHOT_MAX_AGE} {@link
-   * #DEFAULT_SNAPSHOT_GRANULARITY} when no maxAge was passed.
+   * The snapshot retention the table's history policy, in its {@code policies} property, gives it
+   * under the scheduled snapshot expiration job.
    */
-  public static final class SnapshotRetention {
-    private final int maxAge;
-    private final ChronoUnit granularity;
-    private final int versions;
-
-    private SnapshotRetention(int maxAge, ChronoUnit granularity, int versions) {
-      this.maxAge = maxAge;
-      this.granularity = granularity;
-      this.versions = versions;
+  static SnapshotRetention snapshotRetention(Table table) {
+    String policies = table.properties().get("policies");
+    JsonNode history;
+    try {
+      history =
+          policies == null || policies.isEmpty()
+              ? MAPPER.missingNode()
+              : MAPPER.readTree(policies).path("history");
+    } catch (IOException e) {
+      throw new UncheckedIOException("Cannot read the policies of table " + table.name(), e);
     }
-
-    /** Apply the job's default to maxAge and granularity as passed to the job. */
-    public static SnapshotRetention of(int maxAge, String granularity, int versions) {
-      return maxAge == 0
-          ? new SnapshotRetention(DEFAULT_SNAPSHOT_MAX_AGE, DEFAULT_SNAPSHOT_GRANULARITY, versions)
-          : new SnapshotRetention(maxAge, toChronoUnit(granularity.toUpperCase()), versions);
-    }
-
-    /** Read the history policy from the table's {@code policies} property. */
-    public static SnapshotRetention of(Table table) {
-      String policies = table.properties().get("policies");
-      JsonNode history;
-      try {
-        history =
-            policies == null || policies.isEmpty()
-                ? MAPPER.missingNode()
-                : MAPPER.readTree(policies).path("history");
-      } catch (IOException e) {
-        throw new UncheckedIOException("Cannot read the policies of table " + table.name(), e);
-      }
-      int maxAge = history.path("maxAge").asInt(0);
-      String granularity = history.path("granularity").textValue();
-      boolean timeBased = maxAge > 0 && granularity != null;
-      int versions = Math.max(history.path("versions").asInt(0), 0);
-      return of(timeBased ? maxAge : 0, timeBased ? granularity : null, versions);
-    }
-
-    public int maxAge() {
-      return maxAge;
-    }
-
-    public ChronoUnit granularity() {
-      return granularity;
-    }
-
-    public int versions() {
-      return versions;
-    }
+    return SnapshotRetention.fromHistoryPolicy(
+        history.hasNonNull("maxAge") ? history.get("maxAge").asInt() : null,
+        history.hasNonNull("granularity") ? history.get("granularity").asText() : null,
+        history.hasNonNull("versions") ? history.get("versions").asInt() : null);
   }
 }

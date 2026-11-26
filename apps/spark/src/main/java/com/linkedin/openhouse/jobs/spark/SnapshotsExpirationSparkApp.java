@@ -5,7 +5,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
-import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
+import com.linkedin.openhouse.maintenance.SnapshotRetention;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -29,14 +29,6 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   private final boolean deleteFiles;
   private final String backupDir;
 
-  public static class DEFAULT_CONFIGURATION {
-    public static final int MAX_AGE = TableMaintenance.DEFAULT_SNAPSHOT_MAX_AGE;
-    public static final String GRANULARITY =
-        TableMaintenance.DEFAULT_SNAPSHOT_GRANULARITY.toString();
-    public static final int VERSIONS = 0;
-    public static final boolean DELETE_FILES = false;
-  }
-
   public SnapshotsExpirationSparkApp(
       String jobId,
       StateManager stateManager,
@@ -48,14 +40,8 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
       String backupDir,
       OtelEmitter otelEmitter) {
     super(jobId, stateManager, fqtn, otelEmitter);
-    // By default, always enforce a time to live for snapshots even if unconfigured
-    if (maxAge == 0) {
-      this.maxAge = DEFAULT_CONFIGURATION.MAX_AGE;
-      this.granularity = DEFAULT_CONFIGURATION.GRANULARITY;
-    } else {
-      this.maxAge = maxAge;
-      this.granularity = granularity;
-    }
+    this.maxAge = maxAge;
+    this.granularity = granularity;
     this.versions = versions;
     this.deleteFiles = deleteFiles;
     this.backupDir = backupDir;
@@ -68,18 +54,26 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
 
   @Override
   protected void runInner(Operations ops) {
+    // By default, always enforce a time to live for snapshots even if unconfigured
+    SnapshotRetention retention = SnapshotRetention.of(maxAge, granularity, versions);
     log.info(
-        "Snapshot expiration app start for table {}, expiring older than {} {}s or with more than {} versions, deleteFiles={}, backupDir={}",
+        "Snapshot expiration app start for table {}, expiring older than {} {} or with more than {} versions, deleteFiles={}, backupDir={}",
         fqtn,
-        maxAge,
-        granularity,
-        versions,
+        retention.maxAge(),
+        retention.granularity(),
+        retention.versions(),
         deleteFiles,
         backupDir);
 
     long startTime = System.currentTimeMillis();
     ExpireSnapshots.Result result =
-        ops.expireSnapshots(fqtn, maxAge, granularity, versions, deleteFiles, backupDir);
+        ops.expireSnapshots(
+            fqtn,
+            retention.maxAge(),
+            retention.granularity().name(),
+            retention.versions(),
+            deleteFiles,
+            backupDir);
     long duration = System.currentTimeMillis() - startTime;
 
     // Log results
