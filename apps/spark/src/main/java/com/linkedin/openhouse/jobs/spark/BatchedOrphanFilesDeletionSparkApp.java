@@ -10,9 +10,9 @@ import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.TableStateValidator;
 import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
+import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
-import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -59,8 +59,8 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 @Slf4j
 public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
 
-  private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
-  private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
+  private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE =
+      TableMaintenance.MAX_ORPHAN_FILE_SAMPLE_SIZE;
 
   private final List<BatchEntry> entries;
   private final String resultsEndpoint;
@@ -263,7 +263,9 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
         log.info("OFD start: fqtn={} operationId={}", fqtn, entry.getOperationId().orElse(""));
         Table table = ops.getTable(fqtn);
         long olderThanTimestampMillis =
-            System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(resolveTtlSeconds(table));
+            System.currentTimeMillis()
+                - TimeUnit.SECONDS.toMillis(
+                    TableMaintenance.orphanFileTtlSeconds(table, ttlSeconds));
         DeleteOrphanFiles.Result deleteResult =
             ops.deleteOrphanFiles(
                 table,
@@ -314,23 +316,6 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
                 BatchedOrphanFilesDeletionSparkApp.class.getSimpleName()));
         throw e;
       }
-    }
-
-    private long resolveTtlSeconds(Table table) {
-      long resolved = ttlSeconds;
-      if (Boolean.parseBoolean(
-          table.properties().getOrDefault(AppConstants.OFD_ONE_DAY_TTL_ENABLED_KEY, "false"))) {
-        resolved = TimeUnit.DAYS.toSeconds(1);
-      }
-      String tableType =
-          table
-              .properties()
-              .getOrDefault(AppConstants.OPENHOUSE_TABLE_TYPE_KEY, AppConstants.TABLE_TYPE_PRIMARY);
-      if (AppConstants.TABLE_TYPE_REPLICA.equals(tableType)
-          && Duration.ofSeconds(resolved).toDays() < DEFAULT_MIN_OFD_TTL_IN_DAYS) {
-        resolved = TimeUnit.DAYS.toSeconds(DEFAULT_MIN_OFD_TTL_IN_DAYS);
-      }
-      return resolved;
     }
   }
 

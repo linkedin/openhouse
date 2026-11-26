@@ -528,6 +528,50 @@ res1: org.apache.spark.sql.Row =
 }]
 ```
 
+#### VACUUM TABLE
+
+Runs what the scheduled snapshot expiration and orphan file deletion jobs run, for one table, with the
+caller's own access: snapshots expire per the table's history policy (3 days when it has none; skipped
+for replica tables), then files older than 3 days (1 day when `ofd.one_day_ttl.enabled` is set, except
+on replicas) that no snapshot references are deleted (moved to `.backup` when retention wrote a data
+manifest for their partition). `DRY RUN` commits nothing and
+leaves every file in place.
+
+```
+scala> spark.sql("VACUUM TABLE openhouse.db.tb DRY RUN").show(false)
+scala> spark.sql("VACUUM TABLE openhouse.db.tb").show(false)
++-----------------------+-----+
+|metric                 |value|
++-----------------------+-----+
+|expired_snapshots      |2    |
+|expired_files_deleted  |2    |
+|expired_files_backed_up|0    |
+|expired_files_failed   |0    |
+|orphan_files_deleted   |1    |
+|orphan_files_backed_up |0    |
+|orphan_files_failed    |0    |
++-----------------------+-----+
+```
+
+#### DELETE ORPHAN DIRECTORY
+
+Deletes the contents of one table directory left behind by a dropped table, for example after a
+failed CREATE TABLE AS SELECT. It takes only an explicit `<root>/<database>/<directory>` path (root is
+`spark.sql.openhouse.orphanDirectory.rootPath`, default `/data/openhouse`) and never scans for
+directories. It refuses unless a file in the directory is older than 7 days and the table its newest
+metadata file names is not located there. The directory itself stays: removing it needs write access
+on the database directory.
+
+```
+scala> spark.sql("DELETE ORPHAN DIRECTORY '/data/openhouse/db/tb-d60d0869-7186-436d-a9d4-6dd5349e71bc' DRY RUN").show(false)
++------------------------------------------------------------------------------------+---------+------------+
+|path                                                                                |owner    |action      |
++------------------------------------------------------------------------------------+---------+------------+
+|hdfs://namenode:9000/data/openhouse/db/tb-d60d0869-7186-436d-a9d4-6dd5349e71bc/data    |openhouse|would delete|
+|hdfs://namenode:9000/data/openhouse/db/tb-d60d0869-7186-436d-a9d4-6dd5349e71bc/metadata|openhouse|would delete|
++------------------------------------------------------------------------------------+---------+------------+
+```
+
 
 #### GRANT / REVOKE
 

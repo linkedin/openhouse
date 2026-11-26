@@ -69,6 +69,8 @@ sourceSets {
   main {
     java {
       srcDir files(antlrMainGeneratedSrcDir).builtBy('runAntlr')
+      // Table maintenance shared with the maintenance jobs, compiled against each Spark/Iceberg version
+      srcDir "${rootDir}/integrations/spark/common/src/main/java"
     }
   }
 }

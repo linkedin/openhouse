@@ -33,6 +33,8 @@ statement
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
   | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
+  | VACUUM TABLE multipartIdentifier dryRun?                                                           #vacuumTable
+  | DELETE ORPHAN DIRECTORY STRING dryRun?                                                             #deleteOrphanDirectory
   ;
 
 multipartIdentifier
@@ -70,6 +72,7 @@ quotedIdentifier
 nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN | UNLOCK | REASON
+    | VACUUM | DRY | RUN | DELETE | ORPHAN | DIRECTORY
     ;
 
 sharingPolicy
@@ -173,6 +176,10 @@ versions
     : VERSIONS'='POSITIVE_INTEGER
     ;
 
+dryRun
+    : DRY RUN
+    ;
+
 ALTER: 'ALTER';
 TABLE: 'TABLE';
 SET: 'SET';
@@ -208,6 +215,12 @@ VERSIONS: 'VERSIONS';
 MAX_AGE: 'MAX_AGE';
 UNLOCK: 'UNLOCK';
 REASON: 'REASON';
+VACUUM: 'VACUUM';
+DRY: 'DRY';
+RUN: 'RUN';
+DELETE: 'DELETE';
+ORPHAN: 'ORPHAN';
+DIRECTORY: 'DIRECTORY';
 
 POSITIVE_INTEGER
     : DIGIT+

@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.spark.maintenance.OrphanTableDirectory;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
@@ -99,8 +100,10 @@ public class OrphanTableDirectoryDeletionSparkApp extends BaseTableDirectorySpar
         getJobId(cmdLine),
         createStateManager(cmdLine, otelEmitter),
         new Path(cmdLine.getOptionValue("tableDirectoryPath")),
-        cmdLine.getOptionValue("trashDir", ".trash"),
-        Integer.parseInt(cmdLine.getOptionValue("orphanDaysOld", "7")),
+        cmdLine.getOptionValue("trashDir", OrphanTableDirectory.TRASH_DIR),
+        Integer.parseInt(
+            cmdLine.getOptionValue(
+                "orphanDaysOld", String.valueOf(OrphanTableDirectory.DEFAULT_ORPHAN_AGE_DAYS))),
         Integer.parseInt(cmdLine.getOptionValue("stagedDeleteDaysOld", "3")),
         otelEmitter);
   }

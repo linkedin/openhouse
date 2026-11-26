@@ -5,7 +5,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
-import java.time.temporal.ChronoUnit;
+import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -30,8 +30,9 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   private final String backupDir;
 
   public static class DEFAULT_CONFIGURATION {
-    public static final int MAX_AGE = 3;
-    public static final String GRANULARITY = ChronoUnit.DAYS.toString();
+    public static final int MAX_AGE = TableMaintenance.DEFAULT_SNAPSHOT_MAX_AGE;
+    public static final String GRANULARITY =
+        TableMaintenance.DEFAULT_SNAPSHOT_GRANULARITY.toString();
     public static final int VERSIONS = 0;
     public static final boolean DELETE_FILES = false;
   }

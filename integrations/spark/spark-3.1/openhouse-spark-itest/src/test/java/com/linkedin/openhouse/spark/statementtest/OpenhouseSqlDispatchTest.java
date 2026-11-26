@@ -27,7 +27,9 @@ class OpenhouseSqlDispatchTest {
         "-- comment\rALTER /* outer /* inner */ tail */ TABLE db.t UNLOCK|UnlockTable",
         "alter table db.`ta``ble` set policy (sharing=true)|SetSharingPolicy",
         "ALTER TABLE db.t SET POLICY (HISTORY MAX_AGE=3d VERSIONS=2)|SetHistoryPolicy",
-        "ALTER TABLE db.t SET POLICY (REPLICATION=({DESTINATION:'cluster'}))|SetReplicationPolicy"
+        "ALTER TABLE db.t SET POLICY (REPLICATION=({DESTINATION:'cluster'}))|SetReplicationPolicy",
+        "vacuum /* c */ table db.t dry run|VacuumTable",
+        "DELETE ORPHAN DIRECTORY '/data/openhouse/db/t-uuid'|DeleteOrphanDirectory"
       })
   void routesExtensionActionsByTokens(String sql, String planName) throws ParseException {
     Assertions.assertEquals(planName, parser.parsePlan(sql).getClass().getSimpleName());
@@ -44,7 +46,9 @@ class OpenhouseSqlDispatchTest {
         "ALTER TABLE db.t RENAME TO unlock",
         "ALTER TABLE db.`ta``ble` SET TBLPROPERTIES ('note'='UNLOCK')",
         "ALTER VIEW db.t SET TBLPROPERTIES ('note'='unset policy')",
-        "SELECT 'unset policy'"
+        "SELECT 'unset policy'",
+        "DELETE FROM db.t WHERE id = 1",
+        "DELETE FROM db.orphan WHERE id = 1"
       })
   void delegatesOrdinaryStatementsUnchanged(String sql) throws ParseException {
     LogicalPlan expected = delegate.parsePlan(sql);
@@ -61,7 +65,10 @@ class OpenhouseSqlDispatchTest {
         "ALTER TABLE db.t UNSET POLICY",
         "ALTER TABLE db.t MODIFY COLUMN",
         "ALTER TABLE db.t MODIFY COLUMN c SET POLICY=(PII)",
-        "ALTER TABLE db.t UNLOCK REASON"
+        "ALTER TABLE db.t UNLOCK REASON",
+        "VACUUM TABLE",
+        "VACUUM TABLE db.t DRY",
+        "DELETE ORPHAN DIRECTORY db.t"
       })
   void malformedExtensionActionsKeepExtensionErrors(String sql) {
     Assertions.assertThrows(OpenhouseParseException.class, () -> parser.parsePlan(sql));

@@ -3,11 +3,11 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, UnlockTable}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{DeleteOrphanDirectory, GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, UnlockTable, VacuumTable}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
-import org.apache.spark.sql.catalyst.parser.ParserInterface
+import org.apache.spark.sql.catalyst.parser.{ParserInterface, ParserUtils}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 import java.util.Locale
@@ -90,6 +90,14 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   override def visitShowGrantsStatement(ctx: ShowGrantsStatementContext): ShowGrantsStatement = {
     val (resourceType, resourceName) = typedVisit[(GrantableResourceType, Seq[String])](ctx.grantableResource())
     ShowGrantsStatement(resourceType, resourceName)
+  }
+
+  override def visitVacuumTable(ctx: VacuumTableContext): VacuumTable = {
+    VacuumTable(typedVisit[Seq[String]](ctx.multipartIdentifier), ctx.dryRun() != null)
+  }
+
+  override def visitDeleteOrphanDirectory(ctx: DeleteOrphanDirectoryContext): DeleteOrphanDirectory = {
+    DeleteOrphanDirectory(ParserUtils.string(ctx.STRING()), ctx.dryRun() != null)
   }
 
   override def visitPrincipal(ctx: PrincipalContext): String = {
