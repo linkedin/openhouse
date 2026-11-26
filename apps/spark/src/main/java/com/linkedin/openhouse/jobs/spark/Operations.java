@@ -1,9 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
@@ -13,21 +10,20 @@ import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
+import com.linkedin.openhouse.maintenance.SnapshotRetention;
+import com.linkedin.openhouse.spark.maintenance.FileRemover;
+import com.linkedin.openhouse.spark.maintenance.OrphanTableDirectory;
+import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.ZonedDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
@@ -48,7 +44,6 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.ExpireSnapshots;
-import org.apache.iceberg.actions.ImmutableExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -107,8 +102,7 @@ public final class Operations implements AutoCloseable {
 
   /**
    * Run DeleteOrphanFiles operation on the given table with time filter. It processes files older
-   * than the provided timestamp; each orphan file is backed up or deleted by {@link
-   * #buildFileDeleteHandler}.
+   * than the provided timestamp; each orphan file is backed up or deleted by {@link FileRemover}.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
       Table table,
@@ -117,102 +111,14 @@ public final class Operations implements AutoCloseable {
       int concurrentDeletes,
       boolean streamResults,
       int maxOrphanFileSampleSize) {
-
-    DeleteOrphanFiles operation =
-        SparkActions.get(spark)
-            .deleteOrphanFiles(table)
-            .option("stream-results", String.valueOf(streamResults))
-            .option("max-orphan-file-sample-size", String.valueOf(maxOrphanFileSampleSize));
-    // if time filter is not provided it defaults to 3 days
-    if (olderThanTimestampMillis > 0) {
-      operation = operation.olderThan(olderThanTimestampMillis);
-    }
-    if (concurrentDeletes > 1) {
-      operation = operation.executeDeleteWith(removeFilesService(concurrentDeletes));
-    }
-    Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
-    operation = operation.deleteWith(buildFileDeleteHandler(table, backupDir, dataManifestsCache));
-    return operation.execute();
-  }
-
-  /**
-   * Build the {@code deleteWith} handler shared by Orphan File Deletion and Snapshot Expiration so
-   * orphaned and expired files get identical treatment.
-   *
-   * <p>metadata.json files are skipped (Iceberg commits own their lifecycle), as are files already
-   * under the backup directory. A data file is moved to the backup directory when a data manifest
-   * exists for its partition, otherwise it is deleted: retention writes that manifest listing the
-   * files to restore, so backing up a file without one would not make it restorable.
-   */
-  private Consumer<String> buildFileDeleteHandler(
-      Table table, String backupDir, Map<String, Boolean> dataManifestsCache) {
-    Path backupDirRoot = new Path(table.location(), backupDir);
-    Path dataDirRoot = new Path(table.location(), "data");
-    return file -> {
-      log.info("Processing file for deletion {}", file);
-      if (file.endsWith("metadata.json")) {
-        // Don't remove metadata.json files since current metadata.json is recognized as
-        // orphan/expired because of inclusion of the scheme in its file path returned by catalog.
-        // Also, we want Iceberg commits to remove the metadata.json files not this job.
-        log.info("Skipped deleting metadata file {}", file);
-      } else if (file.contains(backupDirRoot.toString())) {
-        // files present in .backup dir should not be considered orphan/expired
-        log.info("Skipped deleting backup file {}", file);
-      } else if (file.contains(dataDirRoot.toString())
-          && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
-        backupDataFile(file, table, backupDir);
-      } else {
-        deleteFile(file);
-      }
-    };
-  }
-
-  /** Move a data file to the backup directory. */
-  private void backupDataFile(String file, Table table, String backupDir) {
-    Path backupFilePath = getTrashPath(table, file, backupDir);
-    log.info("Moving file {} to {}", file, backupFilePath);
-    try {
-      rename(new Path(file), backupFilePath);
-      // update modification time to current time
-      fs().setTimes(backupFilePath, System.currentTimeMillis(), -1);
-    } catch (IOException e) {
-      log.error(String.format("Move operation failed for file: %s", file), e);
-    }
-  }
-
-  /** Delete a file directly (manifests, manifest lists, data files without a backup manifest). */
-  private void deleteFile(String file) {
-    log.info("Deleting file {}", file);
-    try {
-      fs().delete(new Path(file), false);
-    } catch (IOException e) {
-      log.error(String.format("Delete operation failed for file: %s", file), e);
-    }
-  }
-
-  private ExecutorService removeFilesService(int concurrentDeletes) {
-    return MoreExecutors.getExitingExecutorService(
-        (ThreadPoolExecutor)
-            Executors.newFixedThreadPool(
-                concurrentDeletes,
-                new ThreadFactoryBuilder().setNameFormat("remove-orphans-%d").build()));
-  }
-
-  private boolean isExistBackupDataManifests(
-      Table table, String file, String backupDir, Map<String, Boolean> dataManifestsCache) {
-    try {
-      Path backupPartition = getTrashPath(table, file, backupDir).getParent();
-      if (dataManifestsCache.containsKey(backupPartition.toString())) {
-        return dataManifestsCache.get(backupPartition.toString());
-      }
-      Path pattern = new Path(backupPartition, "data_manifest*");
-      FileStatus[] matches = fs().globStatus(pattern);
-      boolean isExist = matches != null && matches.length > 0;
-      dataManifestsCache.put(backupPartition.toString(), isExist);
-      return isExist;
-    } catch (IOException e) {
-      return false;
-    }
+    return maintenance()
+        .deleteOrphanFiles(
+            table,
+            olderThanTimestampMillis,
+            concurrentDeletes,
+            streamResults,
+            maxOrphanFileSampleSize,
+            fileRemover(table, backupDir));
   }
 
   /**
@@ -222,33 +128,20 @@ public final class Operations implements AutoCloseable {
    */
   public boolean deleteOrphanDirectory(
       Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
-    List<Path> matchingFiles = Lists.newArrayList();
-    listFiles(
-        tableDirectoryPath,
-        file -> !file.getPath().toString().contains(trashDir),
-        true,
-        matchingFiles);
-
-    boolean anyMatched = false;
-    // if there is one file that satisfy predicate, all files should go into trash
+    List<FileStatus> files;
     try {
-      FileSystem fileSystem = fs();
-      for (Path matchingFile : matchingFiles) {
-        FileStatus filestatus = fileSystem.getFileStatus(matchingFile);
-        if (filestatus.getModificationTime() < olderThanTimestampMillis) {
-          anyMatched = true;
-          break;
-        }
-      }
+      files = OrphanTableDirectory.listFiles(fs(), tableDirectoryPath, trashDir);
     } catch (IOException e) {
-      log.error("Error fetching the file system given path: {}", tableDirectoryPath);
+      throw new RuntimeException(
+          String.format("Failed to list files in dir %s: ", tableDirectoryPath), e);
     }
-
-    if (!anyMatched) {
+    // if there is one file that satisfy predicate, all files should go into trash
+    if (!OrphanTableDirectory.hasFileOlderThan(files, olderThanTimestampMillis)) {
       return false;
     }
 
-    for (Path matchingFile : matchingFiles) {
+    for (FileStatus file : files) {
+      Path matchingFile = file.getPath();
       Path trashPath =
           getTrashPath(tableDirectoryPath.toString(), matchingFile.toString(), trashDir);
       try {
@@ -325,8 +218,8 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Expire snapshots with backup support. Main orchestration method that delegates to helper
-   * methods based on deleteFiles flag.
+   * Expire snapshots with backup support. With deleteFiles, the files only expired snapshots used
+   * are backed up or deleted by {@link FileRemover}.
    */
   public ExpireSnapshots.Result expireSnapshots(
       Table table,
@@ -335,123 +228,26 @@ public final class Operations implements AutoCloseable {
       int versions,
       boolean deleteFiles,
       String backupDir) {
-    ChronoUnit timeUnitGranularity =
-        ChronoUnit.valueOf(
-            SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
-    long expireBeforeTimestampMs =
-        System.currentTimeMillis()
-            - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
+    return maintenance()
+        .expireSnapshots(
+            table,
+            maxAge,
+            SnapshotRetention.toChronoUnit(granularity),
+            versions,
+            deleteFiles ? fileRemover(table, backupDir) : null);
+  }
 
-    log.info(
-        "Expiring snapshots for table: {} older than {}ms with deleteFiles={}, backupDir={}",
-        table,
-        expireBeforeTimestampMs,
-        deleteFiles,
-        backupDir);
+  private TableMaintenance maintenance() {
+    return new TableMaintenance(spark);
+  }
 
-    // First expiration: based on maxAge
-    ExpireSnapshots.Result result =
-        deleteFiles
-            ? expireSnapshotsWithFiles(table, expireBeforeTimestampMs, null, backupDir)
-            : expireSnapshotsMetadataOnly(table, expireBeforeTimestampMs, null);
-
-    // Second expiration: based on versions (if needed). Both phases can delete files, so their
-    // results are combined rather than the second phase's result silently replacing the first's
-    // and dropping its deleted-file/manifest counts from observability (metrics and logs).
-    if (versions > 0 && Iterators.size(table.snapshots().iterator()) > versions) {
-      log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
-      ExpireSnapshots.Result versionsResult =
-          deleteFiles
-              ? expireSnapshotsWithFiles(table, System.currentTimeMillis(), versions, backupDir)
-              : expireSnapshotsMetadataOnly(table, System.currentTimeMillis(), versions);
-      result = combineResults(result, versionsResult);
+  private FileRemover fileRemover(Table table, String backupDir) {
+    try {
+      return new FileRemover(fs(), table, backupDir, false);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
-
-    return result;
   }
-
-  /**
-   * Combine two {@link ExpireSnapshots.Result} instances by summing their deleted-file/manifest
-   * counts. Used to accumulate results across the maxAge-based and versions-based expiration phases
-   * so metrics/logs reflect files deleted by both phases instead of only the last one run.
-   */
-  @VisibleForTesting
-  static ExpireSnapshots.Result combineResults(
-      ExpireSnapshots.Result first, ExpireSnapshots.Result second) {
-    return ImmutableExpireSnapshots.Result.builder()
-        .deletedDataFilesCount(first.deletedDataFilesCount() + second.deletedDataFilesCount())
-        .deletedManifestsCount(first.deletedManifestsCount() + second.deletedManifestsCount())
-        .deletedManifestListsCount(
-            first.deletedManifestListsCount() + second.deletedManifestListsCount())
-        .deletedPositionDeleteFilesCount(
-            first.deletedPositionDeleteFilesCount() + second.deletedPositionDeleteFilesCount())
-        .deletedEqualityDeleteFilesCount(
-            first.deletedEqualityDeleteFilesCount() + second.deletedEqualityDeleteFilesCount())
-        .build();
-  }
-
-  /**
-   * Expire snapshots using Table API (metadata-only, no file deletion). Efficient - skips file
-   * enumeration entirely.
-   */
-  private ExpireSnapshots.Result expireSnapshotsMetadataOnly(
-      Table table, long expireBeforeTimestampMs, Integer versions) {
-
-    org.apache.iceberg.ExpireSnapshots expireSnapshots =
-        table.expireSnapshots().cleanExpiredFiles(false).expireOlderThan(expireBeforeTimestampMs);
-
-    if (versions != null) {
-      expireSnapshots = expireSnapshots.retainLast(versions);
-    }
-
-    expireSnapshots.commit();
-
-    // Return empty result for metadata-only operation
-    return ImmutableExpireSnapshots.Result.builder()
-        .deletedDataFilesCount(0L)
-        .deletedManifestsCount(0L)
-        .deletedManifestListsCount(0L)
-        .deletedPositionDeleteFilesCount(0L)
-        .deletedEqualityDeleteFilesCount(0L)
-        .build();
-  }
-
-  /**
-   * Expire snapshots using SparkActions API with file deletion. Snapshot planning/manifest
-   * enumeration is distributed via Spark; the delete/backup callback itself runs driver-side (see
-   * {@link #createExpireSnapshotsActionWithBackup}).
-   */
-  private ExpireSnapshots.Result expireSnapshotsWithFiles(
-      Table table, long expireBeforeTimestampMs, Integer versions, String backupDir) {
-
-    ExpireSnapshots expireSnapshotsAction = createExpireSnapshotsActionWithBackup(table, backupDir);
-
-    expireSnapshotsAction = expireSnapshotsAction.expireOlderThan(expireBeforeTimestampMs);
-
-    if (versions != null) {
-      expireSnapshotsAction = expireSnapshotsAction.retainLast(versions);
-    }
-
-    return expireSnapshotsAction.execute();
-  }
-
-  /**
-   * Create ExpireSnapshots action with custom backup logic for data files. The {@code deleteWith}
-   * callback (backup-or-delete decision) runs driver-side via Iceberg's internal executor pool, not
-   * distributed across Spark executors; only manifest/snapshot planning is distributed.
-   */
-  private ExpireSnapshots createExpireSnapshotsActionWithBackup(Table table, String backupDir) {
-    Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
-
-    return SparkActions.get(spark)
-        .expireSnapshots(table)
-        .deleteWith(buildFileDeleteHandler(table, backupDir, dataManifestsCache));
-  }
-
-  /*
-   * NOTE: file backup/delete semantics are shared with Orphan File Deletion via
-   * buildFileDeleteHandler(...) above, so both jobs stay consistent.
-   */
 
   /**
    * Run table retention operation if there are rows with partition column (@columnName) value older
@@ -589,7 +385,7 @@ public final class Operations implements AutoCloseable {
 
   @VisibleForTesting
   static Path getTrashPath(String path, String filePath, String trashDir) {
-    return new Path(filePath.replace(path, new Path(path, trashDir).toString()));
+    return TableMaintenance.trashPath(path, filePath, trashDir);
   }
 
   /**
@@ -689,16 +485,7 @@ public final class Operations implements AutoCloseable {
   }
 
   public void rename(final Path src, final Path dest) throws IOException {
-    final FileSystem fs = fs();
-    if (!fs.exists(dest.getParent())) {
-      fs.mkdirs(dest.getParent());
-    }
-    if (fs.rename(src, dest)) {
-      log.info("Moved " + src + " to " + dest);
-    } else {
-      throw new IOException(
-          String.format("FileSystem move operation failed from src: %s to dest %s", src, dest));
-    }
+    TableMaintenance.rename(fs(), src, dest);
   }
 
   /**

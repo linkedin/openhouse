@@ -11,6 +11,7 @@ import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import com.linkedin.openhouse.maintenance.SnapshotRetention;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
@@ -115,8 +116,8 @@ public class TablesClient {
 
     // Validate that at least one of maxAge/granularity or versions is configured
     boolean hasTimeBasedHistory =
-        history.getMaxAge() != null && history.getMaxAge() > 0 && history.getGranularity() != null;
-    boolean hasVersionBasedHistory = history.getVersions() != null && history.getVersions() > 0;
+        SnapshotRetention.isTimeBased(history.getMaxAge(), history.getGranularity());
+    boolean hasVersionBasedHistory = SnapshotRetention.isVersionBased(history.getVersions());
 
     if (!hasTimeBasedHistory && !hasVersionBasedHistory) {
       return Optional.empty();

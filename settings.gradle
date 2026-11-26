@@ -46,6 +46,7 @@ include ':iceberg:openhouse:internalcatalog'
 include ':iceberg:azure'
 
 include ':libs:datalayout'
+include ':libs:maintenance'
 include ':libs:optimizer:binpack'
 
 include ':services:common'

@@ -6,9 +6,9 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -33,8 +33,8 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   private final int concurrentDeletes;
   private final boolean streamResults;
   private final int maxOrphanFileSampleSize;
-  private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
-  private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
+  private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE =
+      TableMaintenance.MAX_ORPHAN_FILE_SAMPLE_SIZE;
 
   public OrphanFilesDeletionSparkApp(
       String jobId,
@@ -89,28 +89,9 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
   /**
    * Apply the one-day OFD TTL opt-in when the table property is set, then enforce the 3-day minimum
    * for replica tables.
-   *
-   * @param ops
    */
   private void updateTtlSeconds(Operations ops) {
-    Table table = ops.getTable(fqtn);
-    boolean oneDayTtlEnabled =
-        Boolean.parseBoolean(
-            table.properties().getOrDefault(AppConstants.OFD_ONE_DAY_TTL_ENABLED_KEY, "false"));
-    if (oneDayTtlEnabled) {
-      ttlSeconds = TimeUnit.DAYS.toSeconds(1);
-    }
-    String tableType =
-        table
-            .properties()
-            .getOrDefault(AppConstants.OPENHOUSE_TABLE_TYPE_KEY, AppConstants.TABLE_TYPE_PRIMARY);
-    // Keep the min default OFD TTL for replica tables
-    if (AppConstants.TABLE_TYPE_REPLICA.equals(tableType)) {
-      long days = Duration.ofSeconds(ttlSeconds).toDays();
-      if (days < DEFAULT_MIN_OFD_TTL_IN_DAYS) {
-        ttlSeconds = TimeUnit.DAYS.toSeconds(DEFAULT_MIN_OFD_TTL_IN_DAYS);
-      }
-    }
+    ttlSeconds = TableMaintenance.orphanFileTtlSeconds(ops.getTable(fqtn), ttlSeconds);
   }
 
   /**

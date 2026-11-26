@@ -74,6 +74,8 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
         }
       case GRANT | REVOKE => true
       case SHOW => tokens.next().getType == GRANTS
+      case VACUUM => tokens.next().getType == TABLE
+      case DELETE => tokens.next().getType == ORPHAN
       case _ => false
     }
   }

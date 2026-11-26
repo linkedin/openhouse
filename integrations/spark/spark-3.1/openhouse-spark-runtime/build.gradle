@@ -29,6 +29,9 @@ dependencies {
   antlr "org.antlr:antlr4:4.7.1"
 
   compileOnly(project(path: ':integrations:java:iceberg-1.2:openhouse-java-runtime', configuration: 'shadow'))
+  // Snapshot retention rules shared with the jobs scheduler; packed into the uber jar below.
+  compileOnly(project(':libs:maintenance'))
+  testImplementation(project(':libs:maintenance'))
   compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {
     exclude group: 'org.apache.avro', module: 'avro'
     exclude group: 'org.apache.arrow'
@@ -53,6 +56,9 @@ dependencies {
   fatJarPackagedDependencies(project(path: ':integrations:java:iceberg-1.2:openhouse-java-runtime', configuration: 'shadow')) {
     transitive = false
   }
+  fatJarPackagedDependencies(project(':libs:maintenance')) {
+    transitive = false
+  }
   implementation("com.linkedin.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion)
 }
 
@@ -69,6 +75,8 @@ sourceSets {
   main {
     java {
       srcDir files(antlrMainGeneratedSrcDir).builtBy('runAntlr')
+      // Table maintenance shared with the maintenance jobs, compiled against each Spark/Iceberg version
+      srcDir "${rootDir}/integrations/spark/common/src/main/java"
     }
   }
 }

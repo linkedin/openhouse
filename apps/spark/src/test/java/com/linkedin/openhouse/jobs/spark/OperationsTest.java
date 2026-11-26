@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
+import com.linkedin.openhouse.spark.maintenance.TableMaintenance;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
@@ -927,7 +928,7 @@ public class OperationsTest extends OpenHouseSparkITest {
             .build();
 
     ExpireSnapshots.Result combined =
-        Operations.combineResults(maxAgePhaseResult, versionsPhaseResult);
+        TableMaintenance.combineResults(maxAgePhaseResult, versionsPhaseResult);
 
     Assertions.assertEquals(12L, combined.deletedDataFilesCount());
     Assertions.assertEquals(23L, combined.deletedManifestsCount());

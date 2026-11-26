@@ -30,6 +30,7 @@ dependencies {
     implementation(project(':libs:datalayout')) {
         exclude group: 'com.linkedin.iceberg', module: 'iceberg-spark-runtime-3.1_2.12'
     }
+    implementation project(':libs:maintenance')
     // Exclude log4j-slf4j2-impl: incompatible with the log4j-slf4j-impl (1.x) bridge this app ships.
     implementation(project(':libs:optimizer:binpack')) {
         exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j2-impl'
