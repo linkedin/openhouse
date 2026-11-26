@@ -63,7 +63,7 @@ public final class OrphanTableDirectory {
    *
    * @return the entries deleted, or that a dry run would delete
    */
-  public static List<FileStatus> deleteContents(SparkSession spark, String path, boolean dryRun)
+  public static List<Entry> deleteContents(SparkSession spark, String path, boolean dryRun)
       throws IOException {
     String root = spark.conf().get(ROOT_PATH_CONF, DEFAULT_ROOT_PATH).replaceAll("/+$", "");
     Path dir = tableDirectory(path, root);
@@ -83,14 +83,35 @@ public final class OrphanTableDirectory {
     // metadata last, so a rerun after a partial delete still checks the table
     Arrays.sort(
         children, Comparator.comparing(c -> c.getPath().getName().contains("metadata")));
-    List<FileStatus> deleted = new ArrayList<>();
+    List<Entry> deleted = new ArrayList<>();
     for (FileStatus child : children) {
+      // read before deleting: a local file system looks the owner up from the path
+      Entry entry = new Entry(child.getPath().toString(), child.getOwner());
       if (!dryRun && !fs.delete(child.getPath(), true)) {
         throw new IOException("Could not delete " + child.getPath());
       }
-      deleted.add(child);
+      deleted.add(entry);
     }
     return deleted;
+  }
+
+  /** A top-level entry of a table directory and its owner. */
+  public static final class Entry {
+    private final String path;
+    private final String owner;
+
+    Entry(String path, String owner) {
+      this.path = path;
+      this.owner = owner;
+    }
+
+    public String path() {
+      return path;
+    }
+
+    public String owner() {
+      return owner;
+    }
   }
 
   /** {@code path} as a table directory: {@code <root>/<database>/<directory>}, with no scheme. */

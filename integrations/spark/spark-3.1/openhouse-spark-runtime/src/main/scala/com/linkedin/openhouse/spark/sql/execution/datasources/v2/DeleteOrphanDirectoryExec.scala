@@ -18,8 +18,8 @@ case class DeleteOrphanDirectoryExec(
     val action = UTF8String.fromString(if (dryRun) "would delete" else "deleted")
     OrphanTableDirectory.deleteContents(SparkSession.active, path, dryRun).asScala.toSeq.map { entry =>
       new GenericInternalRow(Array[Any](
-        UTF8String.fromString(entry.getPath.toString),
-        UTF8String.fromString(entry.getOwner),
+        UTF8String.fromString(entry.path),
+        UTF8String.fromString(entry.owner),
         action))
     }
   }

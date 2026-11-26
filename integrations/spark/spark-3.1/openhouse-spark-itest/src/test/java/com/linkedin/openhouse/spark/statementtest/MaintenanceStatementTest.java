@@ -130,6 +130,8 @@ public class MaintenanceStatementTest {
 
     List<Row> real = spark.sql("DELETE ORPHAN DIRECTORY '" + orphan + "'").collectAsList();
     Assertions.assertEquals(dry.size(), real.size());
+    String owner = System.getProperty("user.name");
+    Assertions.assertTrue(real.stream().allMatch(r -> owner.equals(r.getString(1))), "owner");
     Assertions.assertTrue(fs.exists(new Path(orphan)));
     Assertions.assertEquals(0, fs.listStatus(new Path(orphan)).length);
   }
