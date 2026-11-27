@@ -89,6 +89,11 @@ jobs:
           <<: *spark-defaults
           "spark.driver.memory": "2g"
         << : *livy-engine
+      - type: EXPIRED_TABLE_DELETION_BATCH
+        class-name: com.linkedin.openhouse.jobs.spark.ExpiredTableDeletionSparkApp
+        args: []
+        <<: *apps-defaults
+        << : *livy-engine
       - type: DATA_LAYOUT_STRATEGY_GENERATION
         class-name: com.linkedin.openhouse.jobs.spark.DataLayoutStrategyGeneratorSparkApp
         args: ["--outputTableName", "u_openhouse.dlo_strategies", "--partitionLevelOutputTableName", "u_openhouse.dlo_partition_strategies"]

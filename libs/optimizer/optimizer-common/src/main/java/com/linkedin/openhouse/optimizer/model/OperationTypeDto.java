@@ -11,7 +11,10 @@ public enum OperationTypeDto {
   ORPHAN_FILES_DELETION,
 
   /** Collects per-table snapshot/size statistics used to drive optimizer decisions. */
-  TABLE_STATS_COLLECTION;
+  TABLE_STATS_COLLECTION,
+
+  /** Deletes a temporary table after its expiration time passes. */
+  EXPIRED_TABLE_DELETION;
 
   /** Convert to the DB-layer counterpart. */
   public com.linkedin.openhouse.optimizer.db.OperationType toDb() {
