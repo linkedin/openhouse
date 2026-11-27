@@ -3,6 +3,8 @@ package com.linkedin.openhouse.jobs.spark;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.jobs.spark.ExpiredTableDeletionSparkApp.AuditRecord;
+import com.linkedin.openhouse.jobs.spark.ExpiredTableDeletionSparkApp.DeletionOutcome;
 import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
@@ -35,6 +37,7 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
   private static final String DATABASE = "db_expired_table_deletion";
   private static final String TEMPORARY_KEY = "openhouse.temporary";
   private static final String EXPIRATION_TIME_KEY = "openhouse.expirationTime";
+  private static final String UUID_KEY = "openhouse.tableUUID";
   private static final Map<String, String> EXPIRED_TEMPORARY_PROPERTIES =
       ImmutableMap.of(TEMPORARY_KEY, "true", EXPIRATION_TIME_KEY, "2020-01-01T00:00:00Z");
 
@@ -50,8 +53,10 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
       createTable(ops, tableName, EXPIRED_TEMPORARY_PROPERTIES);
       Assertions.assertTrue(listedTableNames(ops).contains("expired"));
+      String tableUuid = ops.getTable(tableName).properties().get(UUID_KEY);
+      Instant beforeRun = Instant.now();
 
-      runApp(ops, tableName);
+      AuditRecord record = runApp(ops, tableName);
 
       UpdateOperationRequest request = reportedRequest(tableName);
       Assertions.assertEquals(UpdateOperationRequest.StatusEnum.SUCCESS, request.getStatus());
@@ -62,7 +67,16 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals("expired", request.getTableName());
       Assertions.assertNull(request.getFailureReason());
       Assertions.assertFalse(listedTableNames(ops).contains("expired"));
-      verifyOutcome(tableName, "deleted");
+      verifyOutcome(record, tableName, "deleted");
+      Assertions.assertEquals(operationId(tableName), record.getOperationId());
+      Assertions.assertEquals(Optional.of("test-job"), record.getJobId());
+      Assertions.assertNotNull(tableUuid);
+      Assertions.assertEquals(Optional.of(tableUuid), record.getTableUuid());
+      Assertions.assertEquals(DATABASE, record.getDatabaseName());
+      Assertions.assertEquals("expired", record.getTableName());
+      Assertions.assertEquals(Optional.of("2020-01-01T00:00:00Z"), record.getExpirationTime());
+      Assertions.assertFalse(record.getCompletedAt().isBefore(beforeRun));
+      Assertions.assertEquals(Optional.empty(), record.getFailureReason());
       ArgumentCaptor<Long> lagMillis = ArgumentCaptor.forClass(Long.class);
       Mockito.verify(appEmitter)
           .time(
@@ -87,12 +101,12 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       createTable(ops, tableName, EXPIRED_TEMPORARY_PROPERTIES);
       ops.getTable(tableName).updateProperties().remove(TEMPORARY_KEY).commit();
 
-      runApp(ops, tableName);
+      AuditRecord record = runApp(ops, tableName);
 
       Assertions.assertEquals(
           UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
       Assertions.assertTrue(listedTableNames(ops).contains("converted"));
-      verifyOutcome(tableName, "skipped_not_temporary");
+      verifyOutcome(record, tableName, "skipped_not_temporary");
     }
   }
 
@@ -103,12 +117,12 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
       createTable(ops, tableName, ImmutableMap.of());
 
-      runApp(ops, tableName);
+      AuditRecord record = runApp(ops, tableName);
 
       Assertions.assertEquals(
           UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
       Assertions.assertTrue(listedTableNames(ops).contains("recreated"));
-      verifyOutcome(tableName, "skipped_not_temporary");
+      verifyOutcome(record, tableName, "skipped_not_temporary");
     }
   }
 
@@ -125,7 +139,7 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
           tableName,
           ImmutableMap.of(TEMPORARY_KEY, "true", EXPIRATION_TIME_KEY, expirationTime));
 
-      runApp(ops, tableName);
+      AuditRecord record = runApp(ops, tableName);
 
       UpdateOperationRequest request = reportedRequest(tableName);
       Assertions.assertEquals(UpdateOperationRequest.StatusEnum.FAILED, request.getStatus());
@@ -133,7 +147,10 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
           "Table " + tableName + " has not expired yet (expires at " + expirationTime + ").",
           request.getFailureReason());
       Assertions.assertTrue(listedTableNames(ops).contains("unexpired"));
-      verifyOutcome(tableName, "skipped_not_expired");
+      verifyOutcome(record, tableName, "skipped_not_expired");
+      Assertions.assertEquals(Optional.of(expirationTime), record.getExpirationTime());
+      Assertions.assertEquals(
+          Optional.ofNullable(request.getFailureReason()), record.getFailureReason());
     }
   }
 
@@ -143,11 +160,13 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
 
-      runApp(ops, tableName);
+      AuditRecord record = runApp(ops, tableName);
 
       Assertions.assertEquals(
           UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
-      verifyOutcome(tableName, "skipped_missing");
+      verifyOutcome(record, tableName, "skipped_missing");
+      Assertions.assertEquals(Optional.empty(), record.getTableUuid());
+      Assertions.assertEquals(Optional.empty(), record.getExpirationTime());
     }
   }
 
@@ -160,11 +179,11 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
     Mockito.when(ops.findTable(tableName)).thenReturn(Optional.of(table));
     Mockito.when(ops.dropTable(tableName)).thenReturn(false);
 
-    runApp(ops, tableName);
+    AuditRecord record = runApp(ops, tableName);
 
     Assertions.assertEquals(
         UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
-    verifyOutcome(tableName, "skipped_missing");
+    verifyOutcome(record, tableName, "skipped_missing");
   }
 
   @Test
@@ -172,29 +191,63 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
     String tableName = DATABASE + ".unreachable";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
-    Mockito.when(table.properties()).thenReturn(EXPIRED_TEMPORARY_PROPERTIES);
+    Mockito.when(table.properties())
+        .thenReturn(
+            ImmutableMap.<String, String>builder()
+                .putAll(EXPIRED_TEMPORARY_PROPERTIES)
+                .put(UUID_KEY, "uuid-unreachable")
+                .build());
     Mockito.when(ops.findTable(tableName)).thenReturn(Optional.of(table));
     Mockito.when(ops.dropTable(tableName))
         .thenThrow(new IllegalStateException("Catalog unavailable."));
 
-    runApp(ops, tableName);
+    AuditRecord record = runApp(ops, tableName);
 
     UpdateOperationRequest request = reportedRequest(tableName);
     Assertions.assertEquals(UpdateOperationRequest.StatusEnum.FAILED, request.getStatus());
     Assertions.assertEquals(
         "java.lang.IllegalStateException: Catalog unavailable.", request.getFailureReason());
-    verifyOutcome(tableName, "failed");
+    verifyOutcome(record, tableName, "failed");
+    Assertions.assertEquals(Optional.of("uuid-unreachable"), record.getTableUuid());
+    Assertions.assertEquals(Optional.of(request.getFailureReason()), record.getFailureReason());
   }
 
-  private void runApp(Operations ops, String tableName) {
-    new ExpiredTableDeletionSparkApp(
-            "test-job",
-            Mockito.mock(StateManager.class),
-            appEmitter,
-            tableName,
-            operationId(tableName),
-            optimizerClient)
-        .runInner(ops);
+  @Test
+  public void testAuditRecordLogLineListsEveryField() {
+    AuditRecord record =
+        new AuditRecord(
+            "op-1",
+            Optional.of("job-1"),
+            Optional.of("uuid-1"),
+            "db",
+            "t",
+            Optional.of("2020-01-01T00:00:00Z"),
+            Instant.parse("2020-01-02T03:04:05Z"),
+            DeletionOutcome.DELETED,
+            Optional.empty());
+
+    Assertions.assertEquals(
+        "Expired table deletion audit: operationId=op-1 jobId=job-1 tableUuid=uuid-1"
+            + " databaseName=db tableName=t expirationTime=2020-01-01T00:00:00Z"
+            + " completedAt=2020-01-02T03:04:05Z outcome=deleted failureReason=none",
+        record.toLogLine());
+  }
+
+  /** Runs the app and returns the one audit record it wrote. */
+  private AuditRecord runApp(Operations ops, String tableName) {
+    ExpiredTableDeletionSparkApp app =
+        Mockito.spy(
+            new ExpiredTableDeletionSparkApp(
+                "test-job",
+                Mockito.mock(StateManager.class),
+                appEmitter,
+                tableName,
+                operationId(tableName),
+                optimizerClient));
+    app.runInner(ops);
+    ArgumentCaptor<AuditRecord> record = ArgumentCaptor.forClass(AuditRecord.class);
+    Mockito.verify(app).recordAudit(record.capture());
+    return record.getValue();
   }
 
   /** Creates the table in one commit, so an already expired table never exists without its flag. */
@@ -223,8 +276,12 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
     return request.getValue();
   }
 
-  /** Verifies that the app counted exactly one outcome, and that it was the expected one. */
-  private void verifyOutcome(String tableName, String outcome) {
+  /**
+   * Verifies that the app counted exactly one outcome, that it was the expected one, and that the
+   * audit record names the same outcome.
+   */
+  private void verifyOutcome(AuditRecord record, String tableName, String outcome) {
+    Assertions.assertEquals(outcome, record.getOutcome().getAttributeValue());
     Mockito.verify(appEmitter)
         .count(
             ArgumentMatchers.anyString(),
