@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
@@ -13,10 +14,16 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Drops and purges one expired temporary table, then reports the result to the Optimizer service.
@@ -33,6 +40,10 @@ import org.apache.iceberg.Table;
  * at or after its expiration time, so a success here, stamped after the expiration by a clock that
  * runs behind, would leave the table in place forever. A failure makes the analyzer retry.
  *
+ * <p>Every attempt writes one {@link AuditRecord} line to the {@value #AUDIT_LOGGER_NAME} logger.
+ * The Optimizer's operation history reports success both when the job dropped the table and when it
+ * left the table in place, so the record's outcome is what tells the two apart.
+ *
  * <p>The scheduler passes {@code --tableNames} and {@code --operationIds} for every operation type.
  * For this job, each must hold exactly one entry.
  *
@@ -47,6 +58,12 @@ import org.apache.iceberg.Table;
  */
 @Slf4j
 public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
+
+  /** Logger that receives one {@link AuditRecord} line per deletion attempt. */
+  public static final String AUDIT_LOGGER_NAME =
+      "com.linkedin.openhouse.jobs.spark.ExpiredTableDeletionAudit";
+
+  private static final Logger AUDIT_LOG = LoggerFactory.getLogger(AUDIT_LOGGER_NAME);
 
   private final String tableName;
   private final String operationId;
@@ -67,23 +84,27 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
 
   @Override
   protected void runInner(Operations ops) {
-    Optional<String> failureReason;
+    Optional<Map<String, String>> properties = Optional.empty();
+    DeletionResult result;
     try {
-      failureReason = dropIfStillExpired(ops);
+      properties = ops.findTable(tableName).map(Table::properties);
+      result = dropIfStillExpired(ops, properties);
     } catch (RuntimeException e) {
       log.error("Dropping table {} failed.", tableName, e);
-      failureReason = Optional.of(e.toString());
+      result = new DeletionResult(DeletionOutcome.FAILED, Optional.of(e.toString()));
     }
-    reportResult(failureReason);
+    recordAudit(auditRecord(properties, result));
+    reportResult(result.getFailureReason());
   }
 
-  /** Returns the failure reason when the table is still temporary but has not expired yet. */
-  private Optional<String> dropIfStillExpired(Operations ops) {
-    Optional<Map<String, String>> properties = ops.findTable(tableName).map(Table::properties);
+  private DeletionResult dropIfStillExpired(
+      Operations ops, Optional<Map<String, String>> properties) {
     if (!properties.isPresent()) {
       log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
+      return new DeletionResult(DeletionOutcome.NOT_FOUND, Optional.empty());
     } else if (!TemporaryTableProperties.isTemporary(properties.get())) {
       log.info("Skipped dropping table {} because it is no longer temporary.", tableName);
+      return new DeletionResult(DeletionOutcome.NOT_TEMPORARY, Optional.empty());
     } else if (!TemporaryTableProperties.isExpired(properties.get(), Instant.now())) {
       String failureReason =
           String.format(
@@ -93,13 +114,37 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
                   .map(TemporaryTableProperties::formatExpirationTime)
                   .orElse("an unknown time"));
       log.warn(failureReason);
-      return Optional.of(failureReason);
+      return new DeletionResult(DeletionOutcome.NOT_EXPIRED, Optional.of(failureReason));
     } else if (ops.dropTable(tableName)) {
       log.info("Dropped expired table {}.", tableName);
+      return new DeletionResult(DeletionOutcome.DROPPED, Optional.empty());
     } else {
       log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
+      return new DeletionResult(DeletionOutcome.NOT_FOUND, Optional.empty());
     }
-    return Optional.empty();
+  }
+
+  private AuditRecord auditRecord(Optional<Map<String, String>> properties, DeletionResult result) {
+    String[] databaseAndTable = tableName.split("\\.", 2);
+    return new AuditRecord(
+        operationId,
+        Optional.ofNullable(jobId),
+        properties.map(values -> values.get(CatalogConstants.OPENHOUSE_UUID_KEY)),
+        databaseAndTable[0],
+        databaseAndTable[1],
+        properties.map(values -> values.get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY)),
+        Instant.now(),
+        result.getOutcome(),
+        result.getFailureReason());
+  }
+
+  /**
+   * Writes one audit line per attempt to the {@value #AUDIT_LOGGER_NAME} logger, so that "who
+   * deleted my table, and when" can be answered from the job's logs even when the table is gone.
+   */
+  @VisibleForTesting
+  protected void recordAudit(AuditRecord record) {
+    AUDIT_LOG.info(record.toLogLine());
   }
 
   private void reportResult(Optional<String> failureReason) {
@@ -166,5 +211,61 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
     return Optional.ofNullable(cmdLine.getOptionValue(name))
         .filter(value -> !value.isEmpty())
         .orElseThrow(() -> new IllegalArgumentException("--" + name + " is required."));
+  }
+
+  /** What one deletion attempt did to the table. */
+  public enum DeletionOutcome {
+    /** The job dropped and purged the table. */
+    DROPPED,
+    /** The table did not exist when the job loaded or dropped it. */
+    NOT_FOUND,
+    /** The table is no longer temporary, so the job left it in place. */
+    NOT_TEMPORARY,
+    /** The table is still temporary but has not expired, so the job left it in place. */
+    NOT_EXPIRED,
+    /** Loading or dropping the table threw an exception. */
+    FAILED
+  }
+
+  @Value
+  private static class DeletionResult {
+    DeletionOutcome outcome;
+    Optional<String> failureReason;
+  }
+
+  /**
+   * The audit record of one deletion attempt. The table UUID and expiration time are the values the
+   * job read from the table before acting, and are absent when the table did not exist.
+   */
+  @Value
+  public static class AuditRecord {
+    String operationId;
+    Optional<String> jobId;
+    Optional<String> tableUuid;
+    String databaseName;
+    String tableName;
+    Optional<String> expirationTime;
+    Instant completedAt;
+    DeletionOutcome outcome;
+    Optional<String> failureReason;
+
+    /**
+     * Formats the record as space-separated {@code key=value} pairs, with {@code none} for absent
+     * values. The failure reason may contain spaces, so it comes last and runs to the end of the
+     * line.
+     */
+    public String toLogLine() {
+      return Stream.of(
+              "operationId=" + operationId,
+              "jobId=" + jobId.orElse("none"),
+              "tableUuid=" + tableUuid.orElse("none"),
+              "databaseName=" + databaseName,
+              "tableName=" + tableName,
+              "expirationTime=" + expirationTime.orElse("none"),
+              "completedAt=" + completedAt,
+              "outcome=" + outcome,
+              "failureReason=" + failureReason.orElse("none"))
+          .collect(Collectors.joining(" ", "Expired table deletion audit: ", ""));
+    }
   }
 }
