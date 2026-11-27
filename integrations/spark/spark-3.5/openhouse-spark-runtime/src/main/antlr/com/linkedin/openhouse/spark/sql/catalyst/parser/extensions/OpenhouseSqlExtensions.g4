@@ -33,6 +33,7 @@ statement
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
   | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
+  | VACUUM multipartIdentifier (REMOVE ORPHAN FILES)? (RETAIN POSITIVE_INTEGER HOURS)?                  #vacuumTable
   ;
 
 multipartIdentifier
@@ -71,6 +72,7 @@ nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN | WITH | TIMEZONE
     | UNLOCK | REASON
+    | VACUUM | REMOVE | ORPHAN | FILES | RETAIN | HOURS
     ;
 
 sharingPolicy
@@ -211,6 +213,12 @@ VERSIONS: 'VERSIONS';
 MAX_AGE: 'MAX_AGE';
 UNLOCK: 'UNLOCK';
 REASON: 'REASON';
+VACUUM: 'VACUUM';
+REMOVE: 'REMOVE';
+ORPHAN: 'ORPHAN';
+FILES: 'FILES';
+RETAIN: 'RETAIN';
+HOURS: 'HOURS';
 
 POSITIVE_INTEGER
     : DIGIT+

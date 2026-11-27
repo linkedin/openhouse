@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, ResolvedUnlockTable, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, ResolvedUnlockTable, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, VacuumTable}
 import org.apache.iceberg.spark.{Spark3Util, SparkCatalog, SparkSessionCatalog}
 import org.apache.spark.sql.{SparkSession, Strategy}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
@@ -34,6 +34,9 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
 
     case ResolvedUnlockTable(catalog, target, reason) =>
       UnlockTableExec(catalog, target, reason) :: Nil
+
+    case VacuumTable(CatalogAndIdentifierExtractor(catalog, ident), removeOrphanFiles, retainHours) =>
+      VacuumTableExec(spark, catalog, ident, removeOrphanFiles, retainHours) :: Nil
 
     case _ => Nil
   }
