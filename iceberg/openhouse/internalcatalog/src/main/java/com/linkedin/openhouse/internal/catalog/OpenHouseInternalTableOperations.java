@@ -711,10 +711,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   /**
    * Fixes a temporary table's expiration time when the table becomes temporary, and keeps it fixed
-   * until the table stops being temporary or expires.
+   * until the table stops being temporary. An expired table accepts commits like any other table
+   * until it is deleted.
    *
    * <ul>
-   *   <li>An expired temporary table accepts no commits.
    *   <li>While the table stays temporary, the commit keeps the committed expiration time.
    *   <li>When the table stops being temporary, the expiration time is removed. The commit may echo
    *       the committed time.
@@ -736,12 +736,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         Optional.ofNullable(properties.get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
     boolean requestsTemporary = TemporaryTableProperties.isTemporary(properties);
 
-    if (TemporaryTableProperties.isExpired(committedProperties, now)) {
-      throw new CommitRejectedException(
-          String.format(
-              "Temporary table %s expired at %s and accepts no further commits.",
-              tableIdentifier, committedTime.get()));
-    }
     if (TemporaryTableProperties.isTemporary(committedProperties)) {
       boolean keepsCommittedTime =
           requestedTime.equals(committedTime) || (!requestsTemporary && !requestedTime.isPresent());
