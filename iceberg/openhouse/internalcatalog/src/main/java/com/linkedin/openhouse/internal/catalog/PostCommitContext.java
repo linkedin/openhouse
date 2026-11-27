@@ -19,4 +19,16 @@ public class PostCommitContext {
 
   /** The table metadata as committed. */
   TableMetadata committedMetadata;
+
+  /**
+   * True when the table was temporary before this commit, so operations can act on the commit that
+   * ends temporary status. That commit's metadata no longer carries the temporary flag.
+   */
+  boolean previouslyTemporary;
+
+  /**
+   * True for a staged create or replace. A staged commit writes a metadata file but does not change
+   * the catalog's table until the later commit that adds snapshots, and it may be abandoned.
+   */
+  boolean staged;
 }

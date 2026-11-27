@@ -42,7 +42,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, false));
 
     Assertions.assertEquals(1, op.publishCount);
     Assertions.assertNotNull(op.published);
@@ -58,7 +58,7 @@ public class AbstractCommitStatsPublishOperationTest {
     // no opt-in property
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, false));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -70,9 +70,72 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "false");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, false));
 
     Assertions.assertEquals(0, op.publishCount);
+  }
+
+  @Test
+  void testPublishesTemporaryTableWithoutOptIn() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    props.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true");
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, false));
+
+    Assertions.assertEquals(1, op.publishCount);
+  }
+
+  @Test
+  void testDoesNotPublishWhenTemporaryFlagIsNotTrue() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    props.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "false");
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, false));
+
+    Assertions.assertEquals(0, op.publishCount);
+  }
+
+  @Test
+  void testPublishesCommitThatEndsTemporaryStatus() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    // no flag and no opt-in: the commit removed the flag
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), true, false));
+
+    Assertions.assertEquals(1, op.publishCount);
+  }
+
+  @Test
+  void testDoesNotPublishStagedCommitForTemporaryStatus() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    props.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true");
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, true));
+    op.execute(new PostCommitContext(TABLE, metadataWith(new HashMap<>(props)), true, true));
+    props.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), true, true));
+
+    Assertions.assertEquals(0, op.publishCount);
+  }
+
+  @Test
+  void testPublishesOptedInStagedCommit() throws Exception {
+    Map<String, String> props = new HashMap<>();
+    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
+    props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
+
+    RecordingOperation op = new RecordingOperation();
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, true));
+
+    Assertions.assertEquals(1, op.publishCount);
   }
 
   @Test
@@ -82,7 +145,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), false, false));
 
     Assertions.assertEquals(0, op.publishCount);
   }

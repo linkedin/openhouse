@@ -434,6 +434,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
 
+    boolean isStageCreate =
+        Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
+    boolean isStageReplace =
+        Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_REPLACE_KEY));
+
     HouseTable houseTable = HouseTable.builder().build();
     try {
       // Now that we have metadataLocation we stamp it in metadata property.
@@ -466,10 +471,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       String serializedSnapshotsToPut = properties.remove(CatalogConstants.SNAPSHOTS_JSON_KEY);
       String serializedSnapshotRefs = properties.remove(CatalogConstants.SNAPSHOTS_REFS_KEY);
-      boolean isStageCreate =
-          Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_CREATE_KEY));
-      boolean isStageReplace =
-          Boolean.parseBoolean(properties.remove(CatalogConstants.IS_STAGE_REPLACE_KEY));
       String sortOrderJson = properties.remove(CatalogConstants.SORT_ORDER_KEY);
       logPropertiesMap(properties);
 
@@ -653,7 +654,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
         case SUCCESS:
-          runPostCommitOperations(committedMetadata);
+          runPostCommitOperations(
+              committedMetadata,
+              base != null && TemporaryTableProperties.isTemporary(base.properties()),
+              isStageCreate || isStageReplace);
           break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
@@ -843,15 +847,20 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * Fires best-effort post-commit operations for a successful commit, gated by a server-side kill
    * switch. Never throws: the commit has already durably succeeded and post-commit work must not
    * affect its outcome.
+   *
+   * @param previouslyTemporary whether the table was temporary before this commit
+   * @param staged whether this is a staged create or replace
    */
-  private void runPostCommitOperations(Optional<TableMetadata> committedMetadata) {
+  private void runPostCommitOperations(
+      Optional<TableMetadata> committedMetadata, boolean previouslyTemporary, boolean staged) {
     if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
       return;
     }
     try {
       committedMetadata.ifPresent(
           metadata ->
-              postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, metadata)));
+              postCommitOperationRunner.runAll(
+                  new PostCommitContext(tableIdentifier, metadata, previouslyTemporary, staged)));
     } catch (Throwable t) {
       log.error(
           "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);
