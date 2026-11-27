@@ -121,8 +121,8 @@ class ExpiredTableDeletionFlowIntegrationTest {
     assertThat(operationsRepo.findAll()).hasSameSizeAs(operations);
     verifyNoInteractions(jobsClient);
 
-    // Each job reports SUCCESS. Once the retry interval it sets has passed, the SUCCESS alone
-    // keeps the deleted tables from being scheduled again.
+    // Each job reports SUCCESS after the tables expired. Once the retry interval it sets has
+    // passed, the SUCCESS alone keeps the deleted tables from being scheduled again.
     operations.forEach(this::reportSuccessAndPassRetryInterval);
     analyzeAndSchedule();
 
@@ -154,7 +154,7 @@ class ExpiredTableDeletionFlowIntegrationTest {
             .databaseName(operation.getDatabaseName())
             .tableName(operation.getTableName())
             .operationType(DELETION)
-            .completedAt(Instant.now().minus(Duration.ofDays(2)))
+            .completedAt(Instant.now())
             .status(HistoryStatusDto.SUCCESS)
             .build()
             .toRow());
