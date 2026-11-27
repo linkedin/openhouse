@@ -93,24 +93,25 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testUnexpiredTemporaryTableIsNotDropped() throws Exception {
+  public void testUnexpiredTemporaryTableIsKeptAndReportsFailure() throws Exception {
     String tableName = DATABASE + ".unexpired";
+    String expirationTime =
+        DateTimeFormatter.ISO_INSTANT.format(
+            Instant.now().plus(Duration.ofDays(1)).truncatedTo(ChronoUnit.SECONDS));
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
       createTable(
           ops,
           tableName,
-          ImmutableMap.of(
-              TEMPORARY_KEY,
-              "true",
-              EXPIRATION_TIME_KEY,
-              DateTimeFormatter.ISO_INSTANT.format(
-                  Instant.now().plus(Duration.ofDays(1)).truncatedTo(ChronoUnit.SECONDS))));
+          ImmutableMap.of(TEMPORARY_KEY, "true", EXPIRATION_TIME_KEY, expirationTime));
 
       runApp(ops, tableName);
 
+      UpdateOperationRequest request = reportedRequest(tableName);
+      Assertions.assertEquals(UpdateOperationRequest.StatusEnum.FAILED, request.getStatus());
       Assertions.assertEquals(
-          UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
+          "Table " + tableName + " has not expired yet (expires at " + expirationTime + ").",
+          request.getFailureReason());
       Assertions.assertTrue(listedTableNames(ops).contains("unexpired"));
     }
   }

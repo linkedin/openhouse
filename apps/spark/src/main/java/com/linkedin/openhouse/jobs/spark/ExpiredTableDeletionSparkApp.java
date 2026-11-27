@@ -24,9 +24,14 @@ import org.apache.iceberg.Table;
  * <p>The Optimizer's analyzer decides that the table has expired, but the table may have changed
  * since then: it may have been converted to an ordinary table, or dropped and replaced by an
  * ordinary table with the same name. The app therefore loads the table and drops it only when it is
- * still temporary and still expired. A table that no longer qualifies is left in place and the
+ * still temporary and still expired. A table that is no longer temporary is left in place and the
  * operation reports success, because there is nothing left to delete. A table that no longer exists
  * counts as deleted, so a retried job succeeds.
+ *
+ * <p>A table that is still temporary but has not expired by this job's clock is also left in place,
+ * and the operation reports failure. The analyzer stops scheduling a table once a success completes
+ * at or after its expiration time, so a success here, stamped after the expiration by a clock that
+ * runs behind, would leave the table in place forever. A failure makes the analyzer retry.
  *
  * <p>The scheduler passes {@code --tableNames} and {@code --operationIds} for every operation type.
  * For this job, each must hold exactly one entry.
@@ -64,8 +69,7 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
   protected void runInner(Operations ops) {
     Optional<String> failureReason;
     try {
-      dropIfStillExpired(ops);
-      failureReason = Optional.empty();
+      failureReason = dropIfStillExpired(ops);
     } catch (RuntimeException e) {
       log.error("Dropping table {} failed.", tableName, e);
       failureReason = Optional.of(e.toString());
@@ -73,19 +77,29 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
     reportResult(failureReason);
   }
 
-  private void dropIfStillExpired(Operations ops) {
+  /** Returns the failure reason when the table is still temporary but has not expired yet. */
+  private Optional<String> dropIfStillExpired(Operations ops) {
     Optional<Map<String, String>> properties = ops.findTable(tableName).map(Table::properties);
     if (!properties.isPresent()) {
       log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
     } else if (!TemporaryTableProperties.isTemporary(properties.get())) {
       log.info("Skipped dropping table {} because it is no longer temporary.", tableName);
     } else if (!TemporaryTableProperties.isExpired(properties.get(), Instant.now())) {
-      log.info("Skipped dropping table {} because it has not expired.", tableName);
+      String failureReason =
+          String.format(
+              "Table %s has not expired yet (expires at %s).",
+              tableName,
+              TemporaryTableProperties.expirationTime(properties.get())
+                  .map(TemporaryTableProperties::formatExpirationTime)
+                  .orElse("an unknown time"));
+      log.warn(failureReason);
+      return Optional.of(failureReason);
     } else if (ops.dropTable(tableName)) {
       log.info("Dropped expired table {}.", tableName);
     } else {
       log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
     }
+    return Optional.empty();
   }
 
   private void reportResult(Optional<String> failureReason) {
