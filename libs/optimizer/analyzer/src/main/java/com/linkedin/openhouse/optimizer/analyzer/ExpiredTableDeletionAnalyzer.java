@@ -20,9 +20,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>Expiry depends on time, not on commits, so this analyzer runs only in the time-based scan and
  * is not triggered by commits. A deletion reports SUCCESS once the table no longer exists, so a
- * SUCCESS ends scheduling for that table. A FAILED deletion is retried on the cadence policy's
- * failure backoff. A submitted deletion is considered stale only after 24 hours, so a slow job is
- * not submitted a second time while it still runs.
+ * SUCCESS ends scheduling for that table. A FAILED deletion is retried one hour later, and the
+ * backoff never grows past one hour, so repeated failures keep retrying on every hourly run. A
+ * submitted deletion that has not finished after the default stale time is rescheduled. Together
+ * these keep deletion within 24 hours of expiration when a job fails or hangs.
  *
  * <p>Registered as a bean only when {@code analyzer.expired-table-deletion.enabled=true}; it is off
  * by default.
@@ -36,7 +37,12 @@ public class ExpiredTableDeletionAnalyzer implements OperationAnalyzer {
 
   // The 24-hour success interval never takes effect, because shouldSchedule stops at a SUCCESS.
   private final CadencePolicy cadencePolicy =
-      new CadencePolicy(Duration.ofHours(24), Duration.ofHours(1), Duration.ofHours(24));
+      new CadencePolicy(
+          Duration.ofHours(24),
+          Duration.ofHours(1),
+          CadencePolicy.DEFAULT_ACTIVE_OP_STALE_TIMEOUT,
+          CadencePolicy.DEFAULT_FAILURE_STREAK_THRESHOLD,
+          Duration.ofHours(1));
 
   @Override
   public OperationTypeDto getOperationType() {
