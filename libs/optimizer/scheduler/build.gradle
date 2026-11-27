@@ -38,6 +38,27 @@ dependencies {
   testRuntimeOnly 'org.flywaydb:flyway-mysql:8.5.13'
 }
 
+// Scale tests run 100,000 synthetic tables through the analyzer and scheduler. They run in their own
+// task, which check depends on, so the default test task stays fast.
 test {
-  useJUnitPlatform()
+  useJUnitPlatform {
+    excludeTags 'scale'
+  }
+}
+
+tasks.register('scaleTest', Test) {
+  description = 'Runs the analyzer and scheduler over 100,000 synthetic tables.'
+  group = 'verification'
+  testClassesDirs = sourceSets.test.output.classesDirs
+  classpath = sourceSets.test.runtimeClasspath
+  useJUnitPlatform {
+    includeTags 'scale'
+  }
+  testLogging {
+    showStandardStreams = true
+  }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('scaleTest')
 }
