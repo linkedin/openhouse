@@ -38,7 +38,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -692,11 +694,96 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * on {@code base} and the value this commit leaves, and returns the value to persist or rejects
    * the commit with a {@link CommitRejectedException} naming the rule.
    *
+   * <p>The rules are the max-ref-age limit ({@link #boundMaxRefAge}) and the temporary table rules
+   * ({@link #enforceTemporaryTableRules}).
+   *
    * <p>Runs after restoreOverriddenProperties, so rules see the values that will be persisted, and
    * before failIfRetryUpdate, so a rejected commit does not mark its base version as attempted.
    */
   private void enforcePropertyRules(TableMetadata base, Map<String, String> properties) {
     enforcePropertyRule(base, properties, TableProperties.MAX_REF_AGE_MS, this::boundMaxRefAge);
+    enforceTemporaryTableRules(base, properties);
+  }
+
+  /**
+   * Fixes a temporary table's expiration time when the table becomes temporary, and keeps it fixed
+   * until the table stops being temporary. An expired table accepts commits like any other table
+   * until it is deleted.
+   *
+   * <ul>
+   *   <li>While the table stays temporary, the commit keeps the committed expiration time.
+   *   <li>When the table stops being temporary, the expiration time is removed. The commit may echo
+   *       the committed time.
+   *   <li>When the table becomes temporary, a missing time becomes {@link
+   *       TemporaryTableProperties#DEFAULT_LIFETIME} from now, and a supplied time must be in the
+   *       strict format and at most {@link TemporaryTableProperties#MAX_LIFETIME} from now. A past
+   *       time is kept, and the table expires at once.
+   *   <li>An ordinary table cannot have an expiration time.
+   * </ul>
+   */
+  private void enforceTemporaryTableRules(TableMetadata base, Map<String, String> properties) {
+    Instant now = Instant.now();
+    Map<String, String> committedProperties =
+        base == null ? Collections.emptyMap() : base.properties();
+    Optional<String> committedTime =
+        Optional.ofNullable(
+            committedProperties.get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    Optional<String> requestedTime =
+        Optional.ofNullable(properties.get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    boolean requestsTemporary = TemporaryTableProperties.isTemporary(properties);
+
+    if (TemporaryTableProperties.isTemporary(committedProperties)) {
+      boolean keepsCommittedTime =
+          requestedTime.equals(committedTime) || (!requestsTemporary && !requestedTime.isPresent());
+      if (!keepsCommittedTime) {
+        throw new CommitRejectedException(
+            String.format(
+                "Table property %s on temporary table %s cannot be changed or removed; it is %s.",
+                CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY,
+                tableIdentifier,
+                committedTime.orElse("absent")));
+      }
+      if (!requestsTemporary) {
+        properties.remove(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY);
+      }
+      return;
+    }
+    if (!requestsTemporary) {
+      if (requestedTime.isPresent()) {
+        throw new CommitRejectedException(
+            String.format(
+                "Table property %s on table %s requires %s=true.",
+                CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY,
+                tableIdentifier,
+                CatalogConstants.OPENHOUSE_TEMPORARY_KEY));
+      }
+      return;
+    }
+    String expirationTime =
+        requestedTime.orElseGet(
+            () ->
+                TemporaryTableProperties.formatExpirationTime(
+                    now.truncatedTo(ChronoUnit.SECONDS)
+                        .plus(TemporaryTableProperties.DEFAULT_LIFETIME)));
+    Instant expiration =
+        TemporaryTableProperties.parseExpirationTime(expirationTime)
+            .orElseThrow(
+                () ->
+                    new CommitRejectedException(
+                        String.format(
+                            "Table property %s on table %s must be a UTC time in the form %s, but"
+                                + " is %s.",
+                            CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY,
+                            tableIdentifier,
+                            TemporaryTableProperties.EXPIRATION_TIME_FORMAT,
+                            expirationTime)));
+    if (expiration.isAfter(now.plus(TemporaryTableProperties.MAX_LIFETIME))) {
+      throw new CommitRejectedException(
+          String.format(
+              "Table property %s on table %s must be at most 7 days after the commit, but is %s.",
+              CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY, tableIdentifier, expirationTime));
+    }
+    properties.put(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY, expirationTime);
   }
 
   /**
