@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -75,7 +74,6 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.spark.Spark3Util;
 import org.apache.spark.sql.SparkSession;
@@ -385,8 +383,9 @@ class TemporaryTableLifecycleIntegrationTest {
     await().atMost(Duration.ofSeconds(40)).until(() -> !Instant.now().isBefore(expiration));
     EXPIRED.forEach(
         name -> {
-          assertThatThrownBy(() -> catalog.loadTable(identifier(name)))
-              .isInstanceOf(NoSuchTableException.class);
+          assertThat(catalog.loadTable(identifier(name)).properties())
+              .containsEntry("openhouse.temporary", "true");
+          assertReadableData(spark, name);
           assertThat(dataFiles.get(name)).allSatisfy(path -> assertThat(path).exists());
         });
     assertThat(catalog.listTables(Namespace.of(DATABASE))).hasSize(5);

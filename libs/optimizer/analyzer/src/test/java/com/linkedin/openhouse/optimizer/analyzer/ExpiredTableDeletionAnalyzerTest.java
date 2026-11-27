@@ -143,6 +143,34 @@ class ExpiredTableDeletionAnalyzerTest {
         .isFalse();
   }
 
+  @Test
+  void shouldSchedule_returnsTrue_whenSuccessPredatesCurrentExpiration() {
+    // The job skipped the table under an earlier expiration; the owner then set a new one.
+    Instant expirationTime =
+        Instant.now().minus(Duration.ofHours(2)).truncatedTo(ChronoUnit.SECONDS);
+    Instant skippedAt = expirationTime.minus(Duration.ofHours(3));
+    assertThat(
+            analyzer.shouldSchedule(
+                temporaryTable(expirationTime),
+                Optional.of(completedOp(skippedAt.plus(Duration.ofHours(1)))),
+                Optional.of(history(HistoryStatusDto.SUCCESS, skippedAt)),
+                0))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_returnsFalse_whenSuccessCompletedAtCurrentExpiration() {
+    Instant expirationTime =
+        Instant.now().minus(Duration.ofHours(2)).truncatedTo(ChronoUnit.SECONDS);
+    assertThat(
+            analyzer.shouldSchedule(
+                temporaryTable(expirationTime),
+                Optional.of(completedOp(expirationTime.plus(Duration.ofHours(1)))),
+                Optional.of(history(HistoryStatusDto.SUCCESS, expirationTime)),
+                0))
+        .isFalse();
+  }
+
   private TableDto temporaryTable(Instant expirationTime) {
     return TableDto.builder()
         .tableUuid("test-uuid")
