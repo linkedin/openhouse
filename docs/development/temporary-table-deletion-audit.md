@@ -24,13 +24,17 @@ Absent values are written as `none`. `tableUuid` and `expirationTime` are the va
 from the table before it acted, and `completedAt` is when the job finished the attempt. The failure
 reason can contain spaces, so it is the last field and runs to the end of the line.
 
+The outcome values are the same as the `outcome` tag of the `expired_table_deletion_count` metric
+described in [Temporary Table Deletion Metrics](../temporary-tables-metrics.md), because both come
+from one outcome that the job decides per run.
+
 | Outcome | Meaning | Reported to the Optimizer as |
 |---------|---------|------------------------------|
-| `DROPPED` | The job dropped and purged the table. | `SUCCESS` |
-| `NOT_FOUND` | The table did not exist when the job loaded or dropped it. | `SUCCESS` |
-| `NOT_TEMPORARY` | The table is no longer temporary, so the job left it in place. | `SUCCESS` |
-| `NOT_EXPIRED` | The table is temporary but has not expired by the job's clock, so the job left it in place. | `FAILED` |
-| `FAILED` | Loading or dropping the table threw an exception. | `FAILED` |
+| `deleted` | The job dropped and purged the table. | `SUCCESS` |
+| `skipped_missing` | The table did not exist when the job loaded or dropped it. | `SUCCESS` |
+| `skipped_not_temporary` | The table is no longer temporary, so the job left it in place. | `SUCCESS` |
+| `skipped_not_expired` | The table is temporary but has not expired by the job's clock, so the job left it in place. | `FAILED` |
+| `failed` | Loading or dropping the table threw an exception. | `FAILED` |
 
 To find the line, search the deletion job's driver logs for the table name and the logger name, for
 example:
@@ -39,7 +43,7 @@ example:
 grep 'Expired table deletion audit:.* databaseName=db tableName=t ' driver.log
 ```
 
-A line with `outcome=DROPPED` is the record that the Optimizer deleted the table, and `completedAt`
+A line with `outcome=deleted` is the record that the Optimizer deleted the table, and `completedAt`
 is when. The job ID in the line leads to the Spark job's own logs.
 
 ## Optimizer operation history

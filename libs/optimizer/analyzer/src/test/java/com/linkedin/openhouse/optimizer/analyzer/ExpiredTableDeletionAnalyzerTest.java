@@ -9,6 +9,7 @@ import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.model.TemporaryTable;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -19,7 +20,9 @@ import org.junit.jupiter.api.Test;
 
 class ExpiredTableDeletionAnalyzerTest {
 
-  private final ExpiredTableDeletionAnalyzer analyzer = new ExpiredTableDeletionAnalyzer();
+  private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+  private final ExpiredTableDeletionAnalyzer analyzer =
+      new ExpiredTableDeletionAnalyzer(meterRegistry);
 
   @Test
   void isEnabled_returnsTrue_forTemporaryTable() {
@@ -169,6 +172,96 @@ class ExpiredTableDeletionAnalyzerTest {
                 Optional.of(history(HistoryStatusDto.SUCCESS, expirationTime)),
                 0))
         .isFalse();
+  }
+
+  @Test
+  void scanCompleted_reportsExpiredTables_scheduledDeletions_andOldestExpiredTableAge() {
+    ScanObserver scan = analyzer.startScan();
+    scan.tableAnalyzed(
+        temporaryTable(Instant.now().minus(Duration.ofHours(30))), Optional.empty(), true);
+    scan.tableAnalyzed(
+        temporaryTable(Instant.now().minus(Duration.ofHours(2))), Optional.empty(), false);
+    scan.tableAnalyzed(
+        temporaryTable(Instant.now().plus(Duration.ofHours(2))), Optional.empty(), false);
+    scan.tableAnalyzed(
+        TableDto.builder().tableUuid("ordinary-uuid").build(), Optional.empty(), false);
+    scan.scanCompleted();
+
+    assertThat(gaugeValue(ExpiredTableDeletionAnalyzer.EXPIRED_TABLES_METRIC)).isEqualTo(2);
+    assertThat(
+            meterRegistry
+                .get(ExpiredTableDeletionAnalyzer.DELETIONS_SCHEDULED_METRIC)
+                .counter()
+                .count())
+        .isEqualTo(1);
+    assertThat(gaugeValue(ExpiredTableDeletionAnalyzer.OLDEST_EXPIRED_TABLE_AGE_METRIC))
+        .isBetween(
+            (double) Duration.ofHours(30).getSeconds(),
+            (double) Duration.ofHours(30).plusMinutes(1).getSeconds());
+  }
+
+  @Test
+  void scanCompleted_excludesTables_deletedForTheirCurrentExpiration() {
+    Instant deletedExpiration = Instant.now().minus(Duration.ofHours(30));
+    Instant reexpiredExpiration = Instant.now().minus(Duration.ofHours(3));
+    ScanObserver scan = analyzer.startScan();
+    scan.tableAnalyzed(
+        temporaryTable(deletedExpiration),
+        Optional.of(
+            history(HistoryStatusDto.SUCCESS, deletedExpiration.plus(Duration.ofMinutes(5)))),
+        false);
+    scan.tableAnalyzed(
+        temporaryTable(reexpiredExpiration),
+        Optional.of(history(HistoryStatusDto.SUCCESS, deletedExpiration)),
+        true);
+    scan.scanCompleted();
+
+    assertThat(gaugeValue(ExpiredTableDeletionAnalyzer.EXPIRED_TABLES_METRIC)).isEqualTo(1);
+    assertThat(gaugeValue(ExpiredTableDeletionAnalyzer.OLDEST_EXPIRED_TABLE_AGE_METRIC))
+        .isBetween(
+            (double) Duration.ofHours(3).getSeconds(),
+            (double) Duration.ofHours(3).plusMinutes(1).getSeconds());
+  }
+
+  @Test
+  void scanCompleted_replacesTheGauges_andAddsToTheScheduledDeletions() {
+    ScanObserver firstScan = analyzer.startScan();
+    firstScan.tableAnalyzed(
+        temporaryTable(Instant.now().minus(Duration.ofHours(30))), Optional.empty(), true);
+    firstScan.scanCompleted();
+    ScanObserver secondScan = analyzer.startScan();
+    secondScan.tableAnalyzed(
+        temporaryTable(Instant.now().plus(Duration.ofHours(2))), Optional.empty(), false);
+    secondScan.scanCompleted();
+
+    assertThat(gaugeValue(ExpiredTableDeletionAnalyzer.EXPIRED_TABLES_METRIC)).isZero();
+    assertThat(gaugeValue(ExpiredTableDeletionAnalyzer.OLDEST_EXPIRED_TABLE_AGE_METRIC)).isZero();
+    assertThat(
+            meterRegistry
+                .get(ExpiredTableDeletionAnalyzer.DELETIONS_SCHEDULED_METRIC)
+                .counter()
+                .count())
+        .isEqualTo(1);
+  }
+
+  @Test
+  void gauges_areNotRegistered_untilAScanCompletes() {
+    analyzer
+        .startScan()
+        .tableAnalyzed(
+            temporaryTable(Instant.now().minus(Duration.ofHours(1))), Optional.empty(), true);
+
+    assertThat(meterRegistry.find(ExpiredTableDeletionAnalyzer.EXPIRED_TABLES_METRIC).gauge())
+        .isNull();
+    assertThat(
+            meterRegistry
+                .find(ExpiredTableDeletionAnalyzer.OLDEST_EXPIRED_TABLE_AGE_METRIC)
+                .gauge())
+        .isNull();
+  }
+
+  private double gaugeValue(String name) {
+    return meterRegistry.get(name).gauge().value();
   }
 
   private TableDto temporaryTable(Instant expirationTime) {
