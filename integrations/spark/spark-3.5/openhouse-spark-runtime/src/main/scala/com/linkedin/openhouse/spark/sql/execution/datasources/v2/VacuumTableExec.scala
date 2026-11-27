@@ -180,11 +180,15 @@ object VacuumTableExec {
     try {
       val history = mapper.readTree(policiesJson).path("history")
       if (history.isMissingNode || history.isNull) return default
+      // Like the scheduled expiration job, a maxAge of 0 means unset and falls back to the default
+      // age and granularity.
+      val maxAge = if (history.hasNonNull("maxAge")) history.get("maxAge").asInt(0) else 0
+      val ageSet = maxAge > 0
       HistoryRetention(
-        maxAge = if (history.hasNonNull("maxAge")) history.get("maxAge").asInt(DEFAULT_HISTORY_MAX_AGE)
-          else DEFAULT_HISTORY_MAX_AGE,
-        granularity = if (history.hasNonNull("granularity")) history.get("granularity").asText(DEFAULT_HISTORY_GRANULARITY)
-          else DEFAULT_HISTORY_GRANULARITY,
+        maxAge = if (ageSet) maxAge else DEFAULT_HISTORY_MAX_AGE,
+        granularity = if (ageSet && history.hasNonNull("granularity")) {
+          history.get("granularity").asText(DEFAULT_HISTORY_GRANULARITY)
+        } else DEFAULT_HISTORY_GRANULARITY,
         versions = if (history.hasNonNull("versions")) history.get("versions").asInt(DEFAULT_HISTORY_VERSIONS)
           else DEFAULT_HISTORY_VERSIONS)
     } catch {

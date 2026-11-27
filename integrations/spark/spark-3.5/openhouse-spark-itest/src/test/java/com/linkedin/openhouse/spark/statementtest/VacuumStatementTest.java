@@ -59,15 +59,14 @@ public class VacuumStatementTest {
   }
 
   @Test
-  public void testVacuumHistoryPolicyMaxAgeExpiresBeyondVersions() {
-    // maxAge=0 expires every snapshot but the current one; versions=2 does not keep extra
-    // snapshots,
-    // matching the scheduled expiration job.
-    setHistoryPolicy(0, 2);
+  public void testVacuumVersionsOnlyHistoryPolicyKeepsSnapshots() {
+    // A versions-only policy is stored with maxAge=0. Like the scheduled expiration job, VACUUM
+    // treats that as the default age, so all 3 recent snapshots stay within versions=5.
+    setHistoryPolicy(0, 5);
 
     spark.sql("VACUUM openhouse.db.table").collect();
 
-    Assertions.assertEquals(1, snapshotCount("openhouse.db.table"));
+    Assertions.assertEquals(3, snapshotCount("openhouse.db.table"));
     Assertions.assertEquals(3, rowCount("openhouse.db.table"));
   }
 

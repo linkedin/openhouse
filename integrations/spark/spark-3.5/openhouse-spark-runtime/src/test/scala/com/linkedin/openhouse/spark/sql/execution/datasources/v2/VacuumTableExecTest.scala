@@ -52,6 +52,13 @@ class VacuumTableExecTest {
   }
 
   @Test
+  def parseHistoryRetentionTreatsZeroMaxAgeAsUnset(): Unit = {
+    assertEquals(
+      HistoryRetention(3, "DAY", 10),
+      parseHistoryRetention("""{"history":{"maxAge":0,"granularity":"HOUR","versions":10}}"""))
+  }
+
+  @Test
   def parseHistoryRetentionFallsBackOnMalformedJson(): Unit = {
     assertEquals(HistoryRetention(3, "DAY", 0), parseHistoryRetention("not json"))
   }
