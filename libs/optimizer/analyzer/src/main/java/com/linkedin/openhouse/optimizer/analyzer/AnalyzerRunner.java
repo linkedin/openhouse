@@ -88,10 +88,14 @@ public class AnalyzerRunner {
         dbs.size(),
         selected.size());
     selected.forEach(
-        analyzer ->
-            dbs.forEach(
-                db ->
-                    analyzeDatabase(analyzer, db, request.getTableName(), request.getTableUuid())));
+        analyzer -> {
+          ScanObserver observer = analyzer.startScan();
+          dbs.forEach(
+              db ->
+                  analyzeDatabase(
+                      analyzer, db, request.getTableName(), request.getTableUuid(), observer));
+          observer.scanCompleted();
+        });
     log.info("Analysis complete for {}", request);
   }
 
@@ -197,7 +201,8 @@ public class AnalyzerRunner {
       OperationAnalyzer analyzer,
       String databaseName,
       Optional<String> tableName,
-      Optional<String> tableUuid) {
+      Optional<String> tableUuid,
+      ScanObserver observer) {
 
     // Load the three join inputs unbounded for this database. Aligned page-by-page pagination on
     // these maps would leave keys in one map's page mismatched with the others' — a table whose
@@ -247,12 +252,18 @@ public class AnalyzerRunner {
     long created =
         tables.stream()
             .filter(
-                table ->
-                    analyze(
-                        analyzer,
-                        table,
-                        Optional.ofNullable(currentOps.get(table.getTableUuid())),
-                        Optional.ofNullable(latestHistory.get(table.getTableUuid()))))
+                table -> {
+                  Optional<TableOperationsHistoryDto> tableHistory =
+                      Optional.ofNullable(latestHistory.get(table.getTableUuid()));
+                  boolean operationCreated =
+                      analyze(
+                          analyzer,
+                          table,
+                          Optional.ofNullable(currentOps.get(table.getTableUuid())),
+                          tableHistory);
+                  observer.tableAnalyzed(table, tableHistory, operationCreated);
+                  return operationCreated;
+                })
             .count();
     log.info(
         "Finished analyzing Database {}: created {} PENDING {} operation(s)",

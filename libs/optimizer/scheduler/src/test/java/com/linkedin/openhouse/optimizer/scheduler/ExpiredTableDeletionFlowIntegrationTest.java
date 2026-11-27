@@ -26,6 +26,7 @@ import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import com.linkedin.openhouse.optimizer.scheduler.config.SchedulerConfig;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -83,7 +84,10 @@ class ExpiredTableDeletionFlowIntegrationTest {
   void createAnalyzer() {
     analyzer =
         new AnalyzerRunner(
-            List.of(new ExpiredTableDeletionAnalyzer()), statsRepo, operationsRepo, historyRepo);
+            List.of(new ExpiredTableDeletionAnalyzer(new SimpleMeterRegistry())),
+            statsRepo,
+            operationsRepo,
+            historyRepo);
     doAnswer(invocation -> Optional.of("job-" + invocation.<List<String>>getArgument(4).get(0)))
         .when(jobsClient)
         .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());

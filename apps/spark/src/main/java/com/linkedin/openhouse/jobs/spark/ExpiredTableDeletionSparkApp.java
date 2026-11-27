@@ -5,8 +5,12 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,6 +37,10 @@ import org.apache.iceberg.Table;
  * at or after its expiration time, so a success here, stamped after the expiration by a clock that
  * runs behind, would leave the table in place forever. A failure makes the analyzer retry.
  *
+ * <p>Each run counts its outcome in {@link AppConstants#EXPIRED_TABLE_DELETION_COUNT}, tagged with
+ * one of the {@link DeletionOutcome} values, and records the time from expiration to drop in {@link
+ * AppConstants#EXPIRED_TABLE_DELETION_LAG} when it drops the table.
+ *
  * <p>The scheduler passes {@code --tableNames} and {@code --operationIds} for every operation type.
  * For this job, each must hold exactly one entry.
  *
@@ -47,6 +55,21 @@ import org.apache.iceberg.Table;
  */
 @Slf4j
 public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
+
+  /** The outcome of one run, reported as the {@link AppConstants#OUTCOME} metric attribute. */
+  enum DeletionOutcome {
+    DELETED("deleted"),
+    SKIPPED_NOT_TEMPORARY("skipped_not_temporary"),
+    SKIPPED_NOT_EXPIRED("skipped_not_expired"),
+    SKIPPED_MISSING("skipped_missing"),
+    FAILED("failed");
+
+    private final String attributeValue;
+
+    DeletionOutcome(String attributeValue) {
+      this.attributeValue = attributeValue;
+    }
+  }
 
   private final String tableName;
   private final String operationId;
@@ -72,6 +95,7 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
       failureReason = dropIfStillExpired(ops);
     } catch (RuntimeException e) {
       log.error("Dropping table {} failed.", tableName, e);
+      recordOutcome(DeletionOutcome.FAILED);
       failureReason = Optional.of(e.toString());
     }
     reportResult(failureReason);
@@ -80,11 +104,14 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
   /** Returns the failure reason when the table is still temporary but has not expired yet. */
   private Optional<String> dropIfStillExpired(Operations ops) {
     Optional<Map<String, String>> properties = ops.findTable(tableName).map(Table::properties);
+    Instant now = Instant.now();
     if (!properties.isPresent()) {
       log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
+      recordOutcome(DeletionOutcome.SKIPPED_MISSING);
     } else if (!TemporaryTableProperties.isTemporary(properties.get())) {
       log.info("Skipped dropping table {} because it is no longer temporary.", tableName);
-    } else if (!TemporaryTableProperties.isExpired(properties.get(), Instant.now())) {
+      recordOutcome(DeletionOutcome.SKIPPED_NOT_TEMPORARY);
+    } else if (!TemporaryTableProperties.isExpired(properties.get(), now)) {
       String failureReason =
           String.format(
               "Table %s has not expired yet (expires at %s).",
@@ -93,13 +120,38 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
                   .map(TemporaryTableProperties::formatExpirationTime)
                   .orElse("an unknown time"));
       log.warn(failureReason);
+      recordOutcome(DeletionOutcome.SKIPPED_NOT_EXPIRED);
       return Optional.of(failureReason);
     } else if (ops.dropTable(tableName)) {
       log.info("Dropped expired table {}.", tableName);
+      recordOutcome(DeletionOutcome.DELETED);
+      TemporaryTableProperties.expirationTime(properties.get())
+          .ifPresent(expirationTime -> recordDeletionLag(Duration.between(expirationTime, now)));
     } else {
       log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
+      recordOutcome(DeletionOutcome.SKIPPED_MISSING);
     }
     return Optional.empty();
+  }
+
+  private void recordOutcome(DeletionOutcome outcome) {
+    otelEmitter.count(
+        METRICS_SCOPE,
+        AppConstants.EXPIRED_TABLE_DELETION_COUNT,
+        1,
+        Attributes.of(
+            AttributeKey.stringKey(AppConstants.TABLE_NAME),
+            tableName,
+            AttributeKey.stringKey(AppConstants.OUTCOME),
+            outcome.attributeValue));
+  }
+
+  private void recordDeletionLag(Duration lag) {
+    otelEmitter.time(
+        METRICS_SCOPE,
+        AppConstants.EXPIRED_TABLE_DELETION_LAG,
+        lag.toMillis(),
+        Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), tableName));
   }
 
   private void reportResult(Optional<String> failureReason) {

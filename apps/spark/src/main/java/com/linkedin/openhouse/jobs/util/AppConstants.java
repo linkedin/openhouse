@@ -23,6 +23,11 @@ public final class AppConstants {
   public static final String RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT =
       "retention_policy_misconfigured_table_count";
 
+  // Expired temporary table deletion metrics
+  public static final String EXPIRED_TABLE_DELETION_COUNT = "expired_table_deletion_count";
+  public static final String EXPIRED_TABLE_DELETION_LAG = "expired_table_deletion_lag";
+  public static final String OUTCOME = "outcome";
+
   // Snapshot Expiration metrics
   public static final String SNAPSHOTS_EXPIRATION_DURATION = "snapshots_expiration_duration";
   public static final String DELETE_FILES_ENABLED = "delete_files_enabled";
