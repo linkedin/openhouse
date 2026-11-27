@@ -1222,19 +1222,39 @@ public class OpenHouseInternalTableOperationsTest {
     assertCommitRejected(base, base.replaceProperties(properties), "cannot be changed or removed");
   }
 
-  /** An expired temporary table rejects every commit, including the one that removes the flag. */
+  /** An expired temporary table accepts writes, and they keep the committed time. */
   @Test
-  void testDoCommitRejectsCommitsToExpiredTable() {
-    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of("2020-01-01T00:00:00Z"));
-
-    Map<String, String> flagRemoved = new HashMap<>(base.properties());
-    flagRemoved.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
-    assertCommitRejected(base, base.replaceProperties(flagRemoved), "accepts no further commits");
-
+  void testDoCommitAcceptsCommitsToExpiredTable() {
+    String expirationTime = "2020-01-01T00:00:00Z";
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of(expirationTime));
     Map<String, String> unrelatedChange = new HashMap<>(base.properties());
     unrelatedChange.put("random", "value");
+
+    Map<String, String> persisted =
+        committedProperties(base, base.replaceProperties(unrelatedChange));
+    Assertions.assertEquals(
+        expirationTime, persisted.get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    Assertions.assertEquals("value", persisted.get("random"));
+  }
+
+  @Test
+  void testDoCommitRemovesExpirationTimeWhenFlagRemovedAfterExpiry() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of("2020-01-01T00:00:00Z"));
+    Map<String, String> flagRemoved = new HashMap<>(base.properties());
+    flagRemoved.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+
+    Map<String, String> persisted = committedProperties(base, base.replaceProperties(flagRemoved));
+    Assertions.assertFalse(persisted.containsKey(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
+    Assertions.assertFalse(persisted.containsKey(CatalogConstants.OPENHOUSE_TEMPORARY_KEY));
+  }
+
+  @Test
+  void testDoCommitRejectsChangingExpirationTimeAfterExpiry() {
+    TableMetadata base = temporary(BASE_TABLE_METADATA, Optional.of("2020-01-01T00:00:00Z"));
     assertCommitRejected(
-        base, base.replaceProperties(unrelatedChange), "accepts no further commits");
+        base,
+        temporary(base, Optional.of(expirationTimeInDays(1))),
+        "cannot be changed or removed");
   }
 
   @Test
