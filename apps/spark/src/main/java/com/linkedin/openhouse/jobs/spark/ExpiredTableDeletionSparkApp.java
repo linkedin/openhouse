@@ -2,24 +2,31 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.iceberg.Table;
 
 /**
  * Drops and purges one expired temporary table, then reports the result to the Optimizer service.
  *
- * <p>The Optimizer's analyzer decides that the table has expired. The app drops the table by name
- * without loading it first, because the tables service reports an expired temporary table as not
- * found on load. A table that no longer exists counts as deleted, so a retried job succeeds.
+ * <p>The Optimizer's analyzer decides that the table has expired, but the table may have changed
+ * since then: it may have been converted to an ordinary table, or dropped and replaced by an
+ * ordinary table with the same name. The app therefore loads the table and drops it only when it is
+ * still temporary and still expired. A table that no longer qualifies is left in place and the
+ * operation reports success, because there is nothing left to delete. A table that no longer exists
+ * counts as deleted, so a retried job succeeds.
  *
  * <p>The scheduler passes {@code --tableNames} and {@code --operationIds} for every operation type.
  * For this job, each must hold exactly one entry.
@@ -57,17 +64,28 @@ public class ExpiredTableDeletionSparkApp extends BaseSparkApp {
   protected void runInner(Operations ops) {
     Optional<String> failureReason;
     try {
-      if (ops.dropTable(tableName)) {
-        log.info("Dropped expired table {}.", tableName);
-      } else {
-        log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
-      }
+      dropIfStillExpired(ops);
       failureReason = Optional.empty();
     } catch (RuntimeException e) {
       log.error("Dropping table {} failed.", tableName, e);
       failureReason = Optional.of(e.toString());
     }
     reportResult(failureReason);
+  }
+
+  private void dropIfStillExpired(Operations ops) {
+    Optional<Map<String, String>> properties = ops.findTable(tableName).map(Table::properties);
+    if (!properties.isPresent()) {
+      log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
+    } else if (!TemporaryTableProperties.isTemporary(properties.get())) {
+      log.info("Skipped dropping table {} because it is no longer temporary.", tableName);
+    } else if (!TemporaryTableProperties.isExpired(properties.get(), Instant.now())) {
+      log.info("Skipped dropping table {} because it has not expired.", tableName);
+    } else if (ops.dropTable(tableName)) {
+      log.info("Dropped expired table {}.", tableName);
+    } else {
+      log.info("Table {} no longer exists, so there is nothing to drop.", tableName);
+    }
   }
 
   private void reportResult(Optional<String> failureReason) {
