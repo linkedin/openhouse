@@ -6,8 +6,13 @@ import com.zaxxer.hikari.HikariDataSource;
 import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.autoconfigure.sql.init.SqlDataSourceScriptDatabaseInitializer;
+import org.springframework.boot.autoconfigure.sql.init.SqlInitializationProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.jdbc.DatabaseDriver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -23,6 +28,7 @@ import org.springframework.context.annotation.Primary;
  *     Configuration</a>
  */
 @Configuration
+@EnableConfigurationProperties(SqlInitializationProperties.class)
 @Slf4j
 public class JdbcProviderConfiguration {
 
@@ -59,6 +65,19 @@ public class JdbcProviderConfiguration {
     properties.setPassword(clusterProperties.getClusterHouseTablesDatabasePassword());
 
     return properties;
+  }
+
+  @Bean
+  @ConditionalOnProperty(prefix = "spring.sql.init", name = "enabled", matchIfMissing = true)
+  public SqlDataSourceScriptDatabaseInitializer dataSourceScriptDatabaseInitializer(
+      DataSource dataSource,
+      DataSourceProperties dataSourceProperties,
+      SqlInitializationProperties initializationProperties) {
+    if ("all".equals(initializationProperties.getPlatform())) {
+      initializationProperties.setPlatform(
+          DatabaseDriver.fromJdbcUrl(dataSourceProperties.getUrl()).getId());
+    }
+    return new SqlDataSourceScriptDatabaseInitializer(dataSource, initializationProperties);
   }
 
   /**

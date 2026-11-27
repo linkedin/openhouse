@@ -1,4 +1,13 @@
 -- DDL in this file is in alpha stage and would be subject to change.
+CREATE TABLE IF NOT EXISTS catalog_namespaces (
+    namespace_uuid      VARCHAR (36)    NOT NULL,
+    namespace_name      VARCHAR (128)   NOT NULL,
+    properties          LONGTEXT        NOT NULL,
+    version             BIGINT          NOT NULL,
+    PRIMARY KEY (namespace_uuid),
+    CONSTRAINT uq_namespace_name UNIQUE (namespace_name)
+);
+
 CREATE TABLE IF NOT EXISTS user_table_row (
                          database_id         VARCHAR (128)     NOT NULL,
                          table_id            VARCHAR (128)     NOT NULL,
