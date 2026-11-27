@@ -19,6 +19,19 @@ ext {
 configurations.all {
     exclude group: 'com.linkedin.iceberg', module: 'iceberg-data'
 }
+
+// Keep the Optimizer's Flyway migrations and service configuration out of the Spark unit tests.
+sourceSets {
+    lifecycleTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+configurations {
+    lifecycleTestImplementation.extendsFrom testImplementation
+    lifecycleTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
 dependencies {
     compileOnly (project(path: openhouseSparkRuntimeModule)) {
         exclude group: 'io.netty'
@@ -56,6 +69,25 @@ dependencies {
     testImplementation(project(tablesTestFixturesModule)) {
         exclude group: "io.netty"
     }
+    lifecycleTestImplementation project(':services:optimizer')
+    lifecycleTestImplementation project(':libs:optimizer:scheduler')
+    lifecycleTestImplementation project(':libs:optimizer:analyzer')
+    lifecycleTestImplementation 'org.awaitility:awaitility:4.2.0'
+    lifecycleTestImplementation 'org.testcontainers:mysql:1.21.4'
+    lifecycleTestCompileOnly project(path: tablesTestFixturesModule, configuration: 'runtimeElements')
+    lifecycleTestRuntimeOnly 'org.flywaydb:flyway-mysql:8.5.13'
+}
+
+tasks.register('lifecycleTest', Test) {
+    description = 'Runs the temporary-table lifecycle with local Spark, HTTP services, and MySQL.'
+    group = 'verification'
+    testClassesDirs = sourceSets.lifecycleTest.output.classesDirs
+    classpath = sourceSets.lifecycleTest.runtimeClasspath
+    jvmArgs tasks.named('test').get().jvmArgs
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('lifecycleTest')
 }
 
 // because we depend on project(':apps:openhouse-spark-apps_2.12').sourceSets

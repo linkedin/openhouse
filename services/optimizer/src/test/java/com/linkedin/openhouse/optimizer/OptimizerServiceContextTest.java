@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.optimizer.analyzer.CadenceBasedOrphanFilesDeletionAnalyzer;
 import com.linkedin.openhouse.optimizer.analyzer.CadenceBasedStatsCollectionAnalyzer;
+import com.linkedin.openhouse.optimizer.analyzer.ExpiredTableDeletionAnalyzer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,5 +24,10 @@ class OptimizerServiceContextTest {
     // gated off (analyzer.ofd.enabled default false) so its bean is not registered.
     assertThat(context.getBeansOfType(CadenceBasedStatsCollectionAnalyzer.class)).isNotEmpty();
     assertThat(context.getBeansOfType(CadenceBasedOrphanFilesDeletionAnalyzer.class)).isEmpty();
+  }
+
+  @Test
+  void expiredTableDeletionAnalyzerDisabled_byDefault() {
+    assertThat(context.getBeansOfType(ExpiredTableDeletionAnalyzer.class)).isEmpty();
   }
 }
