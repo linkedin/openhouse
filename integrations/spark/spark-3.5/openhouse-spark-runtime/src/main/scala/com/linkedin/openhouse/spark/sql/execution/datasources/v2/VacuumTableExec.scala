@@ -4,6 +4,8 @@ import java.time.{Instant, ZoneId}
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
+import scala.collection.JavaConverters._
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.iceberg.spark.source.SparkTable
 import org.apache.spark.sql.SparkSession
@@ -16,7 +18,9 @@ import org.apache.spark.sql.execution.datasources.v2.LeafV2CommandExec
 /**
  * Runs Iceberg table maintenance for the VACUUM command as thin sugar over the catalog's stored
  * procedures. VACUUM is an '''Alpha''' feature and is opt-in per table via the
- * `openhouse.vacuum.enabled` property; it is rejected on tables that have not enabled it.
+ * `vacuum.enabled` property; it is rejected on tables that have not enabled it. It is also
+ * rejected on tables with HCR enabled (`retention.backup.enabled=true`), because VACUUM deletes
+ * files directly instead of moving them to the table's backup directory.
  *
  * When `REMOVE ORPHAN FILES` is given, orphan-file deletion runs first (it only removes
  * unreferenced files from storage, so it works even when the table is out of quota, unlike snapshot
@@ -24,9 +28,11 @@ import org.apache.spark.sql.execution.datasources.v2.LeafV2CommandExec
  * run with their default file-cleaning behavior, so VACUUM deletes the reclaimed files.
  *
  * The retention window comes from `RETAIN n HOURS` when given. When it is omitted, the cutoffs are
- * derived from the table's OpenHouse properties rather than the Iceberg procedure defaults: snapshot
- * expiration uses the history policy (the `policies` property's `history` block -- maxAge/granularity
- * and, when set, versions -> retain_last), and orphan-file deletion uses `ofd.one_day_ttl.enabled`
+ * derived from the table's OpenHouse properties rather than the Iceberg procedure defaults, and
+ * applied the same way the scheduled maintenance jobs apply them. Snapshot expiration uses the
+ * history policy (the `policies` property's `history` block): first it expires snapshots older than
+ * maxAge x granularity, then, when versions is set and more than versions snapshots remain, it
+ * keeps only the last versions snapshots. Orphan-file deletion uses `ofd.one_day_ttl.enabled`
  * (1 day when enabled, otherwise the 3-day default).
  */
 case class VacuumTableExec(
@@ -41,8 +47,13 @@ case class VacuumTableExec(
   override protected def run(): Seq[InternalRow] = {
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
+        if (VacuumTableExec.isHcrEnabled(iceberg.table().properties())) {
+          throw new UnsupportedOperationException(
+            s"VACUUM is not supported on tables with HCR enabled " +
+              s"('${VacuumTableExec.HCR_ENABLED_PROP}' = 'true').")
+        }
         // VACUUM is an Alpha feature and is opt-in per table: a table must explicitly enable it via
-        // the `openhouse.vacuum.enabled` property, otherwise the command is rejected.
+        // the `vacuum.enabled` property, otherwise the command is rejected.
         if (!"true".equalsIgnoreCase(iceberg.table().properties().get(VacuumTableExec.ENABLED_PROP))) {
           throw new UnsupportedOperationException(
             s"VACUUM is an Alpha feature and must be enabled on the table before use. Enable it " +
@@ -81,21 +92,28 @@ case class VacuumTableExec(
             s"CALL $quotedCatalog.system.remove_orphan_files(table => '$tableArg'$ofdOlderThan)").collect()
         }
 
-        // Snapshot expiration always runs. Cutoff: an explicit RETAIN overrides; otherwise honor the
-        // OpenHouse history policy (maxAge x granularity for the age cutoff, and versions ->
-        // retain_last when set). The procedure cleans reclaimed files by default.
-        val expireArgs = retainHours match {
-          case Some(hours) => olderThanClause(now.minus(hours.toLong, ChronoUnit.HOURS))
+        def expireSnapshots(args: String): Unit =
+          spark.sql(s"CALL $quotedCatalog.system.expire_snapshots(table => '$tableArg'$args)").collect()
+
+        // Snapshot expiration always runs and cleans reclaimed files. Cutoff: an explicit RETAIN
+        // overrides; otherwise apply the OpenHouse history policy as the scheduled expiration job
+        // does, in two phases: expire by age, then cap the remaining snapshots at versions.
+        retainHours match {
+          case Some(hours) => expireSnapshots(olderThanClause(now.minus(hours.toLong, ChronoUnit.HOURS)))
           case None =>
             val history = VacuumTableExec.parseHistoryRetention(props.get(VacuumTableExec.POLICIES_PROP))
             val ageMillis = VacuumTableExec.granularityToChrono(history.granularity)
               .getDuration.multipliedBy(history.maxAge.toLong).toMillis
-            val older = olderThanClause(now.minusMillis(ageMillis))
-            val retainLast = if (history.versions > 0) s", retain_last => ${history.versions}" else ""
-            older + retainLast
+            expireSnapshots(olderThanClause(now.minusMillis(ageMillis)))
+
+            if (history.versions > 0) {
+              val table = iceberg.table()
+              table.refresh()
+              if (table.snapshots().asScala.size > history.versions) {
+                expireSnapshots(olderThanClause(Instant.now()) + s", retain_last => ${history.versions}")
+              }
+            }
         }
-        spark.sql(
-          s"CALL $quotedCatalog.system.expire_snapshots(table => '$tableArg'$expireArgs)").collect()
 
       case table =>
         throw new UnsupportedOperationException(s"Cannot vacuum non-Openhouse table: $table")
@@ -115,7 +133,10 @@ object VacuumTableExec {
    * Table property that opts a table into the Alpha VACUUM command. VACUUM throws
    * [[UnsupportedOperationException]] on tables where this is not set to `true`.
    */
-  val ENABLED_PROP = "openhouse.vacuum.enabled"
+  val ENABLED_PROP = "vacuum.enabled"
+
+  /** Table property that enables HCR (retention backup). VACUUM rejects tables where it is `true`. */
+  val HCR_ENABLED_PROP = "retention.backup.enabled"
 
   /** OpenHouse table property holding the policies JSON (retention, history, etc.). */
   val POLICIES_PROP = "policies"
@@ -135,6 +156,10 @@ object VacuumTableExec {
 
   /** The snapshot-retention values honored by VACUUM, read from the history policy. */
   case class HistoryRetention(maxAge: Int, granularity: String, versions: Int)
+
+  /** True when the table has HCR enabled. Exposed for testing. */
+  def isHcrEnabled(props: java.util.Map[String, String]): Boolean =
+    "true".equalsIgnoreCase(props.get(HCR_ENABLED_PROP))
 
   /**
    * Orphan-file-deletion retention in days: 1 when `ofd.one_day_ttl.enabled` is `true`, otherwise

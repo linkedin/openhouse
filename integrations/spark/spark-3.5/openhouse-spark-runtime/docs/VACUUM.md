@@ -14,8 +14,8 @@ VACUUM <table> [REMOVE ORPHAN FILES] [RETAIN <n> HOURS]
 
 - `<table>` — an OpenHouse table identifier (e.g. `openhouse.db.table`).
 - `REMOVE ORPHAN FILES` — *(optional)* also delete orphaned files (see below). Off by default.
-- `RETAIN <n> HOURS` — *(optional)* retention window in whole hours. When omitted, each
-  underlying operation uses its own default retention.
+- `RETAIN <n> HOURS` — *(optional)* retention window in whole hours. When omitted, the
+  table's configured retention applies (see Behavior).
 
 ## Behavior
 
@@ -26,7 +26,7 @@ by the current version of the table.
 
 2. **Snapshot expiration** always runs. It removes snapshots older than the retention window and deletes the data, delete, manifest, and manifest-list files that those expired snapshots exclusively referenced. This command adds a commit and can conflict with in-flight transactions.
 
-3. **Retention** (`RETAIN <n> HOURS`) bounds both operations: only files older than `now - n hours` are eligible. The cutoff is resolved to a concrete timestamp in the session time zone at execution time. When `RETAIN` is omitted, snapshot expiration falls back to the table's configured snapshot-age retention and orphan-file deletion's configured default.
+3. **Retention** (`RETAIN <n> HOURS`) bounds both operations: only files older than `now - n hours` are eligible. The cutoff is resolved to a concrete timestamp in the session time zone at execution time. When `RETAIN` is omitted, the table's settings apply the same way the scheduled maintenance jobs apply them. Snapshot expiration first expires snapshots older than the history policy's age, then, when the policy sets `versions`, keeps at most that many snapshots. Orphan-file deletion uses 1 day when `ofd.one_day_ttl.enabled` is set, otherwise 3 days.
 
 
 ## Enabling VACUUM
@@ -35,17 +35,20 @@ by the current version of the table.
 
 ```sql
 ALTER TABLE openhouse.db.table
-  SET TBLPROPERTIES ('openhouse.vacuum.enabled' = 'true');
+  SET TBLPROPERTIES ('vacuum.enabled' = 'true');
 ```
 
-| Property                   | Value    | Meaning                                     |
-| -------------------------- | -------- | ------------------------------------------- |
-| `openhouse.vacuum.enabled` | `'true'` | Opt this table into the Alpha `VACUUM` command. |
+| Property         | Value    | Meaning                                         |
+| ---------------- | -------- | ----------------------------------------------- |
+| `vacuum.enabled` | `'true'` | Opt this table into the Alpha `VACUUM` command. |
 
 Any other value (or the property being absent) leaves `VACUUM` disabled for the table, and
 running the command throws an `UnsupportedOperationException` that explains how to enable it.
 `VACUUM` is only supported on OpenHouse tables; running it on a non-OpenHouse table also
 throws.
+
+`VACUUM` is not supported on tables with HCR enabled (`retention.backup.enabled = 'true'`).
+Running it on such a table throws an `UnsupportedOperationException`.
 
 ## Examples
 
@@ -53,7 +56,7 @@ Enable the feature, then expire snapshots older than 24 hours:
 
 ```sql
 ALTER TABLE openhouse.db.table
-  SET TBLPROPERTIES ('openhouse.vacuum.enabled' = 'true');
+  SET TBLPROPERTIES ('vacuum.enabled' = 'true');
 
 VACUUM openhouse.db.table RETAIN 24 HOURS;
 ```

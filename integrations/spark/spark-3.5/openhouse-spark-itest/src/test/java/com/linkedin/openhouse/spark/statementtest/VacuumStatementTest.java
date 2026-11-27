@@ -40,25 +40,34 @@ public class VacuumStatementTest {
 
   @Test
   public void testVacuumWithDefaultRetentionSucceeds() {
-    // No RETAIN: each procedure applies its own default retention. Table remains readable.
+    // No RETAIN: the table's default retention applies. Table remains readable.
     spark.sql("VACUUM openhouse.db.table").collect();
     Assertions.assertEquals(3, rowCount("openhouse.db.table"));
   }
 
   @Test
   public void testVacuumHonorsHistoryPolicyVersions() {
-    // The OpenHouse history policy (the `policies` property) sets versions=2. With no RETAIN,
-    // VACUUM must honor that via retain_last, keeping exactly the last 2 of the 3 snapshots.
-    spark
-        .sql(
-            "ALTER TABLE openhouse.db.table SET TBLPROPERTIES ("
-                + "'policies' = '{\"history\":{\"maxAge\":0,\"granularity\":\"DAY\",\"versions\":2}}')")
-        .show();
+    // All 3 snapshots are inside maxAge, so only versions=2 applies: like the scheduled expiration
+    // job, VACUUM caps the remaining snapshots at the last 2.
+    setHistoryPolicy(3, 2);
     Assertions.assertEquals(3, snapshotCount("openhouse.db.table"));
 
     spark.sql("VACUUM openhouse.db.table").collect();
 
     Assertions.assertEquals(2, snapshotCount("openhouse.db.table"));
+    Assertions.assertEquals(3, rowCount("openhouse.db.table"));
+  }
+
+  @Test
+  public void testVacuumHistoryPolicyMaxAgeExpiresBeyondVersions() {
+    // maxAge=0 expires every snapshot but the current one; versions=2 does not keep extra
+    // snapshots,
+    // matching the scheduled expiration job.
+    setHistoryPolicy(0, 2);
+
+    spark.sql("VACUUM openhouse.db.table").collect();
+
+    Assertions.assertEquals(1, snapshotCount("openhouse.db.table"));
     Assertions.assertEquals(3, rowCount("openhouse.db.table"));
   }
 
@@ -83,9 +92,22 @@ public class VacuumStatementTest {
   }
 
   @Test
+  public void testVacuumHcrEnabledThrows() {
+    spark
+        .sql(
+            "ALTER TABLE openhouse.db.table SET TBLPROPERTIES ('retention.backup.enabled' = 'true')")
+        .show();
+
+    Assertions.assertThrows(
+        UnsupportedOperationException.class,
+        () -> spark.sql("VACUUM openhouse.db.table RETAIN 0 HOURS").collect());
+    Assertions.assertEquals(3, snapshotCount("openhouse.db.table"));
+  }
+
+  @Test
   public void testVacuumNotEnabledThrows() {
-    // VACUUM is Alpha and opt-in: an OpenHouse table that has not set openhouse.vacuum.enabled=true
-    // is rejected.
+    // VACUUM is Alpha and opt-in: an OpenHouse table that has not set vacuum.enabled=true is
+    // rejected.
     Assertions.assertThrows(
         UnsupportedOperationException.class,
         () -> spark.sql("VACUUM openhouse.db.not_enabled").collect());
@@ -96,6 +118,16 @@ public class VacuumStatementTest {
     Assertions.assertThrows(
         OpenhouseParseException.class,
         () -> spark.sql("VACUUM openhouse.db.table RETAIN 5 DAYS").collect());
+  }
+
+  private void setHistoryPolicy(int maxAgeDays, int versions) {
+    spark
+        .sql(
+            String.format(
+                "ALTER TABLE openhouse.db.table SET TBLPROPERTIES ('policies' = "
+                    + "'{\"history\":{\"maxAge\":%d,\"granularity\":\"DAY\",\"versions\":%d}}')",
+                maxAgeDays, versions))
+        .show();
   }
 
   @SneakyThrows
@@ -124,7 +156,7 @@ public class VacuumStatementTest {
     spark
         .sql(
             "ALTER TABLE openhouse.db.table SET TBLPROPERTIES ("
-                + "'openhouse.tableId' = 'tableid', 'openhouse.vacuum.enabled' = 'true')")
+                + "'openhouse.tableId' = 'tableid', 'vacuum.enabled' = 'true')")
         .show();
     spark.sql("INSERT INTO openhouse.db.table VALUES (1, 'a', 'tableid')").show();
     spark.sql("INSERT INTO openhouse.db.table VALUES (2, 'b', 'tableid')").show();

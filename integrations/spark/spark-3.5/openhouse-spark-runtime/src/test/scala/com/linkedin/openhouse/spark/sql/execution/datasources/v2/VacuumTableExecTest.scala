@@ -27,6 +27,13 @@ class VacuumTableExecTest {
   }
 
   @Test
+  def isHcrEnabledOnlyWhenBackupPropertyIsTrue(): Unit = {
+    assertEquals(false, isHcrEnabled(Collections.emptyMap()))
+    assertEquals(false, isHcrEnabled(props(HCR_ENABLED_PROP -> "false")))
+    assertEquals(true, isHcrEnabled(props(HCR_ENABLED_PROP -> "TRUE")))
+  }
+
+  @Test
   def parseHistoryRetentionDefaultsWhenAbsent(): Unit = {
     val expected = HistoryRetention(3, "DAY", 0)
     assertEquals(expected, parseHistoryRetention(null))
