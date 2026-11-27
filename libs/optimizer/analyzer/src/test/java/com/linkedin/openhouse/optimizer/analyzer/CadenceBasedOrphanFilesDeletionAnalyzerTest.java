@@ -7,8 +7,10 @@ import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
+import com.linkedin.openhouse.optimizer.model.TemporaryTable;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +47,15 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void isEnabled_returnsFalse_whenTablePropertiesEmpty() {
     TableDto table = TableDto.builder().tableUuid("uuid").build();
     assertThat(analyzer.isEnabled(table)).isFalse();
+  }
+
+  @Test
+  void isEnabled_returnsFalse_whenOptedInTableIsTemporary() {
+    TableDto optedInTable = tableWithProperty(true);
+    Map<String, String> properties = new HashMap<>(optedInTable.getTableProperties());
+    properties.put(TemporaryTable.TEMPORARY_PROPERTY, "true");
+    TableDto temporaryTable = optedInTable.toBuilder().tableProperties(properties).build();
+    assertThat(analyzer.isEnabled(temporaryTable)).isFalse();
   }
 
   // --- replica policy ---
