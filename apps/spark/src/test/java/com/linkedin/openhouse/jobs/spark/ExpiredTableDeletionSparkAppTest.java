@@ -5,9 +5,12 @@ import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
+import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -38,6 +41,7 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
   private final OtelEmitter otelEmitter =
       new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
   private final OptimizerServiceClient optimizerClient = Mockito.mock(OptimizerServiceClient.class);
+  private final OtelEmitter appEmitter = Mockito.mock(OtelEmitter.class);
 
   @Test
   public void testExpiredTableIsDroppedAndReportsSuccess() throws Exception {
@@ -58,6 +62,20 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals("expired", request.getTableName());
       Assertions.assertNull(request.getFailureReason());
       Assertions.assertFalse(listedTableNames(ops).contains("expired"));
+      verifyOutcome(tableName, "deleted");
+      ArgumentCaptor<Long> lagMillis = ArgumentCaptor.forClass(Long.class);
+      Mockito.verify(appEmitter)
+          .time(
+              ArgumentMatchers.anyString(),
+              ArgumentMatchers.eq(AppConstants.EXPIRED_TABLE_DELETION_LAG),
+              lagMillis.capture(),
+              ArgumentMatchers.eq(
+                  Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), tableName)));
+      Assertions.assertTrue(
+          lagMillis.getValue()
+              >= Duration.between(Instant.parse("2020-01-01T00:00:00Z"), Instant.now())
+                  .minusMinutes(5)
+                  .toMillis());
     }
   }
 
@@ -74,6 +92,7 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
       Assertions.assertTrue(listedTableNames(ops).contains("converted"));
+      verifyOutcome(tableName, "skipped_not_temporary");
     }
   }
 
@@ -89,6 +108,7 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
       Assertions.assertTrue(listedTableNames(ops).contains("recreated"));
+      verifyOutcome(tableName, "skipped_not_temporary");
     }
   }
 
@@ -113,6 +133,7 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
           "Table " + tableName + " has not expired yet (expires at " + expirationTime + ").",
           request.getFailureReason());
       Assertions.assertTrue(listedTableNames(ops).contains("unexpired"));
+      verifyOutcome(tableName, "skipped_not_expired");
     }
   }
 
@@ -126,7 +147,24 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
 
       Assertions.assertEquals(
           UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
+      verifyOutcome(tableName, "skipped_missing");
     }
+  }
+
+  @Test
+  public void testTableDroppedConcurrentlyCountsAsMissing() {
+    String tableName = DATABASE + ".dropped_concurrently";
+    Operations ops = Mockito.mock(Operations.class);
+    Table table = Mockito.mock(Table.class);
+    Mockito.when(table.properties()).thenReturn(EXPIRED_TEMPORARY_PROPERTIES);
+    Mockito.when(ops.findTable(tableName)).thenReturn(Optional.of(table));
+    Mockito.when(ops.dropTable(tableName)).thenReturn(false);
+
+    runApp(ops, tableName);
+
+    Assertions.assertEquals(
+        UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
+    verifyOutcome(tableName, "skipped_missing");
   }
 
   @Test
@@ -145,13 +183,14 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
     Assertions.assertEquals(UpdateOperationRequest.StatusEnum.FAILED, request.getStatus());
     Assertions.assertEquals(
         "java.lang.IllegalStateException: Catalog unavailable.", request.getFailureReason());
+    verifyOutcome(tableName, "failed");
   }
 
   private void runApp(Operations ops, String tableName) {
     new ExpiredTableDeletionSparkApp(
             "test-job",
             Mockito.mock(StateManager.class),
-            otelEmitter,
+            appEmitter,
             tableName,
             operationId(tableName),
             optimizerClient)
@@ -182,6 +221,27 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
     Mockito.verify(optimizerClient)
         .updateOperation(ArgumentMatchers.eq(operationId(tableName)), request.capture());
     return request.getValue();
+  }
+
+  /** Verifies that the app counted exactly one outcome, and that it was the expected one. */
+  private void verifyOutcome(String tableName, String outcome) {
+    Mockito.verify(appEmitter)
+        .count(
+            ArgumentMatchers.anyString(),
+            ArgumentMatchers.eq(AppConstants.EXPIRED_TABLE_DELETION_COUNT),
+            ArgumentMatchers.anyLong(),
+            ArgumentMatchers.any(Attributes.class));
+    Mockito.verify(appEmitter)
+        .count(
+            ArgumentMatchers.anyString(),
+            ArgumentMatchers.eq(AppConstants.EXPIRED_TABLE_DELETION_COUNT),
+            ArgumentMatchers.eq(1L),
+            ArgumentMatchers.eq(
+                Attributes.of(
+                    AttributeKey.stringKey(AppConstants.TABLE_NAME),
+                    tableName,
+                    AttributeKey.stringKey(AppConstants.OUTCOME),
+                    outcome)));
   }
 
   private static String operationId(String tableName) {

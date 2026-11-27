@@ -26,7 +26,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +43,7 @@ class AnalyzerRunnerTest {
   @Mock private TableOperationsRepository operationsRepo;
   @Mock private TableOperationsHistoryRepository historyRepo;
   @Mock private OperationAnalyzer analyzer;
+  @Mock private ScanObserver scanObserver;
 
   private AnalyzerRunner runner;
 
@@ -52,6 +55,7 @@ class AnalyzerRunnerTest {
     lenient().when(analyzer.getOperationType()).thenReturn(OFD_TYPE);
     // Only the full-scan entry point resolves databases; analyzeTable passes the db through.
     lenient().when(statsRepo.findDistinctDatabaseNames()).thenReturn(List.of(DB));
+    lenient().when(analyzer.startScan()).thenReturn(scanObserver);
   }
 
   @Test
@@ -474,6 +478,31 @@ class AnalyzerRunnerTest {
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     verify(operationsRepo, never()).save(any());
+  }
+
+  @Test
+  void analyze_reportsEachTableAndTheEndOfTheScan_toTheScanObserver() {
+    TableStatsRow scheduledRow =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableStatsRow skippedRow =
+        TableStatsRow.builder().tableUuid("uuid-2").databaseName(DB).tableName("tbl2").build();
+    TableDto scheduledTable = TableDto.fromRow(scheduledRow);
+    TableDto skippedTable = TableDto.fromRow(skippedRow);
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(scheduledRow, skippedRow));
+    stubOpsFind(Collections.emptyList());
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
+    when(analyzer.isEnabled(scheduledTable)).thenReturn(true);
+    when(analyzer.isEnabled(skippedTable)).thenReturn(false);
+    when(analyzer.shouldSchedule(scheduledTable, Optional.empty(), Optional.empty(), 0))
+        .thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().build());
+
+    InOrder inOrder = Mockito.inOrder(scanObserver);
+    inOrder.verify(scanObserver).tableAnalyzed(scheduledTable, Optional.empty(), true);
+    inOrder.verify(scanObserver).tableAnalyzed(skippedTable, Optional.empty(), false);
+    inOrder.verify(scanObserver).scanCompleted();
   }
 
   @Test

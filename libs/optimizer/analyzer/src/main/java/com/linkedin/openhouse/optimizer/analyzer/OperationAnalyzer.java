@@ -66,6 +66,14 @@ public interface OperationAnalyzer {
   }
 
   /**
+   * Starts observing one full or filtered scan. The default observer ignores the scan; an analyzer
+   * that reports per-scan metrics returns an observer that aggregates them.
+   */
+  default ScanObserver startScan() {
+    return new ScanObserver() {};
+  }
+
+  /**
    * Whether the given active op is a submitted job that has timed out — exceeded the stale-timeout
    * with no success. This "logical timeout" is derived, never persisted; the per-table retry
    * backoff counts it as a non-success alongside explicitly FAILED history.
