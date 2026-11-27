@@ -8,7 +8,22 @@ import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.internal.catalog.AbstractCommitStatsPublishOperation;
 import com.linkedin.openhouse.internal.catalog.CommitStats;
 import com.linkedin.openhouse.internal.catalog.PostCommitOperation;
+import com.linkedin.openhouse.jobs.client.JobsClient;
+import com.linkedin.openhouse.jobs.client.JobsClientFactory;
+import com.linkedin.openhouse.jobs.client.TablesClient;
+import com.linkedin.openhouse.jobs.client.TablesClientFactory;
+import com.linkedin.openhouse.jobs.client.model.JobConf;
+import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfoManager;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationMode;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTask;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskFactory;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskManager;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
+import com.linkedin.openhouse.jobs.scheduler.tasks.TableSnapshotsExpirationTask;
+import com.linkedin.openhouse.jobs.scheduler.tasks.TableStatsCollectionTask;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
+import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.optimizer.analyzer.AnalyzeRequest;
 import com.linkedin.openhouse.optimizer.analyzer.AnalyzerRunner;
 import com.linkedin.openhouse.optimizer.analyzer.ExpiredTableDeletionAnalyzer;
@@ -189,8 +204,7 @@ class TemporaryTableLifecycleIntegrationTest {
   void committedTablesExpireAndArePurgedThroughTheScheduledJob() throws Exception {
     Path root =
         Files.createDirectories(
-            Paths.get("build", "temporary-table-lifecycle", UUID.randomUUID().toString())
-                .toAbsolutePath());
+            Paths.get("build", "lifecycle", UUID.randomUUID().toString()).toAbsolutePath());
     org.apache.catalina.webresources.TomcatURLStreamHandlerFactory.disable();
     try (ConfigurableApplicationContext optimizer = startOptimizer(root)) {
       String optimizerUri = serviceUri(optimizer);
@@ -226,7 +240,13 @@ class TemporaryTableLifecycleIntegrationTest {
                     spark,
                     new AppsOtelEmitter(
                         Collections.singletonList(DefaultOtelConfig.getOpenTelemetry())))) {
-          runLifecycle(spark, operations, optimizer, optimizerUri, root.resolve("tables"));
+          runLifecycle(
+              spark,
+              operations,
+              optimizer,
+              optimizerUri,
+              serviceUri(tables),
+              root.resolve("tables"));
         }
       }
     }
@@ -255,6 +275,7 @@ class TemporaryTableLifecycleIntegrationTest {
       Operations operations,
       ConfigurableApplicationContext optimizer,
       String optimizerUri,
+      String tablesUri,
       Path storageRoot)
       throws Exception {
     Catalog catalog = Spark3Util.loadIcebergCatalog(spark, "openhouse");
@@ -289,6 +310,8 @@ class TemporaryTableLifecycleIntegrationTest {
         .updateProperties()
         .remove("openhouse.temporary")
         .commit();
+
+    assertLegacyMaintenancePlanning(tablesUri, optimizerUri);
 
     for (String name : Arrays.asList("expired_one", "expired_two", "unexpired", "ordinary")) {
       spark.sql("INSERT INTO openhouse." + DATABASE + "." + name + " VALUES (3)");
@@ -402,6 +425,44 @@ class TemporaryTableLifecycleIntegrationTest {
         .set("openhouse.temporary", "true")
         .set("openhouse.expirationTime", expiration.toString())
         .commit();
+  }
+
+  private static void assertLegacyMaintenancePlanning(String tablesUri, String optimizerUri) {
+    TablesClient tablesClient =
+        new TablesClientFactory(tablesUri, DatabaseTableFilter.of(DATABASE, ".*", 0), "", null)
+            .create();
+    JobsClient jobsClient = new JobsClientFactory(optimizerUri, "local-cluster").create();
+    List<TableMetadata> metadata = tablesClient.getTableMetadataList();
+    assertThat(metadata).hasSize(5);
+    Map<JobConf.JobTypeEnum, Class<? extends OperationTask<?>>> taskClasses = new LinkedHashMap<>();
+    taskClasses.put(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION, TableSnapshotsExpirationTask.class);
+    taskClasses.put(JobConf.JobTypeEnum.TABLE_STATS_COLLECTION, TableStatsCollectionTask.class);
+    taskClasses.forEach(
+        (jobType, taskClass) -> {
+          OperationTasksBuilder builder =
+              new OperationTasksBuilder(
+                  new OperationTaskFactory<>(
+                      taskClass, jobsClient, tablesClient, 60000L, 60000L, 120000L),
+                  tablesClient,
+                  2,
+                  new OperationTaskManager(jobType),
+                  new JobInfoManager(jobType));
+          metadata.forEach(
+              table -> {
+                boolean expected =
+                    jobType == JobConf.JobTypeEnum.TABLE_STATS_COLLECTION
+                        || Arrays.asList("ordinary", "converted").contains(table.getTableName());
+                assertThat(
+                        builder.processMetadata(
+                            table,
+                            jobType,
+                            OperationMode.SUBMIT,
+                            new AppsOtelEmitter(
+                                Collections.singletonList(DefaultOtelConfig.getOpenTelemetry()))))
+                    .as("%s for %s", jobType, table.fqtn())
+                    .matches(task -> task.isPresent() == expected);
+              });
+        });
   }
 
   private static void assertReadableData(SparkSession spark, String table) {

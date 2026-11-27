@@ -14,8 +14,10 @@ import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +30,9 @@ import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -68,6 +73,12 @@ public class OperationTasksBuilderTest {
               JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
               TableDataLayoutStrategyExecutionTask.class);
           put(JobConf.JobTypeEnum.TABLE_DIRECTORY_DELETION, TableDirectoryDeletionTask.class);
+          put(JobConf.JobTypeEnum.DATA_COMPACTION, TableDataCompactionTask.class);
+          put(JobConf.JobTypeEnum.STAGED_FILES_DELETION, TableStagedFilesDeletionTask.class);
+          put(JobConf.JobTypeEnum.SORT_STATS_COLLECTION, SortStatsCollectionTask.class);
+          put(
+              JobConf.JobTypeEnum.ORPHAN_FILES_DELETION_BATCH,
+              BatchedTableOrphanFilesDeletionTask.class);
         }
       };
 
@@ -249,6 +260,195 @@ public class OperationTasksBuilderTest {
         2,
         new OperationTaskManager(jobType),
         new JobInfoManager(jobType));
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = JobConf.JobTypeEnum.class,
+      names = {
+        "DATA_COMPACTION",
+        "DATA_LAYOUT_STRATEGY_GENERATION",
+        "DATA_LAYOUT_STRATEGY_EXECUTION",
+        "RETENTION",
+        "SNAPSHOTS_EXPIRATION",
+        "ORPHAN_FILES_DELETION",
+        "STAGED_FILES_DELETION"
+      })
+  void testTemporaryMaintenancePlanningAndOrdinaryControls(JobConf.JobTypeEnum jobType) {
+    OperationTasksBuilder builder = createOperationTasksBuilder(jobType);
+    TableMetadata.TableMetadataBuilder<?, ?> metadata =
+        jobType == JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION
+            ? TableDataLayoutMetadata.builder()
+                .dataLayoutStrategy(DataLayoutStrategy.builder().gain(1).build())
+            : TableMetadata.builder();
+    metadata
+        .dbName("db")
+        .tableName("maintenance_control")
+        .isPrimary(true)
+        .isClustered(true)
+        .retentionConfig(RetentionConfig.builder().columnName("event_time").build());
+
+    Assertions.assertTrue(
+        builder
+            .processMetadata(metadata.build(), jobType, OperationMode.SUBMIT, otelEmitter)
+            .isPresent());
+    Assertions.assertFalse(
+        builder
+            .processMetadata(
+                metadata.isTemporary(true).build(), jobType, OperationMode.SUBMIT, otelEmitter)
+            .isPresent());
+    Assertions.assertTrue(
+        builder
+            .processMetadata(
+                metadata.isTemporary(false).build(), jobType, OperationMode.SUBMIT, otelEmitter)
+            .isPresent());
+    Assertions.assertFalse(
+        builder
+            .processMetadata(
+                metadata
+                    .jobExecutionProperties(Collections.singletonMap("disabled", "true"))
+                    .build(),
+                jobType,
+                OperationMode.SUBMIT,
+                otelEmitter)
+            .isPresent());
+    boolean runsOnReplica =
+        jobType == JobConf.JobTypeEnum.ORPHAN_FILES_DELETION
+            || jobType == JobConf.JobTypeEnum.STAGED_FILES_DELETION;
+    Assertions.assertEquals(
+        runsOnReplica,
+        builder
+            .processMetadata(
+                metadata.jobExecutionProperties(Collections.emptyMap()).isPrimary(false).build(),
+                jobType,
+                OperationMode.SUBMIT,
+                otelEmitter)
+            .isPresent());
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = JobConf.JobTypeEnum.class,
+      names = {"TABLE_STATS_COLLECTION", "SORT_STATS_COLLECTION"})
+  void testTemporaryStatisticsStillRespectExplicitDisable(JobConf.JobTypeEnum jobType) {
+    OperationTasksBuilder builder = createOperationTasksBuilder(jobType);
+    TableMetadata.TableMetadataBuilder<?, ?> metadata =
+        TableMetadata.builder()
+            .dbName("db")
+            .tableName("temporary")
+            .isPrimary(true)
+            .isTemporary(true);
+    Assertions.assertTrue(
+        builder
+            .processMetadata(metadata.build(), jobType, OperationMode.SUBMIT, otelEmitter)
+            .isPresent());
+    Assertions.assertFalse(
+        builder
+            .processMetadata(
+                metadata
+                    .jobExecutionProperties(Collections.singletonMap(jobType + ".disabled", "true"))
+                    .build(),
+                jobType,
+                OperationMode.SUBMIT,
+                otelEmitter)
+            .isPresent());
+  }
+
+  @Test
+  void testTemporaryTablesAreExcludedFromOrphanFileBatches() {
+    TableMetadata temporary =
+        TableMetadata.builder().dbName("db").tableName("temporary").isTemporary(true).build();
+    TableMetadata ordinary = TableMetadata.builder().dbName("db").tableName("ordinary").build();
+    Mockito.when(tablesClient.getTableMetadataList())
+        .thenReturn(Arrays.asList(temporary, ordinary));
+    List<OperationTask<?>> tasks =
+        createOperationTasksBuilder(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION_BATCH)
+            .buildOperationTaskList(
+                JobConf.JobTypeEnum.ORPHAN_FILES_DELETION_BATCH,
+                properties,
+                otelEmitter,
+                OperationMode.SUBMIT);
+    Assertions.assertEquals(1, tasks.size());
+    Assertions.assertEquals(Arrays.asList("--tableNames", "db.ordinary"), tasks.get(0).getArgs());
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false,1,100", "true,1,100", "false,10,1", "true,10,1"})
+  void testTemporaryStrategiesDoNotConsumeLayoutBudget(
+      boolean parallel, int maxStrategiesCount, int maxComputeCost) throws InterruptedException {
+    JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION;
+    TableDataLayoutMetadata.TableDataLayoutMetadataBuilder<?, ?> metadata =
+        TableDataLayoutMetadata.builder().dbName("db").isPrimary(true);
+    TableDataLayoutMetadata temporary =
+        metadata
+            .tableName("temporary")
+            .isTemporary(true)
+            .dataLayoutStrategy(DataLayoutStrategy.builder().gain(100).cost(1).build())
+            .build();
+    TableDataLayoutMetadata ordinary =
+        metadata
+            .tableName("ordinary")
+            .isTemporary(false)
+            .dataLayoutStrategy(DataLayoutStrategy.builder().gain(10).cost(1).build())
+            .build();
+    TablesClient planningClient = Mockito.mock(TablesClient.class);
+    Mockito.when(planningClient.getTableDataLayoutMetadataList())
+        .thenReturn(Arrays.asList(temporary, ordinary));
+    Mockito.when(planningClient.getTableDataLayoutMetadataListInParallel(2))
+        .thenReturn(Arrays.asList(temporary, ordinary));
+    Properties selectionProperties = new Properties();
+    selectionProperties.setProperty(
+        OperationTasksBuilder.MAX_STRATEGIES_COUNT, Integer.toString(maxStrategiesCount));
+    selectionProperties.setProperty(
+        OperationTasksBuilder.MAX_COST_BUDGET_GB_HRS, Integer.toString(maxComputeCost));
+    OtelEmitter planningEmitter = Mockito.mock(OtelEmitter.class);
+    OperationTaskManager manager = new OperationTaskManager(jobType);
+    OperationTasksBuilder builder =
+        new OperationTasksBuilder(
+            new OperationTaskFactory<>(
+                TableDataLayoutStrategyExecutionTask.class,
+                jobsClient,
+                planningClient,
+                60000L,
+                60000L,
+                120000L),
+            planningClient,
+            2,
+            manager,
+            new JobInfoManager(jobType));
+    OperationTask<?> selectedTask;
+    if (parallel) {
+      builder.buildOperationTaskListInParallel(
+          jobType, selectionProperties, planningEmitter, OperationMode.SUBMIT);
+      Assertions.assertTimeoutPreemptively(
+          Duration.ofSeconds(5),
+          () -> {
+            while (!manager.isDataGenerationCompleted()) {
+              Thread.sleep(10);
+            }
+          });
+      Assertions.assertEquals(1, manager.getTotalDataCount());
+      selectedTask = manager.getData();
+    } else {
+      List<OperationTask<?>> tasks =
+          builder.buildOperationTaskList(
+              jobType, selectionProperties, planningEmitter, OperationMode.SUBMIT);
+      Assertions.assertEquals(1, tasks.size());
+      selectedTask = tasks.get(0);
+    }
+    Assertions.assertEquals("db.ordinary", selectedTask.metadata.getEntityName());
+    Mockito.verify(planningEmitter)
+        .count(
+            Mockito.anyString(),
+            Mockito.eq("data_layout_optimization_estimated_compute_cost"),
+            Mockito.eq(1L),
+            Mockito.isNull());
+    Mockito.verify(planningEmitter)
+        .count(
+            Mockito.anyString(),
+            Mockito.eq("data_layout_optimization_estimated_reduced_file_count"),
+            Mockito.eq(10L),
+            Mockito.isNull());
   }
 
   private void populateDbAllTables(int dbCount, int tableCount) {

@@ -3,7 +3,10 @@ package com.linkedin.openhouse.jobs.client;
 import static org.mockito.ArgumentMatchers.*;
 
 import com.linkedin.openhouse.cluster.storage.filesystem.ParameterizedHdfsStorageProvider;
+import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.HistoryConfig;
@@ -32,7 +35,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -43,6 +48,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
@@ -264,6 +270,50 @@ public class TablesClientTest {
         "true", tableMetadata.get().getJobExecutionProperties().get("disabled"));
     Assertions.assertEquals(
         "true", tableMetadata.get().getJobExecutionProperties().get("RETENTION.disabled"));
+  }
+
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"true", "false", "TRUE", " true"})
+  void testTemporaryStatusReachesBothMaintenanceMetadataPaths(String temporaryFlag) {
+    GetTableResponseBody response =
+        createNonPartitionedTableResponseBodyMock(testDbName, testTableName);
+    Map<String, String> properties = new HashMap<>();
+    properties.put(
+        StrategiesDaoTableProps.DATA_LAYOUT_STRATEGIES_PROPERTY_KEY,
+        StrategiesDaoTableProps.serialize(
+            Collections.singletonList(DataLayoutStrategy.builder().gain(1).build())));
+    Optional.ofNullable(temporaryFlag)
+        .ifPresent(value -> properties.put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, value));
+    Mockito.when(response.getTableProperties()).thenReturn(properties);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableName)).thenReturn(Mono.just(response));
+
+    TableMetadata metadata = client.mapTableResponseToTableMetadata(response).get();
+    List<TableDataLayoutMetadata> strategies =
+        client.mapTableResponseToTableDataLayoutMetadataList(response);
+    Assertions.assertEquals(1, strategies.size());
+    Assertions.assertEquals(
+        "true".equals(temporaryFlag),
+        metadata.isMaintenanceJobDisabled(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION));
+    Assertions.assertEquals(
+        "true".equals(temporaryFlag),
+        strategies
+            .get(0)
+            .isMaintenanceJobDisabled(JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION));
+    Assertions.assertFalse(
+        metadata.isMaintenanceJobDisabled(JobConf.JobTypeEnum.TABLE_STATS_COLLECTION));
+
+    properties.remove(CatalogConstants.OPENHOUSE_TEMPORARY_KEY);
+    Assertions.assertFalse(
+        client
+            .mapTableResponseToTableMetadata(response)
+            .get()
+            .isMaintenanceJobDisabled(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION));
+    Assertions.assertFalse(
+        client
+            .mapTableResponseToTableDataLayoutMetadataList(response)
+            .get(0)
+            .isMaintenanceJobDisabled(JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION));
   }
 
   @Test

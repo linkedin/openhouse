@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.client;
 
 import com.linkedin.openhouse.datalayout.persistence.StrategiesDaoTableProps;
 import com.linkedin.openhouse.datalayout.strategy.DataLayoutStrategy;
+import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
@@ -404,6 +405,10 @@ public class TablesClient {
                     == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
+            .isTemporary(
+                Optional.ofNullable(tableResponseBody.getTableProperties())
+                    .map(TemporaryTableProperties::isTemporary)
+                    .orElse(false))
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
             .historyConfig(getTableHistory(tableResponseBody).orElse(null))
             .replicationConfig(getTableReplication(tableResponseBody).orElse(null))
@@ -436,6 +441,10 @@ public class TablesClient {
                     == GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE)
             .isTimePartitioned(tableResponseBody.getTimePartitioning() != null)
             .isClustered(tableResponseBody.getClustering() != null)
+            .isTemporary(
+                Optional.ofNullable(tableResponseBody.getTableProperties())
+                    .map(TemporaryTableProperties::isTemporary)
+                    .orElse(false))
             .retentionConfig(getTableRetention(tableResponseBody).orElse(null))
             .historyConfig(getTableHistory(tableResponseBody).orElse(null))
             .jobExecutionProperties(getJobExecutionProperties(tableResponseBody))
