@@ -10,7 +10,6 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
-import com.linkedin.openhouse.internal.catalog.TemporaryTableProperties;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
@@ -34,7 +33,6 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
-import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -72,16 +70,13 @@ public class TablesServiceImpl implements TablesService {
    * @param databaseId
    * @param tableId
    * @return Table DTO object.
-   * @throws com.linkedin.openhouse.common.exception.NoSuchUserTableException if table is not found,
-   *     or if it is a temporary table whose expiration time has passed.
+   * @throws com.linkedin.openhouse.common.exception.NoSuchUserTableException if table is not found.
    */
   @Override
   public TableDto getTable(String databaseId, String tableId, String actingPrincipal) {
     TableDto tableDto =
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
-            .filter(
-                table -> !TemporaryTableProperties.isExpired(tableProperties(table), Instant.now()))
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     // Restricts reading table to users with lock admin Privileges
     if (LockPolicyValidator.isLegacyLocked(tableDto)) {

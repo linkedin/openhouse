@@ -291,14 +291,18 @@ public class TablesServiceTest {
     tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
   }
 
+  /** An expired temporary table loads and stays listed until it is deleted. */
   @Test
-  public void getTableReturnsNotFoundForExpiredTemporaryTable() {
-    TableDto tableDto = temporaryTableDto("expired_temp_table", "2020-01-01T00:00:00Z");
+  public void getTableReturnsExpiredTemporaryTable() {
+    String expirationTime = "2020-01-01T00:00:00Z";
+    TableDto tableDto = temporaryTableDto("expired_temp_table", expirationTime);
     tablesService.putTable(buildCreateUpdateTableRequestBody(tableDto), TEST_USER, true);
 
-    Assertions.assertThrows(
-        NoSuchUserTableException.class,
-        () -> tablesService.getTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER));
+    TableDto result =
+        tablesService.getTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+    Assertions.assertEquals(
+        expirationTime,
+        result.getTableProperties().get(CatalogConstants.OPENHOUSE_EXPIRATION_TIME_KEY));
     Assertions.assertTrue(isListed(tableDto));
 
     tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);

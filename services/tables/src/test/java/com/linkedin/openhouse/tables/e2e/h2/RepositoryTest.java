@@ -573,7 +573,97 @@ public class RepositoryTest {
         Arguments.of(
             Map.of(),
             Policies.builder().replication(TABLE_POLICIES.getReplication()).build(),
-            "replication"));
+            "replication"),
+        Arguments.of(
+            Map.of(),
+            Policies.builder().retention(TABLE_POLICIES.getRetention()).build(),
+            "retention policy"));
+  }
+
+  /** A replace keeps the retention policy that its request omits, so the flag is rejected. */
+  @Test
+  void testReplaceRejectsTemporaryFlagWithRetainedRetentionPolicy() {
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("retainedRetentionReplace")
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(Policies.builder().retention(TABLE_POLICIES.getRetention()).build())
+                .tableProperties(Map.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+                .build());
+    try {
+      RequestValidationFailureException exception =
+          Assertions.assertThrows(
+              RequestValidationFailureException.class,
+              () ->
+                  openHouseInternalRepository.save(
+                      created
+                          .toBuilder()
+                          .tableVersion(created.getTableLocation())
+                          .tableProperties(Map.of(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true"))
+                          .policies(null)
+                          .replaceCommit(true)
+                          .build()));
+      Assertions.assertTrue(
+          exception.getMessage().contains("retention policy"), exception.getMessage());
+    } finally {
+      openHouseInternalRepository.deleteById(getPrimaryKey(created));
+    }
+  }
+
+  /** An update is rejected whichever of the two conflicting features the table had first. */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("temporaryTableConflictsOnUpdate")
+  void testUpdateRejectsTemporaryTableConflict(
+      String tableId,
+      Map<String, String> createdProperties,
+      Policies createdPolicies,
+      Map<String, String> addedProperties,
+      Policies updatedPolicies,
+      String conflictingFeature) {
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId(tableId)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(createdPolicies)
+                .tableProperties(createdProperties)
+                .build());
+    try {
+      Map<String, String> properties = new HashMap<>(created.getTableProperties());
+      properties.putAll(addedProperties);
+      RequestValidationFailureException exception =
+          Assertions.assertThrows(
+              RequestValidationFailureException.class,
+              () ->
+                  openHouseInternalRepository.save(
+                      created
+                          .toBuilder()
+                          .tableVersion(created.getTableLocation())
+                          .tableProperties(properties)
+                          .policies(updatedPolicies)
+                          .build()));
+      Assertions.assertTrue(
+          exception.getMessage().contains(conflictingFeature), exception.getMessage());
+    } finally {
+      openHouseInternalRepository.deleteById(getPrimaryKey(created));
+    }
+  }
+
+  private static Stream<Arguments> temporaryTableConflictsOnUpdate() {
+    Map<String, String> temporary = Map.of(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true");
+    Map<String, String> wapEnabled = Map.of(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true");
+    Policies replication = Policies.builder().replication(TABLE_POLICIES.getReplication()).build();
+    Policies retention = Policies.builder().retention(TABLE_POLICIES.getRetention()).build();
+    return Stream.of(
+        Arguments.of("replicationAdded", temporary, null, Map.of(), replication, "replication"),
+        Arguments.of("wapAdded", temporary, null, wapEnabled, null, "WAP"),
+        Arguments.of("flagAddedToWap", wapEnabled, null, temporary, null, "WAP"),
+        Arguments.of("retentionAdded", temporary, null, Map.of(), retention, "retention policy"),
+        Arguments.of(
+            "flagAddedToRetention", Map.of(), retention, temporary, retention, "retention policy"));
   }
 
   private TableDto createTemporaryTable(String tableId) {
