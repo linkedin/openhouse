@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
@@ -7,11 +8,19 @@ import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.optimizer.client.model.UpdateOperationRequest;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -21,6 +30,10 @@ import org.mockito.Mockito;
 
 public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
   private static final String DATABASE = "db_expired_table_deletion";
+  private static final String TEMPORARY_KEY = "openhouse.temporary";
+  private static final String EXPIRATION_TIME_KEY = "openhouse.expirationTime";
+  private static final Map<String, String> EXPIRED_TEMPORARY_PROPERTIES =
+      ImmutableMap.of(TEMPORARY_KEY, "true", EXPIRATION_TIME_KEY, "2020-01-01T00:00:00Z");
 
   private final OtelEmitter otelEmitter =
       new AppsOtelEmitter(Arrays.asList(DefaultOtelConfig.getOpenTelemetry()));
@@ -31,7 +44,7 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
     String tableName = DATABASE + ".expired";
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
-      createExpiredTemporaryTable(ops, tableName);
+      createTable(ops, tableName, EXPIRED_TEMPORARY_PROPERTIES);
       Assertions.assertTrue(listedTableNames(ops).contains("expired"));
 
       runApp(ops, tableName);
@@ -45,6 +58,60 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
       Assertions.assertEquals("expired", request.getTableName());
       Assertions.assertNull(request.getFailureReason());
       Assertions.assertFalse(listedTableNames(ops).contains("expired"));
+    }
+  }
+
+  @Test
+  public void testTableConvertedToOrdinaryIsNotDropped() throws Exception {
+    String tableName = DATABASE + ".converted";
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      createTable(ops, tableName, EXPIRED_TEMPORARY_PROPERTIES);
+      ops.getTable(tableName).updateProperties().remove(TEMPORARY_KEY).commit();
+
+      runApp(ops, tableName);
+
+      Assertions.assertEquals(
+          UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
+      Assertions.assertTrue(listedTableNames(ops).contains("converted"));
+    }
+  }
+
+  @Test
+  public void testSameNamedOrdinaryTableIsNotDropped() throws Exception {
+    String tableName = DATABASE + ".recreated";
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      createTable(ops, tableName, ImmutableMap.of());
+
+      runApp(ops, tableName);
+
+      Assertions.assertEquals(
+          UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
+      Assertions.assertTrue(listedTableNames(ops).contains("recreated"));
+    }
+  }
+
+  @Test
+  public void testUnexpiredTemporaryTableIsNotDropped() throws Exception {
+    String tableName = DATABASE + ".unexpired";
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      createTable(
+          ops,
+          tableName,
+          ImmutableMap.of(
+              TEMPORARY_KEY,
+              "true",
+              EXPIRATION_TIME_KEY,
+              DateTimeFormatter.ISO_INSTANT.format(
+                  Instant.now().plus(Duration.ofDays(1)).truncatedTo(ChronoUnit.SECONDS))));
+
+      runApp(ops, tableName);
+
+      Assertions.assertEquals(
+          UpdateOperationRequest.StatusEnum.SUCCESS, reportedRequest(tableName).getStatus());
+      Assertions.assertTrue(listedTableNames(ops).contains("unexpired"));
     }
   }
 
@@ -65,6 +132,9 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
   public void testFailedDropReportsFailure() {
     String tableName = DATABASE + ".unreachable";
     Operations ops = Mockito.mock(Operations.class);
+    Table table = Mockito.mock(Table.class);
+    Mockito.when(table.properties()).thenReturn(EXPIRED_TEMPORARY_PROPERTIES);
+    Mockito.when(ops.findTable(tableName)).thenReturn(Optional.of(table));
     Mockito.when(ops.dropTable(tableName))
         .thenThrow(new IllegalStateException("Catalog unavailable."));
 
@@ -87,20 +157,15 @@ public class ExpiredTableDeletionSparkAppTest extends OpenHouseSparkITest {
         .runInner(ops);
   }
 
-  /**
-   * Creates the table through the Iceberg catalog API. A Spark {@code CREATE TABLE} loads the table
-   * after creating it, and that load fails because the tables service reports an expired temporary
-   * table as not found.
-   */
-  private static void createExpiredTemporaryTable(Operations ops, String tableName) {
+  /** Creates the table in one commit, so an already expired table never exists without its flag. */
+  private static void createTable(
+      Operations ops, String tableName, Map<String, String> properties) {
     Transaction transaction =
         ops.createTransaction(
             tableName, new Schema(Types.NestedField.optional(1, "data", Types.StringType.get())));
-    transaction
-        .updateProperties()
-        .set("openhouse.temporary", "true")
-        .set("openhouse.expirationTime", "2020-01-01T00:00:00Z")
-        .commit();
+    UpdateProperties update = transaction.updateProperties();
+    properties.forEach(update::set);
+    update.commit();
     transaction.commitTransaction();
   }
 
