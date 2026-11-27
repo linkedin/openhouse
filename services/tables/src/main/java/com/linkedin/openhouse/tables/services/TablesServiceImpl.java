@@ -19,6 +19,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
+import com.linkedin.openhouse.tables.api.validator.impl.OpenHouseTablesApiValidator;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -32,6 +33,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -231,6 +233,11 @@ public class TablesServiceImpl implements TablesService {
     }
   }
 
+  /** A table loaded without its metadata, such as a table reference, has no property map. */
+  private static Map<String, String> tableProperties(TableDto tableDto) {
+    return Optional.ofNullable(tableDto.getTableProperties()).orElseGet(Collections::emptyMap);
+  }
+
   private void checkIfLockPoliciesUpdated(
       TableDto tableDto, CreateUpdateTableRequestBody requestBody) {
     if (requestBody.getPolicies() != null
@@ -421,6 +428,8 @@ public class TablesServiceImpl implements TablesService {
               .policies(policiesToSave)
               .tableVersion(tableDto.getTableLocation())
               .build();
+      OpenHouseTablesApiValidator.validateTemporaryTableCompatibility(
+          databaseId, tableId, tableProperties(tableDto), policiesToSave);
       saveTableDto(tableDtoToSave, Optional.of(tableDto));
     }
   }

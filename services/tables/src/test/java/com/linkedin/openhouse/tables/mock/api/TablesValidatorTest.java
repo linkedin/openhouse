@@ -27,9 +27,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Stream;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -1698,6 +1703,174 @@ public class TablesValidatorTest {
                             "true"))
                     .baseTableVersion("base")
                     .build()));
+  }
+
+  @Test
+  public void validateCreateTableRejectsTemporaryWithReplication() {
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c", "d", temporaryTableRequest(TEMPORARY_PROPERTIES, REPLICATED_POLICIES)),
+        "replication");
+  }
+
+  @Test
+  public void validateCreateTableRejectsTemporaryWithWap() {
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                temporaryTableRequest(
+                    ImmutableMap.of(
+                        CatalogConstants.OPENHOUSE_TEMPORARY_KEY,
+                        "true",
+                        CatalogConstants.WAP_ENABLED_TABLE_PROP,
+                        "true"),
+                    null)),
+        "WAP ('write.wap.enabled=true')");
+  }
+
+  @Test
+  public void validateCreateTableRejectsTemporaryWithLock() {
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                temporaryTableRequest(TEMPORARY_PROPERTIES, TABLE_POLICIES_WITH_LOCK_STATUS)),
+        "table lock");
+  }
+
+  /** The request carries the existing replication policy, so adding the flag is rejected. */
+  @Test
+  public void validateUpdateTableRejectsAddingFlagToReplicatedTable() {
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c", "d", "t", temporaryTableRequest(TEMPORARY_PROPERTIES, REPLICATED_POLICIES)),
+        "replication");
+  }
+
+  @Test
+  public void validateCreateTableRejectsTemporaryWithRetention() {
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c", "d", temporaryTableRequest(TEMPORARY_PROPERTIES, RETENTION_POLICIES)),
+        "retention policy");
+  }
+
+  /**
+   * An update request carries every property and policy the table keeps, so it covers adding a
+   * retention policy to a temporary table and adding the flag to a table with a retention policy.
+   */
+  @Test
+  public void validateUpdateTableRejectsTemporaryWithRetention() {
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c", "d", "t", temporaryTableRequest(TEMPORARY_PROPERTIES, RETENTION_POLICIES)),
+        "retention policy");
+  }
+
+  @Test
+  public void validateUpdateTableRejectsTemporaryWithWap() {
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                temporaryTableRequest(
+                    ImmutableMap.of(
+                        CatalogConstants.OPENHOUSE_TEMPORARY_KEY,
+                        "true",
+                        CatalogConstants.WAP_ENABLED_TABLE_PROP,
+                        "true"),
+                    null)),
+        "WAP ('write.wap.enabled=true')");
+  }
+
+  /** The compatibility bypass does not lift the temporary table checks. */
+  @ParameterizedTest
+  @MethodSource("temporaryTableConflicts")
+  public void validateCreateTableRejectsTemporaryConflictWhenCompatibilityValidationDisabled(
+      Map<String, String> conflictingProperties, Policies policies, String conflictingFeature) {
+    Map<String, String> properties =
+        ImmutableMap.<String, String>builder()
+            .put(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true")
+            .put(CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP, "true")
+            .putAll(conflictingProperties)
+            .build();
+    assertTemporaryConflict(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c", "d", temporaryTableRequest(properties, policies)),
+        conflictingFeature);
+  }
+
+  private static Stream<Arguments> temporaryTableConflicts() {
+    return Stream.of(
+        Arguments.of(ImmutableMap.of(), REPLICATED_POLICIES, "replication"),
+        Arguments.of(ImmutableMap.of(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true"), null, "WAP"),
+        Arguments.of(ImmutableMap.of(), TABLE_POLICIES_WITH_LOCK_STATUS, "table lock"),
+        Arguments.of(ImmutableMap.of(), RETENTION_POLICIES, "retention policy"));
+  }
+
+  /** Only the exact value "true" makes a table temporary. */
+  @Test
+  public void validateCreateTableAllowsLockWithNonExactTemporaryFlag() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                temporaryTableRequest(
+                    ImmutableMap.of(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "TRUE"),
+                    TABLE_POLICIES_WITH_LOCK_STATUS)));
+  }
+
+  private static final Map<String, String> TEMPORARY_PROPERTIES =
+      ImmutableMap.of(CatalogConstants.OPENHOUSE_TEMPORARY_KEY, "true");
+
+  private static final Policies REPLICATED_POLICIES =
+      Policies.builder()
+          .replication(
+              Replication.builder()
+                  .config(
+                      Arrays.asList(
+                          ReplicationConfig.builder().destination("z").interval("12H").build()))
+                  .build())
+          .build();
+
+  private static final Policies RETENTION_POLICIES =
+      Policies.builder().retention(RETENTION_POLICY).build();
+
+  private static CreateUpdateTableRequestBody temporaryTableRequest(
+      Map<String, String> properties, Policies policies) {
+    return CreateUpdateTableRequestBody.builder()
+        .databaseId("d")
+        .tableId("t")
+        .clusterId("c")
+        .schema(HEALTH_SCHEMA_LITERAL)
+        .timePartitioning(
+            TimePartitionSpec.builder()
+                .columnName("timestamp")
+                .granularity(TimePartitionSpec.Granularity.HOUR)
+                .build())
+        .tableProperties(properties)
+        .policies(policies)
+        .baseTableVersion("base")
+        .build();
+  }
+
+  private static void assertTemporaryConflict(Executable validation, String conflictingFeature) {
+    String message = assertThrows(RequestValidationFailureException.class, validation).getMessage();
+    Assertions.assertTrue(
+        message.contains("temporary table ('openhouse.temporary=true')")
+            && message.contains(conflictingFeature),
+        message);
   }
 
   /** Table search retains numeric pagination and its existing validation messages. */
