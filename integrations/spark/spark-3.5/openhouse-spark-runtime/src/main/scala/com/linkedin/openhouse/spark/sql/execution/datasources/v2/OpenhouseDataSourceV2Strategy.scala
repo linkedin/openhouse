@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, VacuumTable}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, ResolvedUnlockTable, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, VacuumTable}
 import org.apache.iceberg.spark.{Spark3Util, SparkCatalog, SparkSessionCatalog}
 import org.apache.spark.sql.{SparkSession, Strategy}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
@@ -13,8 +13,8 @@ import scala.collection.JavaConverters._
 /* Strategy to convert a logical plan to physical plans */
 case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy with PredicateHelper {
   override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case SetRetentionPolicy(CatalogAndIdentifierExtractor(catalog, ident), granularity, count, colName, colPattern) =>
-      SetRetentionPolicyExec(catalog, ident, granularity, count, colName, colPattern) :: Nil
+    case SetRetentionPolicy(CatalogAndIdentifierExtractor(catalog, ident), granularity, count, colName, colPattern, timeZone) =>
+      SetRetentionPolicyExec(catalog, ident, granularity, count, colName, colPattern, timeZone) :: Nil
     case SetReplicationPolicy(CatalogAndIdentifierExtractor(catalog, ident), replicationPolicies) =>
       SetReplicationPolicyExec(catalog, ident, replicationPolicies) :: Nil
     case UnSetReplicationPolicy(CatalogAndIdentifierExtractor(catalog, ident), replicationPolicies) =>
@@ -31,6 +31,9 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
 
     case r @ ShowGrantsStatement(resourceType, CatalogAndIdentifierExtractor(catalog, ident)) =>
       ShowGrantsStatementExec(r.output, resourceType, catalog, ident) :: Nil
+
+    case ResolvedUnlockTable(catalog, target, reason) =>
+      UnlockTableExec(catalog, target, reason) :: Nil
 
     case VacuumTable(CatalogAndIdentifierExtractor(catalog, ident), removeOrphanFiles, retainHours) =>
       VacuumTableExec(spark, catalog, ident, removeOrphanFiles, retainHours) :: Nil

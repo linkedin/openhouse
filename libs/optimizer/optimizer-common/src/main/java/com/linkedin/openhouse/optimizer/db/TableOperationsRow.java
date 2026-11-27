@@ -1,0 +1,103 @@
+package com.linkedin.openhouse.optimizer.db;
+
+import java.time.Instant;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
+import javax.persistence.Id;
+import javax.persistence.Index;
+import javax.persistence.Table;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
+
+/**
+ * JPA entity representing an Analyzer recommendation for a table maintenance operation.
+ *
+ * <p>Each row is identified by a client-generated UUID ({@code id}). The Analyzer creates a new row
+ * when it first recommends an operation for a table, or when re-recommending after a prior terminal
+ * state. {@code table_uuid} is the stable identity for the table (survives renames; rotates on
+ * drop+recreate). The application enforces one active (PENDING / SCHEDULING / SCHEDULED) row per
+ * {@code (table_uuid, operation_type)} at a time.
+ *
+ * <p>Per-operation metric columns will be added here as operations are onboarded.
+ *
+ * <p>Self-contained DB-layer type: enums are {@link OperationType} / {@link OperationStatus} from
+ * the same package, JPA-bound as strings.
+ */
+@Entity
+@Table(
+    name = "table_operations",
+    indexes = {
+      @Index(name = "idx_to_table_uuid_optype", columnList = "table_uuid, operation_type"),
+      @Index(name = "idx_to_optype_status", columnList = "operation_type, status")
+    })
+@Getter
+@EqualsAndHashCode
+@Builder(toBuilder = true)
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
+public class TableOperationsRow {
+
+  /** Client-generated UUID identifying this specific operation recommendation. */
+  @Id
+  @Column(name = "id", nullable = false, length = 36)
+  private String id;
+
+  /** Stable table identity from the Tables Service. Survives renames; rotates on drop+recreate. */
+  @Column(name = "table_uuid", nullable = false, length = 36)
+  private String tableUuid;
+
+  /** Denormalized database name. */
+  @Column(name = "database_name", nullable = false, length = 128)
+  private String databaseName;
+
+  /** Denormalized table name. */
+  @Column(name = "table_name", nullable = false, length = 128)
+  private String tableName;
+
+  /** The type of maintenance operation this row recommends. */
+  @Enumerated(EnumType.STRING)
+  @Column(name = "operation_type", nullable = false, length = 50)
+  private OperationType operationType;
+
+  /** Lifecycle state — drives the scheduler's CAS claim and the analyzer's eligibility check. */
+  @Enumerated(EnumType.STRING)
+  @Column(name = "status", nullable = false, length = 20)
+  private OperationStatus status;
+
+  /** When the analyzer first created this row. Set on insert; never updated. */
+  @Column(name = "created_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
+  private Instant createdAt;
+
+  /** When the scheduler last submitted a job for this row. {@code null} while {@code PENDING}. */
+  @Column(name = "scheduled_at", columnDefinition = "TIMESTAMP(6)")
+  private Instant scheduledAt;
+
+  /** Spark job ID written by the scheduler at claim time. Internal-only; never exposed on wire. */
+  @Column(name = "job_id", length = 255)
+  private String jobId;
+
+  /**
+   * Number of attempts in the current retry sequence for this {@code (table_uuid, operation_type)}:
+   * 1 for the first attempt (including the first after a success), incremented per retry, and reset
+   * to 1 once a run succeeds. Drives the retry backoff independently of the history windows.
+   */
+  @Column(name = "attempts", nullable = false)
+  @ColumnDefault("1")
+  private int attempts;
+
+  /**
+   * Earliest time this operation's {@code (table_uuid, operation_type)} may be (re)scheduled, set
+   * when an attempt reaches a terminal outcome (reported success/failure, or expiry). {@code null}
+   * means eligible now. Gating on this makes a reported failure retry after its backoff instead of
+   * waiting out the stale-timeout, and a dead job back off instead of rescheduling immediately.
+   */
+  @Column(name = "next_eligible_at", columnDefinition = "TIMESTAMP(6)")
+  private Instant nextEligibleAt;
+}

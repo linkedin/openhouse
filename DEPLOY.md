@@ -136,6 +136,51 @@ services:
 
 ### Custom Configurations
 
+#### Per-database table-count limit
+
+Set `cluster.tables.max-tables-per-database` in the tables-service `cluster.yaml` to a positive
+number to limit persisted live tables in each database. The default is `0`; non-positive values
+disable enforcement. Changing this configuration requires restarting or redeploying the tables service.
+
+New-table creation (including staged creation) and restoration throw `TableCountLimitExceededException`
+when the database already has at least that many live tables. It maps to HTTP 422 through
+`UnprocessableEntityException`. Reads, updates and drops of existing tables are unchanged.
+Views, soft-deleted tables and uncommitted stages do not count. A drop frees capacity; staged creation
+is checked again when committed. This is best-effort admission control: concurrent creates or restores
+can pass the count check together and exceed the ceiling.
+
+Operators can grant a runtime exception with the existing HouseTables table-toggle rules. For example,
+the following rule exempts new tables in `my_database`:
+
+```sql
+INSERT INTO table_toggle_rule (feature, database_pattern, table_pattern)
+VALUES ('bypass_table_count_limit', 'my_database', '*');
+```
+
+Use a specific table name instead of `*` for a narrower exception. The check consults HouseTables
+when a create or restore reaches the limit; no tables-service restart is needed for rule changes.
+Toggle patterns are case-sensitive even though catalog identity and table counts are case-insensitive.
+Match the database and table spelling sent by the affected caller; add a rule for each spelling in use.
+Verify the toggle reports `ACTIVE` for the database and table IDs in the rejected request.
+Users cannot self-exempt by setting `bypass_table_count_limit.enabled` in table properties.
+Exempt tables still count toward the database total. Remove the rule to end the exception:
+
+```sql
+DELETE FROM table_toggle_rule
+WHERE feature = 'bypass_table_count_limit'
+  AND database_pattern = 'my_database' AND table_pattern = '*';
+```
+
+While the limit is enabled, the tables service reports these metrics; the `database` tag carries the
+database ID as sent by the caller:
+
+- `repo_table_count_db_total_count` (gauge, `database`): live tables counted by the instance's latest
+  create or restore check in that database.
+- `repo_table_count_limit` (gauge): the configured `cluster.tables.max-tables-per-database`.
+- `repo_table_count_limit_rejected` (counter, `database`): creates and restores rejected at the limit.
+- `repo_table_count_limit_bypassed` (counter, `database`): creates and restores admitted at the limit
+  by a bypass rule.
+
 #### MySQL for HouseTables Service
 
 To use MySQL, update [cluster.yaml](infra/recipes/k8s/config/housetables/minikube/housetables.yaml). Sample
@@ -168,6 +213,39 @@ during `helm install` is shown below.
       HTS_DB_USER: MYSQL_USER
       HTS_DB_PASSWORD: MYSQL_PASSWORD
 ```
+
+#### MySQL for Optimizer
+
+Point REST, Analyzer, and Scheduler at the same database with Spring Boot's `spring.datasource.url`,
+`spring.datasource.username`, and `spring.datasource.password`. Each process reads them from
+`OPTIMIZER_DB_URL`, `OPTIMIZER_DB_USER`, and `OPTIMIZER_DB_PASSWORD`; any other Spring Boot
+configuration source, such as `--spring.config.additional-location`, works too. Without a URL, the
+REST service tries `jdbc:mysql://localhost:3306/oh_db`, and the Analyzer and Scheduler use an
+in-memory H2 database.
+
+For certificate authentication, pass
+[Connector/J's SSL properties](https://dev.mysql.com/doc/connector-j/en/connector-j-reference-using-ssl.html)
+in the URL and mount the referenced files:
+
+```
+jdbc:mysql://mysql:3306/oh_db?sslMode=VERIFY_IDENTITY&clientCertificateKeyStoreUrl=file:/path/identity.p12&clientCertificateKeyStorePassword=...&trustCertificateKeyStoreUrl=file:/path/cacerts&trustCertificateKeyStorePassword=...
+```
+
+Pool settings use `spring.datasource.hikari.*`.
+
+The REST service runs Flyway migrations at startup. These create and update the tables. Flyway
+records each migration in `optimizer_schema_history`. Hibernate then validates the tables against
+the entities in the service and in both apps.
+
+The service can share HouseTables' database. Migrations may only change the optimizer tables.
+They must not reference HouseTables' tables. The optimizer tables must not exist before the first
+rollout. Deploy the service before the Analyzer and Scheduler. Set a startup probe that allows
+enough time for the slowest migration.
+
+[Optimizer Schema Migrations](docs/development/optimizer-schema-migrations.md#database-privileges)
+describes MySQL grants that limit a user to the optimizer tables. CI runs the migrations under those
+grants. Production still uses shared credentials. The CI test does not isolate production. Require
+the build. Review the SQL before you deploy.
 
 #### Hadoop Compatible File System for Tables Service
 

@@ -14,14 +14,22 @@ public final class MetricsConstant {
   public static final String REPO_TABLE_UNSUPPORTED_PARTITIONSPEC_EVOLUTION =
       "repo_table_unsupported_partitionspec_evolution";
   public static final String REPO_TABLE_ACCEPT_SNAPSHOT_CTR = "repo_table_snapshot_accepted";
+  public static final String REPO_TABLE_COUNT_LIMIT_REJECTED_CTR =
+      "repo_table_count_limit_rejected";
+  public static final String REPO_TABLE_COUNT_LIMIT_BYPASSED_CTR =
+      "repo_table_count_limit_bypassed";
+  public static final String REPO_TABLE_COUNT_DB_TOTAL_COUNT = "repo_table_count_db_total_count";
+  public static final String REPO_TABLE_COUNT_LIMIT = "repo_table_count_limit";
 
   // Components sections
   public static final String JOBS_SERVICE = "jobs";
   public static final String HOUSETABLES_SERVICE = "housetables";
   public static final String SERVICE_AUDIT = "service_audit";
+  public static final String VIEW_AUDIT = "view_audit";
 
   // Common metric constants section
   public static final String ACTION_TAG = "action";
+  public static final String DATABASE_TAG = "database";
   public static final String CANCEL = "cancel";
   public static final String GET = "get";
   public static final String SUBMIT = "submit";
@@ -32,6 +40,7 @@ public final class MetricsConstant {
 
   // Metrics for auditing
   public static final String FAILED_SERVICE_AUDIT = "failed_service_audit";
+  public static final String FAILED_VIEW_AUDIT = "failed_view_audit";
   public static final String FAILED_PARSING_REQUEST_PAYLOAD = "failed_parsing_request_payload";
 
   // Performance metrics

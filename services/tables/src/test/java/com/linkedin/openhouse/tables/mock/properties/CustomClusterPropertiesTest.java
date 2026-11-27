@@ -34,6 +34,11 @@ public class CustomClusterPropertiesTest {
         Arrays.asList("trino", "spark"), clusterProperties.getAllowedClientNameValues());
   }
 
+  @Test
+  public void testClusterPropertiesIcebergOrcCompressionCodec() {
+    Assertions.assertEquals("zstd", clusterProperties.getClusterIcebergWriteOrcCompressionCodec());
+  }
+
   @AfterAll
   static void unsetSysProp() {
     System.clearProperty("OPENHOUSE_CLUSTER_CONFIG_PATH");

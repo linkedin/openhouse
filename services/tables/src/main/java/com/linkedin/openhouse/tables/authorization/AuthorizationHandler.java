@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.authorization;
 
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -39,6 +40,20 @@ public interface AuthorizationHandler {
    * @return
    */
   boolean checkAccessDecision(String principal, TableDto tableDto, Privileges privilege);
+
+  /**
+   * Method to check if principal may access tableDto under an active SYSTEM_ONLY lock. The default
+   * allows requests declared as SYSTEM.
+   *
+   * @param principal
+   * @param tableDto
+   * @param actionType {@link TablesMvcConstants#ACTION_TYPE_SYSTEM} if declared, otherwise null
+   * @return true if access is allowed
+   */
+  default boolean checkSystemOnlyLockAccess(
+      String principal, TableDto tableDto, String actionType) {
+    return TablesMvcConstants.ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType);
+  }
 
   /**
    * Method to assign role to principal on databaseDto, for granting access to a database

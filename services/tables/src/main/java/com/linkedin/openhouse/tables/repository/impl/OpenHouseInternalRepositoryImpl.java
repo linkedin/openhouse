@@ -12,9 +12,13 @@ import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.TableCountLimitExceededException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
@@ -22,9 +26,11 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.validator.impl.RetentionPolicySpecValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -35,6 +41,8 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
+import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.ArrayList;
@@ -43,7 +51,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
@@ -60,13 +71,13 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
@@ -81,8 +92,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
+  private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
+  private static final String BYPASS_TABLE_COUNT_LIMIT = "bypass_table_count_limit";
 
-  @Autowired Catalog catalog;
+  @Autowired OpenHouseInternalCatalog catalog;
 
   @Autowired TablesMapper mapper;
 
@@ -108,6 +121,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
+  @Autowired RetentionPolicySpecValidator retentionPolicySpecValidator;
+
+  @Autowired TableFeatureToggle tableFeatureToggle;
+
+  /** Latest live-table count per database, read by that database's gauge. */
+  private final Map<String, Long> databaseTableCounts = new ConcurrentHashMap<>();
+
   @WithSpan("InternalRepository.save")
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
@@ -117,13 +137,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
     Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
-    boolean existed =
-        existsById(
-            TableDtoPrimaryKey.builder()
-                .tableId(tableDto.getTableId())
-                .databaseId(tableDto.getDatabaseId())
-                .build());
-    if (!existed) {
+    // One neutral occupancy read before any allocation: reject a foreign (non-TABLE) occupant
+    // such as a view here; the House Table write arbitrates a same-name table.
+    Optional<HouseTable> occupant = catalog.findEntityById(tableIdentifier);
+    if (occupant.isPresent() && !ENTITY_TYPE_TABLE.equals(occupant.get().getEntityType())) {
+      throw new AlreadyExistsException(
+          occupant.get().getEntityType(), tableDto.getDatabaseId() + "." + tableDto.getTableId());
+    }
+    if (!occupant.isPresent()) {
       creationEligibilityCheck(tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
@@ -152,7 +173,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           System.currentTimeMillis() - startTime);
     } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
-      validateReplaceTable(tableIdentifier);
+      validateReplaceTable(tableIdentifier, writeSchema);
+      // Policies are governance metadata (retention, sharing, PII column tags, replication,
+      // history, lock) that must survive a replace. Merge the existing table's policies with the
+      // request's so RTAS consistently merges properties.
+      tableDto = mergePoliciesFromExistingTable(tableIdentifier, tableDto);
+      validateRetentionPolicyForReplace(tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -314,15 +340,70 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
     versionCheck(null, tableDto);
+    checkTableCountLimit(tableDto.getDatabaseId(), tableDto.getTableId());
+  }
+
+  @PostConstruct
+  void registerTableCountLimitGauge() {
+    if (clusterProperties.getMaxTablesPerDatabase() > 0) {
+      meterRegistry.gauge(
+          MetricsConstant.REPO_TABLE_COUNT_LIMIT,
+          clusterProperties,
+          ClusterProperties::getMaxTablesPerDatabase);
+    }
+  }
+
+  /** Best-effort admission control: concurrent creates may exceed the ceiling. */
+  private void checkTableCountLimit(String databaseId, String tableId) {
+    long limit = clusterProperties.getMaxTablesPerDatabase();
+    if (limit <= 0) {
+      return;
+    }
+    // Reuse the paginated HTS total: one row plus a database-side count, not a table scan in Java.
+    // Only persisted live TABLE rows count; views, soft-deleted rows and uncommitted stages do not.
+    long tableCount =
+        catalog.listTables(Namespace.of(databaseId), PageRequest.of(0, 1)).getTotalElements();
+    databaseTableCounts.put(databaseId, tableCount);
+    // Registers this database's gauge once; later calls return the existing gauge.
+    Gauge.builder(
+            MetricsConstant.REPO_TABLE_COUNT_DB_TOTAL_COUNT,
+            () -> databaseTableCounts.get(databaseId))
+        .tag(MetricsConstant.DATABASE_TAG, databaseId)
+        .register(meterRegistry);
+    if (tableCount < limit) {
+      return;
+    }
+    if (tableFeatureToggle.isFeatureActivated(databaseId, tableId, BYPASS_TABLE_COUNT_LIMIT)) {
+      meterRegistry
+          .counter(
+              MetricsConstant.REPO_TABLE_COUNT_LIMIT_BYPASSED_CTR,
+              MetricsConstant.DATABASE_TAG,
+              databaseId)
+          .increment();
+      return;
+    }
+    meterRegistry
+        .counter(
+            MetricsConstant.REPO_TABLE_COUNT_LIMIT_REJECTED_CTR,
+            MetricsConstant.DATABASE_TAG,
+            databaseId)
+        .increment();
+    throw new TableCountLimitExceededException(
+        String.format(
+            "Database %s has %d live tables, reaching the configured limit of %d. "
+                + "Drop unused tables or contact the table owners before creating or restoring another table.",
+            databaseId, tableCount, limit));
   }
 
   /**
    * RTAS is only permitted when the {@value CatalogConstants#RTAS_ENABLED_TABLE_PROP} table
-   * property is set. And it is not allowed on table where WAP or replication is enabled.
+   * property is set and neither WAP nor replication is enabled. Partition source columns must be
+   * retained unless the existing table explicitly enables dropping them.
    *
    * @param tableIdentifier identifier for the table
+   * @param writeSchema replacement schema
    */
-  protected void validateReplaceTable(TableIdentifier tableIdentifier) {
+  protected void validateReplaceTable(TableIdentifier tableIdentifier, Schema writeSchema) {
     // A replace is only permitted when RTAS is enabled on the table.
     Table table = catalog.loadTable(tableIdentifier);
     Map<String, String> existingProperties = table.properties();
@@ -363,6 +444,124 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               tableIdentifier.name(),
               String.join(" and ", conflictingFeatures)));
     }
+
+    if (!Boolean.parseBoolean(
+        existingProperties.get(RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP))) {
+      validatePartitionColumnsForReplace(table, writeSchema);
+    }
+  }
+
+  private void validatePartitionColumnsForReplace(Table table, Schema writeSchema) {
+    // Historical specs still reference their source columns after partitioning is removed.
+    Set<Integer> partitionSourceIds =
+        table.specs().values().stream()
+            .flatMap(spec -> spec.fields().stream())
+            .map(PartitionField::sourceId)
+            .collect(Collectors.toSet());
+
+    // RTAS request field IDs may be reassigned, so compare existing column paths by name.
+    table.schema().idToName().entrySet().stream()
+        .filter(column -> partitionSourceIds.contains(column.getKey()))
+        .map(Map.Entry::getValue)
+        .filter(columnName -> writeSchema.findField(columnName) == null)
+        .sorted()
+        .findFirst()
+        .ifPresent(
+            columnName -> {
+              throw new HistoricPartitionColumnRemovedException(columnName);
+            });
+  }
+
+  /**
+   * Returns a copy of {@code requested} whose policies are the existing table's policies merged
+   * with the request's. Policies are table metadata that a CREATE OR REPLACE must not silently
+   * drop: each plane the request provides wins, and every plane it omits is carried forward from
+   * the existing table.
+   */
+  private TableDto mergePoliciesFromExistingTable(
+      TableIdentifier tableIdentifier, TableDto requested) {
+    Policies existingPolicies =
+        policiesMapper.toPoliciesObject(
+            catalog.loadTable(tableIdentifier).properties().get(POLICIES_KEY));
+    return requested
+        .toBuilder()
+        .policies(mergePolicies(existingPolicies, requested.getPolicies()))
+        .build();
+  }
+
+  /**
+   * A replace carries the existing table's retention policy over to the new schema, which can leave
+   * the policy pointing at a column that the new schema no longer has, or at a granularity that no
+   * longer matches the new time-partitioning. Reject such a replace upfront, at CREATE TABLE time,
+   * instead of letting the write proceed and fail at commit time.
+   *
+   * @param tableDto table state to be persisted, with policies already merged and the new schema
+   *     and time-partitioning applied
+   */
+  private void validateRetentionPolicyForReplace(TableDto tableDto) {
+    Policies policies = tableDto.getPolicies();
+    if (policies == null || policies.getRetention() == null) {
+      return;
+    }
+    TableUri tableUri =
+        TableUri.builder()
+            .tableId(tableDto.getTableId())
+            .databaseId(tableDto.getDatabaseId())
+            .clusterId(tableDto.getClusterId())
+            .build();
+    retentionPolicySpecValidator
+        .findViolation(
+            policies.getRetention(), tableDto.getTimePartitioning(), tableDto.getSchema(), tableUri)
+        .ifPresent(
+            violation -> {
+              throw new RequestValidationFailureException(
+                  String.format(
+                      "Replacing table %s is not allowed because its retention policy is incompatible with the new schema: %s. "
+                          + "Update the retention policy with 'ALTER TABLE ... SET POLICY (RETENTION=...)' before replacing the table, "
+                          + "or keep the columns the retention policy depends on in the new schema.",
+                      tableUri, violation.getMessage()));
+            });
+  }
+
+  /**
+   * Per-plane merge of table policies for a replace. The builder is based on {@code existing}, so
+   * any plane the request does not override is carried forward from the existing table.
+   *
+   * <ul>
+   *   <li>{@code retention}, {@code replication}, {@code history}, {@code lockState}: the request
+   *       wins when it provides the plane (non-null); otherwise the existing plane is kept.
+   *   <li>{@code columnTags}: overwrite semantics -- a non-empty request map replaces the existing
+   *       column tags wholesale; an absent or empty map keeps the existing tags. Clearing all tags
+   *       cannot be expressed through a replace (use {@code ALTER TABLE ... MODIFY COLUMN ... UNSET
+   *       TAG}).
+   *   <li>{@code sharingEnabled}: a primitive boolean with no "unset" state, so it cannot be
+   *       distinguished from a request that simply omits it. It is preserved from the existing
+   *       table across a replace; change it with {@code ALTER TABLE ... SET POLICY (SHARING=...)}.
+   * </ul>
+   */
+  static Policies mergePolicies(Policies existing, Policies requested) {
+    if (existing == null) {
+      return requested;
+    }
+    if (requested == null) {
+      return existing;
+    }
+    return existing
+        .toBuilder()
+        .retention(
+            requested.getRetention() != null ? requested.getRetention() : existing.getRetention())
+        .columnTags(
+            MapUtils.isEmpty(requested.getColumnTags())
+                ? existing.getColumnTags()
+                : requested.getColumnTags())
+        .replication(
+            requested.getReplication() != null
+                ? requested.getReplication()
+                : existing.getReplication())
+        .history(requested.getHistory() != null ? requested.getHistory() : existing.getHistory())
+        .lockState(
+            requested.getLockState() != null ? requested.getLockState() : existing.getLockState())
+        .build();
   }
 
   /**
@@ -469,7 +668,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     // Populate non-preserved keys, mainly user defined properties.
     Map<String, String> propertiesMap =
         tableDto.getTableProperties().entrySet().stream()
-            .filter(entry -> preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
+            .filter(
+                entry ->
+                    !preservedKeyChecker.isKeyPreservedForTable(entry.getKey(), tableDto)
+                        || preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
     // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
@@ -478,6 +680,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       propertiesMap.put(
           TableProperties.DEFAULT_FILE_FORMAT,
           clusterProperties.getClusterIcebergWriteFormatDefault());
+    }
+
+    // Only set cluster default for ORC_COMPRESSION if it is configured at the cluster level and the
+    // user hasn't provided a value.
+    String clusterOrcCompressionCodec =
+        clusterProperties.getClusterIcebergWriteOrcCompressionCodec();
+    if (clusterOrcCompressionCodec != null
+        && !propertiesMap.containsKey(TableProperties.ORC_COMPRESSION)) {
+      propertiesMap.put(TableProperties.ORC_COMPRESSION, clusterOrcCompressionCodec);
     }
 
     // Populate server reserved properties
@@ -531,6 +742,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.isStageReplace()) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_REPLACED_CTR_STAGED).increment();
       propertiesMap.put(IS_STAGE_REPLACE_KEY, String.valueOf(tableDto.isStageReplace()));
+    }
+
+    if (tableDto.isReplaceCommit()) {
+      propertiesMap.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, Boolean.TRUE.toString());
     }
 
     propertiesMap.put(
@@ -925,6 +1140,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Timed(metricKey = MetricsConstant.REPO_RESTORE_TABLE_TIME)
   @Override
   public void restoreTable(SoftDeletedTablePrimaryKey softDeletedTablePrimaryKey) {
+    checkTableCountLimit(
+        softDeletedTablePrimaryKey.getDatabaseId(), softDeletedTablePrimaryKey.getTableId());
     if (catalog instanceof OpenHouseInternalCatalog) {
       ((OpenHouseInternalCatalog) catalog)
           .restoreTable(

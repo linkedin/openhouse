@@ -60,21 +60,16 @@ public class OrphanFilesDeletionSparkApp extends BaseTableSparkApp {
     Table table = ops.getTable(fqtn);
     long olderThanTimestampMillis =
         System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(ttlSeconds);
-    boolean backupEnabled =
-        Boolean.parseBoolean(
-            table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
     log.info(
-        "Orphan files deletion app start for table={} with olderThanTimestampMillis={} ttlSeconds={} backupEnabled={} and backupDir={}",
+        "Orphan files deletion app start for table={} with olderThanTimestampMillis={} ttlSeconds={} and backupDir={}",
         fqtn,
         olderThanTimestampMillis,
         ttlSeconds,
-        backupEnabled,
         backupDir);
     DeleteOrphanFiles.Result result =
         ops.deleteOrphanFiles(
             table,
             olderThanTimestampMillis,
-            backupEnabled,
             backupDir,
             concurrentDeletes,
             streamResults,

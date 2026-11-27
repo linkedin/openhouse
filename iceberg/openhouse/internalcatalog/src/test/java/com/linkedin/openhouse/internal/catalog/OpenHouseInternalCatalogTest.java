@@ -7,28 +7,28 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import java.util.ArrayList;
-import java.util.List;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-import org.apache.iceberg.catalog.Namespace;
+import java.util.stream.Stream;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 public class OpenHouseInternalCatalogTest {
 
@@ -48,94 +48,6 @@ public class OpenHouseInternalCatalogTest {
     Assertions.assertTrue(catalog.isValidBaseIdentifier(TableIdentifier.of("db", "partitions")));
     Assertions.assertFalse(
         catalog.isValidBaseIdentifier(TableIdentifier.of("db", "table", "partitions")));
-  }
-
-  @Test
-  void listTablesForDatabaseAggregatesResultsFromASinglePage() {
-    List<HouseTable> allRows =
-        List.of(houseTableRow(DB, "t0"), houseTableRow(DB, "t1"), houseTableRow(DB, "t2"));
-    HouseTableRepository repo = mock(HouseTableRepository.class);
-    when(repo.findAllByDatabaseId(eq(DB), any(Pageable.class)))
-        .thenAnswer(invocation -> slicedPage(allRows, invocation.getArgument(1)));
-    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
-    catalog.houseTableRepository = repo;
-
-    List<TableIdentifier> result = catalog.listTables(Namespace.of(DB));
-
-    Assertions.assertEquals(
-        allRows.stream()
-            .map(row -> TableIdentifier.of(row.getDatabaseId(), row.getTableId()))
-            .collect(Collectors.toList()),
-        result);
-    // All 3 rows fit within a single HTS page (page size 1000), so only one call is expected.
-    verify(repo, times(1)).findAllByDatabaseId(eq(DB), any(Pageable.class));
-  }
-
-  @Test
-  void listTablesForDatabasePaginatesAcrossMultipleHtsPages() {
-    // More rows than fit on a single HTS page (page size 1000) so the fix's pagination loop must
-    // issue more than one call and aggregate every page before returning.
-    List<HouseTable> allRows =
-        IntStream.range(0, 1500)
-            .mapToObj(i -> houseTableRow(DB, "t" + i))
-            .collect(Collectors.toList());
-    HouseTableRepository repo = mock(HouseTableRepository.class);
-    when(repo.findAllByDatabaseId(eq(DB), any(Pageable.class)))
-        .thenAnswer(invocation -> slicedPage(allRows, invocation.getArgument(1)));
-    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
-    catalog.houseTableRepository = repo;
-
-    List<TableIdentifier> result = catalog.listTables(Namespace.of(DB));
-
-    Assertions.assertEquals(
-        allRows.stream()
-            .map(row -> TableIdentifier.of(row.getDatabaseId(), row.getTableId()))
-            .collect(Collectors.toList()),
-        result);
-    verify(repo, times(2)).findAllByDatabaseId(eq(DB), any(Pageable.class));
-  }
-
-  @Test
-  void listTablesForDatabaseReturnsEmptyListWhenDatabaseHasNoTables() {
-    HouseTableRepository repo = mock(HouseTableRepository.class);
-    when(repo.findAllByDatabaseId(eq(DB), any(Pageable.class)))
-        .thenAnswer(invocation -> slicedPage(List.of(), invocation.getArgument(1)));
-    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
-    catalog.houseTableRepository = repo;
-
-    Assertions.assertTrue(catalog.listTables(Namespace.of(DB)).isEmpty());
-    verify(repo, times(1)).findAllByDatabaseId(eq(DB), any(Pageable.class));
-  }
-
-  @Test
-  void listTablesForEmptyNamespacePaginatesThroughFindAll() {
-    List<HouseTable> allRows = List.of(houseTableRow(DB, "t0"), houseTableRow("other_db", "t1"));
-    HouseTableRepository repo = mock(HouseTableRepository.class);
-    when(repo.findAll(any(Pageable.class)))
-        .thenAnswer(invocation -> slicedPage(allRows, invocation.getArgument(0)));
-    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
-    catalog.houseTableRepository = repo;
-
-    List<TableIdentifier> result = catalog.listTables(Namespace.empty());
-
-    Assertions.assertEquals(
-        List.of(TableIdentifier.of(DB, "Unused"), TableIdentifier.of("other_db", "Unused")),
-        result);
-  }
-
-  private static HouseTable houseTableRow(String databaseId, String tableId) {
-    return HouseTable.builder().databaseId(databaseId).tableId(tableId).build();
-  }
-
-  /**
-   * Slices {@code allRows} according to {@code pageable}'s offset/page size, mirroring how a real
-   * paginated HTS response would be constructed, so {@link PageImpl#hasNext()} reports correctly
-   * and the catalog's pagination loop can be exercised end-to-end.
-   */
-  private static Page<HouseTable> slicedPage(List<HouseTable> allRows, Pageable pageable) {
-    int start = Math.min((int) pageable.getOffset(), allRows.size());
-    int end = Math.min(start + pageable.getPageSize(), allRows.size());
-    return new PageImpl<>(new ArrayList<>(allRows.subList(start, end)), pageable, allRows.size());
   }
 
   @Test
@@ -237,6 +149,107 @@ public class OpenHouseInternalCatalogTest {
 
     verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(false));
     verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  /**
+   * Wires the allocation collaborators as mocks so a pure-read test can assert the neutral
+   * occupancy read never touches them, and bypasses real fileIO resolution via {@link
+   * FixedFileIOCatalog}.
+   */
+  private static OpenHouseInternalCatalog catalogOver(HouseTableRepository repo, FileIO fileIO) {
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+    catalog.fileIOManager = mock(FileIOManager.class);
+    catalog.storageSelector = mock(StorageSelector.class);
+    catalog.meterRegistry = new SimpleMeterRegistry();
+    return catalog;
+  }
+
+  private static FileIO recordingFileIO() {
+    return mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+  }
+
+  /**
+   * The typed table read filters out anything that is not a canonical table, as House Table does.
+   */
+  private static HouseTableRepository repoHolding(HouseTable occupant) {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    Optional<HouseTable> row = Optional.ofNullable(occupant);
+    when(repo.findEntityById(any(HouseTablePrimaryKey.class))).thenReturn(row);
+    when(repo.findById(any(HouseTablePrimaryKey.class)))
+        .thenReturn(row.filter(o -> "TABLE".equals(o.getEntityType())));
+    return repo;
+  }
+
+  private static HouseTable occupantOfType(String entityType) {
+    return HouseTable.builder()
+        .databaseId(DB)
+        .tableId(TABLE)
+        .tableLocation(METADATA_LOCATION)
+        .entityType(entityType)
+        .build();
+  }
+
+  /**
+   * Whatever holds the name — a view, a table, or a non-canonical 'Table' — the neutral occupancy
+   * read reports it with its own type from the pointer row alone, so no occupied name looks free
+   * and no create can reach allocation. Classification of a canonical view is the caller's. The
+   * read allocates nothing, reads no metadata.json, writes nothing, and never falls back to the raw
+   * table- or view-typed lookups.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("populatedOccupants")
+  void findEntityByIdReportsAnyOccupantByItsTypeWithoutAllocatingOrReading(
+      String caseName, String entityType) {
+    HouseTableRepository repo = repoHolding(occupantOfType(entityType));
+    FileIO fileIO = recordingFileIO();
+    OpenHouseInternalCatalog catalog = catalogOver(repo, fileIO);
+
+    Optional<HouseTable> occupant = catalog.findEntityById(IDENTIFIER);
+
+    // Present, carrying its own type back to the caller who classifies it.
+    Assertions.assertTrue(occupant.isPresent());
+    Assertions.assertEquals(entityType, occupant.get().getEntityType());
+    // Exactly one neutral occupancy read at the key, and never the raw table- or view-typed reads.
+    verify(repo, times(1))
+        .findEntityById(HouseTablePrimaryKey.builder().databaseId(DB).tableId(TABLE).build());
+    verify(repo, never()).findById(any(HouseTablePrimaryKey.class));
+    verify(repo, never()).findViewById(any(HouseTablePrimaryKey.class));
+    // A pure read allocates nothing, reads no metadata.json, and writes nothing while answering.
+    verify(catalog.storageSelector, never()).selectStorage(any(), any());
+    verifyNoInteractions(catalog.fileIOManager);
+    verifyNoInteractions(fileIO);
+    verify(repo, never()).save(any(HouseTable.class));
+    verify(repo, never()).saveView(any(HouseTable.class));
+  }
+
+  private static Stream<Arguments> populatedOccupants() {
+    return Stream.of(
+        Arguments.of("a view occupant is reported with its VIEW type", "VIEW"),
+        Arguments.of("a table occupant is reported with its TABLE type", "TABLE"),
+        Arguments.of("a non-canonical 'Table' occupant still holds the name", "Table"));
+  }
+
+  /** The parse boundary resolves a legacy null to TABLE, so the catalog never sees a null. */
+  @Test
+  void findEntityByIdReportsAFreeNameAsAbsentAndLeavesTheRaceToTheServerGuard() {
+    OpenHouseInternalCatalog catalog = catalogOver(repoHolding(null), recordingFileIO());
+
+    Assertions.assertFalse(catalog.findEntityById(IDENTIFIER).isPresent());
+  }
+
+  /**
+   * An identifier this catalog does not own short-circuits the guard, so metadata-table and
+   * invalid-identifier handling are untouched by the create-decision change.
+   */
+  @Test
+  void findEntityByIdReturnsEmptyForAnIdentifierThisCatalogDoesNotOwn() {
+    HouseTableRepository repo = repoHolding(occupantOfType("VIEW"));
+    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
+
+    Assertions.assertFalse(catalog.findEntityById(TableIdentifier.of(TABLE)).isPresent());
+
+    verify(repo, never()).findEntityById(any(HouseTablePrimaryKey.class));
   }
 
   /** Test subclass that bypasses the real {@link OpenHouseInternalCatalog#resolveFileIO} wiring. */

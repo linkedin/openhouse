@@ -3,17 +3,21 @@ package com.linkedin.openhouse.tables.mock;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -31,6 +35,15 @@ import org.springframework.stereotype.Component;
 @Primary
 public class MockTablesApiHandler implements TablesApiHandler {
   @Override
+  public ApiResponse<Void> deleteLock(
+      String databaseId,
+      String tableId,
+      LockReason reason,
+      String extractAuthenticatedUserPrincipal) {
+    return null;
+  }
+
+  @Override
   public ApiResponse<GetTableResponseBody> getTable(
       String databaseId, String tableId, String actingPrincipal) {
     switch (databaseId) {
@@ -41,6 +54,20 @@ public class MockTablesApiHandler implements TablesApiHandler {
             .build();
       case "d404":
         throw new NoSuchUserTableException(databaseId, tableId);
+      case "dnullpointer":
+        throw new NullPointerException(); // test for exception handler
+      default:
+        return null;
+    }
+  }
+
+  @Override
+  public ApiResponse<Void> tableExists(String databaseId, String tableId) {
+    switch (databaseId) {
+      case "d200":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.OK).build();
+      case "d404":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.NOT_FOUND).build();
       case "dnullpointer":
         throw new NullPointerException(); // test for exception handler
       default:
@@ -325,6 +352,7 @@ public class MockTablesApiHandler implements TablesApiHandler {
     }
   }
 
+  @lombok.SneakyThrows
   private void throwTableException(String tableId) {
     switch (tableId) {
       case "entityconcurrentmodificationexception":
@@ -344,6 +372,8 @@ public class MockTablesApiHandler implements TablesApiHandler {
       case "invalidschemaevolutionexception":
         throw new InvalidSchemaEvolutionException(
             "Invalid Schema Evolution Exception", "oldSchema", "newSchema");
+      case "historicpartitioncolumnremovedexception":
+        throw new HistoricPartitionColumnRemovedException("id");
       case "unsupportedclientoperationexception":
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.ALTER_TABLE_TYPE,
@@ -353,6 +383,24 @@ public class MockTablesApiHandler implements TablesApiHandler {
       case "invalidtablemetadataexception":
         throw new InvalidTableMetadataException(
             "testDb", "testTable", "corrupt metadata", new RuntimeException());
+      case "metadataillegalargumentexception":
+        IllegalArgumentException metadataFailure =
+            new IllegalArgumentException("Invalid stored schema");
+        MetadataRefreshFailureContext.mark(metadataFailure);
+        throw metadataFailure;
+      case "unrelatedillegalargumentexception":
+        MetadataRefreshFailureContext.mark(
+            new IllegalArgumentException("Previously handled metadata failure"));
+        throw new IllegalArgumentException("Invalid caller input");
+      case "metadatafilenotfoundexception":
+        throw new java.io.FileNotFoundException("Missing metadata");
+      case "metadatanotfoundexception":
+        throw new org.apache.iceberg.exceptions.NotFoundException("Missing metadata");
+      case "metadatavalidationexception":
+        throw new org.apache.iceberg.exceptions.ValidationException("Inconsistent metadata");
+      case "storagedependencyunavailableexception":
+        throw new StorageDependencyUnavailableException(
+            "testDb", "testTable", "transient storage failure", new RuntimeException());
       case "illegalstateexception":
         throw new IllegalStateException("Illegal State Exception");
       case "authorizationserviceexception":

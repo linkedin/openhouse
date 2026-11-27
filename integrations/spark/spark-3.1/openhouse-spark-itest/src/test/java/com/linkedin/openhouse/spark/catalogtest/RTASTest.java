@@ -5,14 +5,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.types.Types;
+import org.apache.spark.SparkException;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterEach;
@@ -105,14 +110,91 @@ public class RTASTest extends OpenHouseSparkITest {
       assertEquals(
           "val2", rtasTable.properties().get("prop2"), "Should have preserved table property");
       assertEquals("val3", rtasTable.properties().get("prop3"), "Should have new table property");
-      // verify policies are removed
-      assertEquals("", rtasTable.properties().get("policies"));
+      // verify policies are preserved across the replace (RTAS merges the existing policies plane
+      // rather than wiping it)
+      assertTrue(
+          rtasTable.properties().get("policies").contains("history"),
+          "History policy should be preserved across RTAS");
       // verify data is readable
       List<Row> rows =
           spark
               .sql(String.format("SELECT id, data, part FROM %s ORDER BY part, id", tableName))
               .collectAsList();
       assertEquals(3, rows.size());
+    }
+  }
+
+  @Test
+  public void testRTASPartitionColumnDropEnabledReachesIcebergValidation() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      createTableWithFormerPartitionColumn(spark, getOpenHouseCatalog(spark));
+      spark.sql(
+          String.format(
+              "ALTER TABLE %s SET TBLPROPERTIES ('replace.partition-column-drop.enabled'='true')",
+              tableName));
+
+      SparkException exception =
+          assertThrows(
+              SparkException.class,
+              () ->
+                  spark.sql(
+                      String.format(
+                          "REPLACE TABLE %s USING iceberg AS SELECT data FROM %s",
+                          tableName, sourceName)));
+      ValidationException cause =
+          assertInstanceOf(ValidationException.class, ExceptionUtils.getRootCause(exception));
+      assertEquals(
+          "Cannot find source column for partition field: 1000: id: identity(1)",
+          cause.getMessage());
+    }
+  }
+
+  @Test
+  public void testRTASPartitionColumnDropDisabledIsRejected() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      createTableWithFormerPartitionColumn(spark, getOpenHouseCatalog(spark));
+      spark.sql(
+          String.format(
+              "ALTER TABLE %s SET TBLPROPERTIES ('replace.partition-column-drop.enabled'='false')",
+              tableName));
+      BadRequestException exception =
+          assertThrows(
+              BadRequestException.class,
+              () ->
+                  spark.sql(
+                      String.format(
+                          "REPLACE TABLE %s USING iceberg AS SELECT data FROM %s",
+                          tableName, sourceName)));
+      assertTrue(
+          exception
+              .getMessage()
+              .contains(
+                  "RTAS does not support dropping a partition column [id]. Only removing partitioning is allowed"),
+          exception.getMessage());
+    }
+  }
+
+  @Test
+  public void testRTASKeepsNestedPartitionColumnWithReassignedRequestIds() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg PARTITIONED BY (bucket(4, header.id)) "
+                  + "TBLPROPERTIES ('replace.enabled'='true') "
+                  + "AS SELECT data, named_struct('id', id) AS header FROM %s",
+              tableName, sourceName));
+      Table before = catalog.loadTable(tableIdent);
+
+      spark.sql(
+          String.format(
+              "REPLACE TABLE %s USING iceberg "
+                  + "AS SELECT named_struct('id', id) AS header FROM %s",
+              tableName, sourceName));
+
+      Table after = catalog.loadTable(tableIdent);
+      assertEquals(before.schema().select("header").asStruct(), after.schema().asStruct());
+      assertTrue(after.spec().isUnpartitioned());
     }
   }
 
@@ -308,5 +390,64 @@ public class RTASTest extends OpenHouseSparkITest {
           2, Iterables.size(rtasTable.snapshots()), "Table should have expected snapshots");
       assertNull(rtasTable.currentSnapshot().parentId(), "Current snapshot should have no parent");
     }
+  }
+
+  /**
+   * An ordinary transaction is free to change metadata and append data in a single commit, and that
+   * must stay an update. It reaches the catalog client looking exactly like an RTAS — non-null
+   * base, metadata changed, snapshots changed — so the client has to take the replace intent from
+   * the transaction that produced the commit rather than from the diff.
+   *
+   * <p>Without that, the commit is sent as a replace and the server rejects it outright, since the
+   * table never opted into RTAS.
+   */
+  @Test
+  public void testMetadataAndAppendInOneTransactionIsNotAReplace() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = catalog.loadTable(tableIdent);
+      long baseSnapshotId = table.currentSnapshot().snapshotId();
+      DataFile existingFile =
+          Iterables.getOnlyElement(table.currentSnapshot().addedDataFiles(table.io()));
+
+      Transaction transaction = table.newTransaction();
+      transaction.updateProperties().set("prop1", "val1").commit();
+      transaction.newAppend().appendFile(existingFile).commit();
+      transaction.commitTransaction();
+
+      Table updated = catalog.loadTable(tableIdent);
+      assertEquals("val1", updated.properties().get("prop1"), "Property should have been set");
+      // A replace resets the main branch, so a misrouted commit would leave the current snapshot
+      // parentless and the previous data unreferenced.
+      assertEquals(
+          baseSnapshotId,
+          updated.currentSnapshot().parentId(),
+          "Commit should extend history, not replace the table");
+      assertEquals(2, Iterables.size(updated.snapshots()), "Append should have added a snapshot");
+      assertEquals(
+          1,
+          Iterables.size(updated.currentSnapshot().addedDataFiles(updated.io())),
+          "Append should have added the data file");
+
+      // The commit landed outside Spark, so drop its cached plan before reading the doubled data.
+      spark.sql(String.format("REFRESH TABLE %s", tableName));
+      assertEquals(6, spark.sql(String.format("SELECT * FROM %s", tableName)).count());
+    }
+  }
+
+  private static void createTableWithFormerPartitionColumn(SparkSession spark, Catalog catalog) {
+    spark.sql(
+        String.format(
+            "CREATE TABLE %s USING iceberg PARTITIONED BY (id) "
+                + "TBLPROPERTIES ('replace.enabled'='true') AS SELECT * FROM %s",
+            tableName, sourceName));
+    // OpenHouse does not support ALTER DROP PARTITION FIELD; RTAS removes only the partitioning.
+    spark.sql(
+        String.format("REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+    assertTrue(catalog.loadTable(tableIdent).spec().isUnpartitioned());
   }
 }

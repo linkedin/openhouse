@@ -24,7 +24,10 @@ import com.linkedin.openhouse.tables.client.model.ReplicationConfig;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -38,6 +41,9 @@ import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -72,6 +78,43 @@ public class TablesClientTest {
   private TablesClient client;
   private DatabaseApi dbApiMock;
   private StorageClient storageClient;
+
+  @Test
+  void testSystemActionHeaderIsSentOnlyWhenRequestedAndColumnDefaultsAlways() throws IOException {
+    List<String> declarations = Collections.synchronizedList(new ArrayList<>());
+    List<String> capabilities = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+    server.createContext(
+        "/v1/databases",
+        exchange -> {
+          declarations.add(exchange.getRequestHeaders().getFirst("X-OpenHouse-Action-Type"));
+          capabilities.add(
+              exchange.getRequestHeaders().getFirst("X-OpenHouse-Client-Capabilities"));
+          byte[] body = "{\"results\":[]}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    server.start();
+    try {
+      String basePath = "http://localhost:" + server.getAddress().getPort();
+      DatabaseTableFilter filter = DatabaseTableFilter.of(".*", ".*", 0);
+      for (TablesClient client :
+          Arrays.asList(
+              new TablesClientFactory(basePath, filter, "token", null)
+                  .withSystemAction(true)
+                  .create(),
+              new TablesClientFactory(basePath, filter, "token", null).create())) {
+        client.getDatabases();
+        client.getAllTables("db");
+      }
+    } finally {
+      server.stop(0);
+    }
+    Assertions.assertEquals(Arrays.asList("SYSTEM", "SYSTEM", null, null), declarations);
+    Assertions.assertEquals(Collections.nCopies(4, "column-defaults"), capabilities);
+  }
 
   @BeforeEach
   void setup() {
@@ -313,6 +356,34 @@ public class TablesClientTest {
         result.orElse(null));
     Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(apiMock, Mockito.times(1)).getTableV1(testDbName, testTableNamePartitioned);
+  }
+
+  @ParameterizedTest
+  @NullAndEmptySource
+  @ValueSource(strings = {"America/Los_Angeles", " "})
+  void testRetentionCarriesTimeZoneIntoJobConfiguration(String timeZone) {
+    TimePartitionSpec partitionSpec = Mockito.mock(TimePartitionSpec.class);
+    Policies policies = Mockito.mock(Policies.class);
+    Retention retention = Mockito.mock(Retention.class);
+    Mockito.when(policies.getRetention()).thenReturn(retention);
+    Mockito.when(retention.getCount()).thenReturn(testRetentionTTLDays);
+    Mockito.when(retention.getGranularity()).thenReturn(Retention.GranularityEnum.DAY);
+    Mockito.when(retention.getTimeZone()).thenReturn(timeZone);
+    Mockito.when(partitionSpec.getColumnName()).thenReturn(testPartitionColumnName);
+    GetTableResponseBody responseBody =
+        setUpResponseBodyMock(testDbName, testTableNamePartitioned, partitionSpec, policies);
+    Mockito.when(responseBody.getTableType())
+        .thenReturn(GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(responseBody);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned)).thenReturn(responseMock);
+
+    Optional<RetentionConfig> result =
+        client.getTableRetention(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build());
+
+    Assertions.assertTrue(result.isPresent());
+    Assertions.assertEquals(Optional.ofNullable(timeZone), result.get().getTimeZone());
   }
 
   @Test

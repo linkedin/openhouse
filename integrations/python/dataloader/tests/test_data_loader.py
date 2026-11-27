@@ -15,7 +15,15 @@ from pyiceberg.types import DoubleType, LongType, NestedField, StringType
 from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
-from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader, __version__
+from openhouse.dataloader import (
+    DataLoaderContext,
+    JvmConfig,
+    OpenHouseAuthenticationError,
+    OpenHouseDataLoader,
+    OpenHouseHTTPError,
+    OpenHouseTransportError,
+    __version__,
+)
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
 from openhouse.dataloader.filters import SqlTarget, col
 from openhouse.dataloader.table_transformer import TableTransformer
@@ -210,8 +218,10 @@ def _make_http_error(status_code: int) -> HTTPError:
         RequestsConnectionError("refused"),
         Timeout("timed out"),
         _make_http_error(503),
+        OpenHouseTransportError("connection reset", request_id="request-id"),
+        OpenHouseHTTPError("db", "tbl", status_code=503, response_body="unavailable", request_id="request-id"),
     ],
-    ids=["OSError", "ConnectionError", "Timeout", "5xx"],
+    ids=["OSError", "ConnectionError", "Timeout", "requests-5xx", "OpenHouseTransportError", "OpenHouse-5xx"],
 )
 def test_load_table_retries_on_transient_error(tmp_path, error):
     """load_table retries on transient errors and succeeds on the second attempt."""
@@ -236,6 +246,22 @@ def test_load_table_does_not_retry_on_4xx_http_error():
     with pytest.raises(HTTPError):
         list(loader)
 
+    catalog.load_table.assert_called_once()
+
+
+def test_load_table_does_not_retry_on_authentication_error():
+    """OpenHouse authentication failures are typed and not retried."""
+    catalog = MagicMock()
+    catalog.load_table.side_effect = OpenHouseAuthenticationError(
+        "db", "tbl", status_code=401, response_body="Authentication failed", request_id="request-id"
+    )
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    with pytest.raises(OpenHouseAuthenticationError) as exc_info:
+        list(loader)
+
+    assert exc_info.value.request_id == "request-id"
     catalog.load_table.assert_called_once()
 
 
@@ -1067,3 +1093,141 @@ def test_projection_udf_with_mixed_case_materializes(tmp_path):
     assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
     # foo returns True; NOT True = False; bar(False, val, ...) returns val (not replaced)
     assert result.column("otherField").to_pylist() == ["x", "y", "z"]
+
+
+# --- Transform SQL spells the table differently from the requested identifier ---
+
+
+class _SpelledTableTransformer(TableTransformer):
+    """Emits SQL whose db/table spelling is fixed, like lower-cased view SQL from the Hive Metastore."""
+
+    def __init__(self, db: str, tbl: str):
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
+        self._db = db
+        self._tbl = tbl
+
+    def transform(self, table, context):
+        return f"SELECT id, 'MASKED' AS name, value FROM {self._db}.\"{self._tbl}\" WHERE value > 1.5"
+
+
+@pytest.mark.parametrize("sql_db,sql_tbl", [("mydb", "mytable"), ("MYDB", "MYTABLE"), ("myDb", "myTable")])
+def test_transformer_sql_spelling_differs_from_requested_identifier(tmp_path, sql_db, sql_tbl):
+    """Requested myDb.myTable, SQL spelled differently: same rows, output names and pushdown as a matching spelling."""
+    import pickle
+
+    from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
+
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="myDb",
+        table="myTable",
+        columns=[COL_ID, COL_NAME],
+        context=DataLoaderContext(table_transformer=_SpelledTableTransformer(sql_db, sql_tbl)),
+    )
+    splits = list(loader)
+    result = pa.Table.from_batches([b for s in splits for b in s])
+
+    assert result.column_names == [COL_ID, COL_NAME]
+    assert sorted(result.column(COL_ID).to_pylist()) == [2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["MASKED", "MASKED"]
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert scan_kwargs["selected_fields"] == (COL_ID, COL_VALUE)
+    assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
+
+    restored = pa.Table.from_batches([b for s in splits for b in pickle.loads(pickle.dumps(s))])
+    assert restored.equals(result)
+
+
+def test_transformer_sql_for_different_table_is_rejected(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="myDb",
+        table="myTable",
+        context=DataLoaderContext(table_transformer=_SpelledTableTransformer("mydb", "othertable")),
+    )
+
+    with pytest.raises(ValueError, match=r"references mydb\.othertable, expected myDb\.myTable"):
+        list(loader)
+
+
+# --- Every SQL casing must behave exactly like the exact-spelling run ---
+
+_SPELLINGS = [("myDb", "myTable"), ("mydb", "mytable"), ("MYDB", "MYTABLE")]
+_SHAPES = {
+    "table_qualified": "SELECT {t}.id, {t}.value FROM {db}.{t} WHERE {t}.value > 1.5",
+    "db_table_qualified": "SELECT {db}.{t}.id, {db}.{t}.value FROM {db}.{t} WHERE {db}.{t}.value > 1.5",
+    "qualified_star": "SELECT {t}.* FROM {db}.{t} WHERE {t}.value > 1.5",
+    "explicit_alias": "SELECT x.id, x.value FROM {db}.{t} AS x WHERE x.value > 1.5",
+    "subquery_alias_is_table_name": (
+        "SELECT {t}.id, {t}.value FROM (SELECT id, value FROM {db}.{t} WHERE value > 1.5) AS {t}"
+    ),
+}
+
+
+_SHAPE_SOURCE_COLUMNS = {"qualified_star": (COL_ID, COL_NAME, COL_VALUE)}
+
+
+class _SqlTransformer(TableTransformer):
+    def __init__(self, sql: str):
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
+        self._sql = sql
+
+    def transform(self, table, context):
+        return self._sql
+
+
+def _run_shape(tmp_path, request, shape, sql_spelling):
+    """Load via OpenHouseDataLoader; return (rows, rows from pickled splits, selected_fields, row_filter)."""
+    import pickle
+
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+    sql = _SHAPES[shape].format(db=sql_spelling[0], t=sql_spelling[1])
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database=request[0],
+        table=request[1],
+        context=DataLoaderContext(table_transformer=_SqlTransformer(sql)),
+    )
+    splits = list(loader)
+    result = pa.Table.from_batches([b for s in splits for b in s])
+    restored = pa.Table.from_batches([b for s in splits for b in pickle.loads(pickle.dumps(s))])
+    kwargs = mock_table.scan.call_args.kwargs
+    return result, restored, kwargs["selected_fields"], kwargs["row_filter"]
+
+
+@pytest.mark.parametrize("request_spelling", _SPELLINGS)
+@pytest.mark.parametrize("sql_spelling", _SPELLINGS)
+@pytest.mark.parametrize("shape", list(_SHAPES))
+def test_sql_casing_matches_exact_spelling_run(tmp_path, shape, sql_spelling, request_spelling):
+    expected_dir = tmp_path / "exact"
+    actual_dir = tmp_path / "actual"
+    expected_dir.mkdir()
+    actual_dir.mkdir()
+
+    expected, _, expected_fields, expected_filter = _run_shape(expected_dir, request_spelling, shape, request_spelling)
+    actual, restored, actual_fields, actual_filter = _run_shape(actual_dir, request_spelling, shape, sql_spelling)
+
+    assert actual.column_names == expected.column_names
+    assert actual.equals(expected)
+    assert restored.equals(expected)
+    assert sorted(actual.column("id").to_pylist()) == [2, 3]
+    assert actual_fields == expected_fields == _SHAPE_SOURCE_COLUMNS.get(shape, (COL_ID, COL_VALUE))
+    assert actual_filter == expected_filter
+    assert str(actual_filter) == "GreaterThan(term=Reference(name='value'), literal=DoubleLiteral(1.5))"
+
+
+@pytest.mark.parametrize("request_spelling", _SPELLINGS)
+@pytest.mark.parametrize("sql_spelling", _SPELLINGS)
+@pytest.mark.parametrize("shape", list(_SHAPES))
+def test_sql_for_different_table_errors_for_every_casing(tmp_path, shape, sql_spelling, request_spelling):
+    wrong = (sql_spelling[0], sql_spelling[1] + "_other")
+
+    with pytest.raises(ValueError, match=r"references .*_other, expected "):
+        _run_shape(tmp_path, request_spelling, shape, wrong)

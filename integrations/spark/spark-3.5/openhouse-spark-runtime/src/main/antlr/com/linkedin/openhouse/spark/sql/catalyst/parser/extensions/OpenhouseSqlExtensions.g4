@@ -29,6 +29,7 @@ statement
   | ALTER TABLE multipartIdentifier SET POLICY '(' sharingPolicy ')'                                   #setSharingPolicy
   | ALTER TABLE multipartIdentifier SET POLICY '(' historyPolicy ')'                                   #setHistoryPolicy
   | ALTER TABLE multipartIdentifier MODIFY columnNameClause SET columnPolicy                           #setColumnPolicyTag
+  | ALTER TABLE multipartIdentifier UNLOCK (REASON lockReason=identifier)?                             #unlockTable
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
   | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
@@ -69,7 +70,8 @@ quotedIdentifier
 
 nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
-    | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
+    | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN | WITH | TIMEZONE
+    | UNLOCK | REASON
     | VACUUM | REMOVE | ORPHAN | FILES | RETAIN | HOURS
     ;
 
@@ -82,7 +84,7 @@ BOOLEAN
     ;
 
 retentionPolicy
-    : RETENTION '=' duration
+    : RETENTION '=' duration (WITH TIMEZONE STRING)?
     ;
 
 columnRetentionPolicy
@@ -200,6 +202,8 @@ DESTINATION: 'DESTINATION';
 INTERVAL: 'INTERVAL';
 WHERE: 'WHERE';
 COLUMN: 'COLUMN';
+WITH: 'WITH';
+TIMEZONE: 'TIMEZONE';
 PII: 'PII';
 HC: 'HC';
 MODIFY: 'MODIFY';
@@ -207,6 +211,8 @@ TAG: 'TAG';
 NONE: 'NONE';
 VERSIONS: 'VERSIONS';
 MAX_AGE: 'MAX_AGE';
+UNLOCK: 'UNLOCK';
+REASON: 'REASON';
 VACUUM: 'VACUUM';
 REMOVE: 'REMOVE';
 ORPHAN: 'ORPHAN';

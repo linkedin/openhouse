@@ -3,7 +3,7 @@ package com.linkedin.openhouse.internal.catalog;
 public final class InternalCatalogMetricsConstant {
   private InternalCatalogMetricsConstant() {}
 
-  static final String METRICS_PREFIX = "catalog";
+  public static final String METRICS_PREFIX = "catalog";
 
   static final String COMMIT_FAILED_CTR = "commit_failed";
   static final String COMMIT_STATE_UNKNOWN = "commit_state_unknown";
@@ -18,6 +18,10 @@ public final class InternalCatalogMetricsConstant {
 
   static final String METADATA_UPDATE_LATENCY = "metadata_update_latency";
   static final String METADATA_RETRIEVAL_LATENCY = "metadata_retrieval_latency";
+
+  public static final String VIEW_COMMIT_LATENCY = "view_commit_latency";
+  public static final String VIEW_METADATA_RETRIEVAL_LATENCY = "view_metadata_retrieval_latency";
+  public static final String VIEW_METADATA_UPDATE_LATENCY = "view_metadata_update_latency";
 
   public static final String METADATA_CACHE_REMOVAL_CTR = "metadata_cache_removal";
 

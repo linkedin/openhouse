@@ -5,14 +5,23 @@ import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.stats.model.ColumnData;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.ReplicationPolicyStatsSchema;
+import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import java.util.Arrays;
 import java.util.List;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
 /**
  * Unit tests for TableStatsCollectorUtil utility methods.
@@ -23,6 +32,33 @@ import org.junit.jupiter.api.Test;
  * @see com.linkedin.openhouse.jobs.spark.TableStatsCollectionSparkAppTest
  */
 public class TableStatsCollectorUtilTest {
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void testEarliestPartitionDateSkipsNonPartitionRetentionColumn(boolean partitioned) {
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(1, "datepartition", Types.StringType.get()),
+            Types.NestedField.optional(2, "region", Types.StringType.get()));
+    Table table = Mockito.mock(Table.class);
+    SparkSession spark = Mockito.mock(SparkSession.class);
+    Mockito.when(table.spec())
+        .thenReturn(
+            partitioned
+                ? PartitionSpec.builderFor(schema).identity("region").build()
+                : PartitionSpec.unpartitioned());
+    RetentionStatsSchema retention =
+        RetentionStatsSchema.builder()
+            .count(1)
+            .granularity("DAY")
+            .columnName("datepartition")
+            .columnPattern("yyyy-MM-dd")
+            .build();
+
+    Assertions.assertNull(
+        TableStatsCollectorUtil.getEarliestPartitionDate(table, spark, retention));
+    Mockito.verifyNoInteractions(spark);
+  }
 
   @Test
   public void testGetDatabaseName_withTwoPartName() {

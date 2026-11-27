@@ -253,6 +253,40 @@ public class TablesServiceTest {
   }
 
   @Test
+  public void testStagedReplaceChecksUpdateTableMetadataPrivilege() {
+    TableDto tableDto =
+        TABLE_DTO
+            .toBuilder()
+            .databaseId("rtas_auth_database")
+            .tableId("rtas_auth_table")
+            .tableUri(CLUSTER_NAME + ".rtas_auth_database.rtas_auth_table")
+            .policies(null)
+            .tableProperties(
+                ImmutableMap.<String, String>builder()
+                    .putAll(TABLE_DTO.getTableProperties())
+                    .put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true")
+                    .build())
+            .build();
+    TableDto createdTable = verifyPutTableRequest(tableDto, null, true);
+    Mockito.clearInvocations(authorizationHandler);
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.putTable(
+                buildCreateUpdateTableRequestBody(tableDto)
+                    .toBuilder()
+                    .baseTableVersion(createdTable.getTableLocation())
+                    .stageReplace(true)
+                    .build(),
+                TEST_USER,
+                false));
+
+    Mockito.verify(authorizationHandler)
+        .checkAccessDecision(TEST_USER, createdTable, Privileges.UPDATE_TABLE_METADATA);
+    tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+  }
+
+  @Test
   public void testTableDeleteThatDoesNotExist() {
     Assertions.assertThrows(
         NoSuchUserTableException.class,
@@ -305,6 +339,47 @@ public class TablesServiceTest {
         () ->
             tablesService.deleteTable(
                 TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testTableExists() {
+    Assertions.assertFalse(
+        tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()),
+        "tableExists should be false before the table is created");
+
+    verifyPutTableRequest(TABLE_DTO, null, true);
+    Assertions.assertTrue(
+        tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()),
+        "tableExists should be true after the table is created");
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertFalse(
+        tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()),
+        "tableExists should be false after the table is deleted");
+  }
+
+  /**
+   * tableExists relies on the HTS-only findTableRefById lookup, so it must report existence without
+   * parsing metadata.json — even when metadata.json is corrupted and loadTable would throw.
+   */
+  @Test
+  public void testTableExistsWhenMetadataJsonIsCorrupted() throws IOException {
+    TableDto created = verifyPutTableRequest(TABLE_DTO, null, true);
+
+    try {
+      Path metadataPath = Paths.get(URI.create(created.getTableLocation()));
+      Files.write(metadataPath, "{\"not\":\"valid iceberg metadata\"}".getBytes());
+
+      // getTable parses metadata.json and fails, but tableExists only consults HTS and succeeds.
+      Assertions.assertThrows(
+          Exception.class,
+          () ->
+              tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+      Assertions.assertTrue(
+          tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()));
+    } finally {
+      tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    }
   }
 
   @Test

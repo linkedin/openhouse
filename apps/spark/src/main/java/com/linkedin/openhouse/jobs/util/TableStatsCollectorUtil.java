@@ -21,7 +21,6 @@ import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.ReplicationPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,10 +30,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.PartitionSpec;
@@ -218,45 +213,6 @@ public final class TableStatsCollectorUtil {
         .build();
   }
 
-  /** Collect storage stats for a given table. */
-  public static IcebergTableStats populateStorageStats(
-      Table table, FileSystem fs, IcebergTableStats stats) {
-    // Find the sum of file size in bytes on HDFS by listing recursively all files in the table
-    // location using filesystem call. This just replicates hdfs dfs -count and hdfs dfs -du -s.
-    long sumOfTotalDirectorySizeInBytes = 0;
-    long numOfObjectsInDirectory = 0;
-    Path tableRootPath = new Path(table.location());
-    String tableRootPrefix = tableRootPath.toString() + "/";
-    try {
-      RemoteIterator<LocatedFileStatus> it = fs.listFiles(tableRootPath, true);
-      while (it.hasNext()) {
-        LocatedFileStatus status = it.next();
-        // Skip files under hidden directories (starting with '.') at the table root level,
-        // e.g. .backup, .trash
-        String relativePath = status.getPath().toString().substring(tableRootPrefix.length());
-        if (relativePath.startsWith(".")) {
-          continue;
-        }
-        numOfObjectsInDirectory++;
-        sumOfTotalDirectorySizeInBytes += status.getLen();
-      }
-    } catch (IOException e) {
-      log.error("Error while listing files in HDFS directory for table: {}", table.name(), e);
-      return stats;
-    }
-
-    log.info(
-        "Table: {}, Count of objects in HDFS directory: {}, Sum of file sizes in bytes on HDFS: {}",
-        table.name(),
-        numOfObjectsInDirectory,
-        sumOfTotalDirectorySizeInBytes);
-    return stats
-        .toBuilder()
-        .numObjectsInDirectory(numOfObjectsInDirectory)
-        .totalDirectorySizeInBytes(sumOfTotalDirectorySizeInBytes)
-        .build();
-  }
-
   /** Collect table metadata for a given table. */
   public static IcebergTableStats populateTableMetadata(Table table, IcebergTableStats stats) {
     PolicyStats policyStats = getTablePolicies(table);
@@ -321,19 +277,20 @@ public final class TableStatsCollectorUtil {
     return result;
   }
 
-  private static String getEarliestPartitionDate(
+  static String getEarliestPartitionDate(
       Table table, SparkSession spark, RetentionStatsSchema retentionStatsSchema) {
 
     // Check if retention policy is present by checking if granularity exists
-    if (retentionStatsSchema.getGranularity() == null) {
+    if (retentionStatsSchema.getGranularity() == null || table.spec().isUnpartitioned()) {
       return null;
     }
     String partitionColumnName =
         retentionStatsSchema.getColumnName() != null
             ? retentionStatsSchema.getColumnName()
             : getPartitionColumnName(table);
-    // Table has no partition, we need to avoid AnalysisException
-    if (partitionColumnName == null) {
+    // Retention policies may reference a schema column that is not a partition field.
+    if (partitionColumnName == null
+        || table.spec().partitionType().field(partitionColumnName) == null) {
       return null;
     }
 

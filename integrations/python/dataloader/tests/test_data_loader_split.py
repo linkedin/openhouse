@@ -528,3 +528,39 @@ def test_multi_file_split_returns_all_rows(tmp_path):
         scan_context=split_a._scan_context,
     )
     assert reversed_split.id == combined.id
+
+
+# --- SQL table spelling differs from the catalog identifier ---
+
+
+@pytest.mark.parametrize("sql_db,sql_tbl", [("mydb", "mytable"), ("MYDB", "MYTABLE"), ("myDb", "myTable")])
+def test_split_binds_batch_under_sql_spelling_and_survives_pickle(tmp_path, sql_db, sql_tbl):
+    from openhouse.dataloader.scan_optimizer import optimize_scan
+
+    schema = Schema(
+        NestedField(field_id=1, name="id", field_type=LongType(), required=False),
+        NestedField(field_id=2, name="v", field_type=LongType(), required=False),
+    )
+    table = pa.table({"id": pa.array([1, 2, 3], type=pa.int64()), "v": pa.array([10, 20, 30], type=pa.int64())})
+    catalog_id = TableIdentifier("myDb", "myTable")
+    query = f'SELECT "id", "v" FROM (SELECT * FROM "{sql_db}"."{sql_tbl}") AS _t WHERE "id" > 1'
+    plan = optimize_scan(query, "datafusion", database="myDb", table="myTable", column_names=["id", "v"])
+
+    split = _create_test_split(tmp_path, table, FileFormat.PARQUET, schema, transform_sql=plan.sql, table_id=catalog_id)
+    ctx = split._scan_context
+    split._scan_context = TableScanContext(
+        table_metadata=ctx.table_metadata,
+        io=ctx.io,
+        projected_schema=ctx.projected_schema,
+        table_id=catalog_id,
+        sql_table_id=plan.sql_table,
+    )
+
+    restored = pickle.loads(pickle.dumps(split))
+
+    assert restored._scan_context.table_id == catalog_id
+    assert restored._scan_context.sql_table_id == plan.sql_table
+    for s in (split, restored):
+        result = pa.Table.from_batches(list(s))
+        assert result.column("id").to_pylist() == [2, 3]
+        assert result.column("v").to_pylist() == [20, 30]

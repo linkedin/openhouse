@@ -38,6 +38,12 @@ public class JobConf {
     DATA_COMPACTION,
     ORPHAN_DIRECTORY_DELETION,
     TABLE_STATS_COLLECTION,
+    /**
+     * Multi-table table-stats-collection. One Spark job collects stats for a list of tables that
+     * the optimizer scheduler bin-packed (by file count) into a single batch. See {@code
+     * BatchedTableStatsCollectionSparkApp}.
+     */
+    TABLE_STATS_COLLECTION_BATCH,
     DATA_LAYOUT_STRATEGY_GENERATION,
     DATA_LAYOUT_STRATEGY_EXECUTION,
     REPLICATION,

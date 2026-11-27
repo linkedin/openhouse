@@ -170,16 +170,24 @@ public abstract class OperationTask<T extends Metadata> implements Callable<Opti
 
   protected Optional<JobState> pollJobStatus(Attributes typeAttributes) {
     long startTime = System.currentTimeMillis();
+    Optional<JobState> lastObservedState = Optional.empty();
     try {
       Optional<JobState> jobState;
       do {
         jobState = jobsClient.getState(jobId);
+        lastObservedState = jobState;
         long elapsedTime = System.currentTimeMillis() - startTime;
         // Exit status check if a job is queued for more than queuedTimeoutMs.
         if (elapsedTime > queuedTimeoutMs) {
           if (jobState.isPresent() && jobState.get().equals(JobState.QUEUED)) {
+            String executionId =
+                jobsClient.getJob(jobId).map(JobResponseBody::getExecutionId).orElse(null);
             log.info(
-                "Exiting status check for {} for {} due to queued timeout", getType(), metadata);
+                "Exiting status check for {} for {} due to queued timeout lastObservedState={} executionId={}",
+                getType(),
+                metadata,
+                lastObservedState.orElse(null),
+                executionId);
             break;
           }
         }

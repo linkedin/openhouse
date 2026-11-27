@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import java.util.concurrent.Executors;
@@ -32,20 +33,38 @@ public abstract class BaseSparkApp extends BaseApp {
   public void run() {
     log.info("Running");
     String className = this.getClass().getSimpleName();
-    boolean isSuccess = true;
+    Throwable failure = null;
     try (Operations ops =
-        Operations.withCatalog(
-            SparkSession.builder().appName(className).getOrCreate(), otelEmitter)) {
+        Operations.withCatalog(sessionBuilder(className).getOrCreate(), otelEmitter)) {
       log.info("Session created");
       onStarted();
       runInner(ops);
       runValidations(ops);
     } catch (Throwable e) {
       log.error("Run failed, reason: {}", e.getMessage(), e);
-      isSuccess = false;
+      failure = e;
     } finally {
-      onFinished(isSuccess);
+      onFinished(failure == null);
     }
+    if (failure != null) {
+      throw new RuntimeException(String.format("Job %s failed", jobId), failure);
+    }
+  }
+
+  /**
+   * Whether the app declares SYSTEM, so it also maintains SYSTEM_ONLY-locked tables. A catalog
+   * already loaded by an existing session ignores it.
+   */
+  protected boolean isSystemAction() {
+    return false;
+  }
+
+  private SparkSession.Builder sessionBuilder(String appName) {
+    SparkSession.Builder builder = SparkSession.builder().appName(appName);
+    return isSystemAction()
+        ? builder.config(
+            "spark.sql.catalog.openhouse.action-type", WebClientFactory.ACTION_TYPE_SYSTEM)
+        : builder;
   }
 
   /**

@@ -41,6 +41,20 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
+## HouseTables tests
+
+**Java 17 and Docker are required** for the HouseTables (HTS) tests. They share one disposable
+MySQL Testcontainers instance per test JVM, built from the canonical
+`services/housetables/ddl/*.sql` files in filename order; data is reset before each test. A
+container or schema failure fails the tests; there is no H2 fallback. The MySQL version is
+`mysqlTestVersion` in `gradle.properties`, shared with the optimizer tests.
+
+```bash
+./gradlew :services:housetables:test
+```
+
+JUnit reports are under `build/housetables/reports/tests/`.
+
 ## Available Recipes
 
 Recipes for setting up OpenHouse in local docker are available [here](infra/recipes/docker-compose)
@@ -111,6 +125,7 @@ container|Exposed ports
 /tables|8000
 /housetables|8001
 /jobs|8002
+/optimizer (oh-hadoop-spark)|8003
 prometheus|9090
 spark-master|9001
 livy-server|9003
@@ -399,6 +414,59 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 
 ```
 
+#### Default-value opt-in
+
+Once `required-capability.column-defaults=true` is committed, it cannot be changed or removed.
+`false`, an unparseable value and an absent property remain changeable.
+
+Tables with `required-capability.column-defaults=true` admit only clients that declare the
+`column-defaults` capability in `X-OpenHouse-Client-Capabilities`, for table loads (`GET`), creates
+(`POST`), updates (`PUT`) and snapshot commits (`PUT …/iceberg/v2/snapshots`). Other table
+endpoints, such as search, delete, rename, ACL, lock, purge and restore, are not gated. The gate
+checks each request: it cannot revoke metadata a client already loaded, and it never sees reads or
+writes that go straight to the table's files in storage. Tables without that property are never
+checked.
+
+The server enforces only capabilities it knows; today that is `column-defaults`. Table property
+keys are exact, as in Iceberg: only `required-capability.column-defaults` gates clients and turns
+on column defaults. Any other `required-capability.<name>`, a misspelled prefix or a different case
+(`required-capability.Column-Defaults`) is an ordinary property and requires nothing.
+
+`X-OpenHouse-Client-Capabilities` is a comma-separated, case-insensitive list; repeated headers add
+up. Clients may declare any name; the server ignores names it does not know. A capability is the
+client's promise about its own behavior: `column-defaults` means the client
+never returns rows from a table with column defaults without applying them, and never commits a
+schema that drops one. The Spark catalog (`com.linkedin.openhouse.spark.OpenHouseCatalog`) declares
+`column-defaults`, because Spark reads rows through Iceberg's readers, which apply them. The Java
+catalog (`com.linkedin.openhouse.javaclient.OpenHouseCatalog`) loads column defaults into the
+table's schema but declares nothing: whether rows read through it carry them depends on the engine
+that reads them, so engines such as Trino that build on it are refused. Any other client declares
+capabilities itself: a Java catalog adds to its own with
+`spark.sql.catalog.openhouse.header.X-OpenHouse-Client-Capabilities=<name>,...` (or the same suffix
+in Java catalog properties), and other clients send the header. For example, a replication job that
+never scans rows can declare `column-defaults`, and the jobs scheduler's tables client, which reads
+only table metadata, declares it. Every gated request is logged with the client's
+`X-Client-Name`, User-Agent and declared capabilities, and whether it was admitted.
+
+A client that does not declare a capability the table requires fails with HTTP **422**, and the
+rejection names the table, the capability and what the client sent:
+`CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this client does
+not declare (X-Client-Name: trino, User-Agent: ..., X-OpenHouse-Client-Capabilities: (none)). Use a
+client that declares column-defaults in X-OpenHouse-Client-Capabilities.` It does not mention the
+escape hatch.
+
+The default-off escape hatch is the request header
+`X-OpenHouse-Dangerously-Bypass-Column-Default-Policy: true`. A catalog sends it when configured with
+`spark.sql.catalog.openhouse.header.X-OpenHouse-Dangerously-Bypass-Column-Default-Policy=true` (or
+the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
+request header. It bypasses only column-default policy checks: the `column-defaults` capability (no
+other capability), the rule that a committed `required-capability.column-defaults=true` cannot be
+changed or removed, and the checks that a commit keeps a column's default and that a snapshot commit
+comes from a client that declares `column-defaults`. Incorrect reads or writes may result.
+Authentication, authorization and default resolution still apply, and `initial-default` is still
+stripped from writes. JARs without `header.` catalog properties need an upgrade/backport to send it.
+Removing table opt-in in a write is not a bypass.
+
 #### SET POLICY
 
 ```
@@ -652,6 +720,45 @@ The batched OFD scheduler runs orphan-files-deletion across multiple tables in a
 > docker exec -it local.namenode hdfs dfs -ls -R /data/openhouse/db/tb
 > ```
 
+### Test Optimizer, Analyzer, and Scheduler
+
+The `oh-hadoop-spark` recipe supplies the [database configuration](DEPLOY.md#mysql-for-optimizer).
+Build from the repository root:
+
+```bash
+docker compose up -d
+```
+
+Populate table_stats through optimizer without creating a table. Then verify analyzer can create a pending job and scheduler can schedule the job.
+
+```bash
+TABLE_UUID=$(uuidgen)
+
+# Write table stats with maintenance enabled.
+curl --fail -X PUT "http://localhost:8003/v1/optimizer/stats/$TABLE_UUID" \
+  -H 'Content-Type: application/json' \
+  --data-raw '{
+    "databaseName": "optimizer_analyzer_test",
+    "tableName": "table_01",
+    "stats": {"snapshot": {"numCurrentFiles": 1, "tableSizeBytes": 1024}},
+    "tableProperties": {"maintenance.optimizer.ofd.enabled": "true"}
+  }'
+
+# Run one analysis pass with OFD enabled (disabled by default).
+docker compose run --rm --no-deps -e ANALYZER_OFD_ENABLED=true openhouse-optimizer-analyzer
+
+# Read the PENDING operation created by Analyzer.
+curl --fail \
+  "http://localhost:8003/v1/optimizer/operations?tableUuid=$TABLE_UUID&status=PENDING&limit=10"
+
+# Run one scheduler pass.
+docker compose run --rm --no-deps openhouse-optimizer-scheduler
+
+# Read the SCHEDULED operation created by Scheduler.
+curl --fail \
+  "http://localhost:8003/v1/optimizer/operations?tableUuid=$TABLE_UUID&status=SCHEDULED&limit=10"
+```
+
 ## FAQs
 
 ### Q. My docker setup fails to create LLB definition.
@@ -699,6 +806,15 @@ cd infra/recipes/docker-compose/{recipe-directory}
 ```
 
 ### Q. How do I monitor metrics emitted by my service?
+
+View commits emit `catalog_view_commit_latency` for the entire commit-engine call, including
+validation, failures and unchanged replacements. Commit timing excludes the caller's captured
+pointer lookup and storage allocation. The `catalog_view_metadata_retrieval_latency` and
+`catalog_view_metadata_update_latency` timers measure metadata file IO plus parsing or
+serialization, excluding HTS pointer lookup/publication. A replacement records retrieval of its
+captured metadata file even when unchanged, but records an update only when it writes a metadata
+file; a create records only an update. These timers have no per-view tags and use 600-second
+histogram bounds.
 
 We run prometheus that scrapes metrics emitted by services configured to do so. These metrics can be explored in
 prometheus UI by hitting below URL in browser.

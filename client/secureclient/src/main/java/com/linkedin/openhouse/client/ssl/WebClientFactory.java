@@ -24,15 +24,17 @@ public abstract class WebClientFactory {
 
   private static final String HTTP = "http";
   private static final String HTTPS = "https";
-  private static final String SESSION_ID = "session-id";
 
+  public static final String HTTP_HEADER_SESSION_ID = "session-id";
   public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
+  public static final String HTTP_HEADER_ACTION_TYPE = "X-OpenHouse-Action-Type";
+  /** Comma-separated capabilities the client declares, such as {@code column-defaults}. */
+  public static final String HTTP_HEADER_CLIENT_CAPABILITIES = "X-OpenHouse-Client-Capabilities";
+
+  public static final String ACTION_TYPE_SYSTEM = "SYSTEM";
   // Product token advertised in the User-Agent header so the server can observe the client version.
   // The resulting header looks like "openhouse-java-client/1.5.2".
   public static final String USER_AGENT_CLIENT_PRODUCT = "openhouse-java-client";
-  // Fallback when the client jar manifest carries no Implementation-Version (e.g. running from
-  // classes during local/dev/tests) and no explicit version was set.
-  private static final String CLIENT_VERSION_UNKNOWN = "unknown";
   private static final int IN_MEMORY_BUFFER_SIZE = 40 * 1024 * 1024;
   // The maximum number of connections per connection pool
   private static final int MAX_CONNECTION_POOL_SIZE = 500;
@@ -52,8 +54,8 @@ public abstract class WebClientFactory {
 
   @Setter private String clientName = null;
 
-  // When null, the version is resolved from the client jar manifest's Implementation-Version,
-  // falling back to {@link #CLIENT_VERSION_UNKNOWN}. Callers may set an explicit value to override.
+  // When null, the User-Agent reports the release this client was built as (ClientVersion,
+  // generated at build time). Callers may set an explicit value to override.
   @Setter private String clientVersion = null;
 
   protected WebClientFactory() {
@@ -206,7 +208,7 @@ public abstract class WebClientFactory {
       sessionId = UUID.randomUUID().toString();
     }
     log.info("Client session id: {}", sessionId);
-    webClientBuilder.defaultHeaders(h -> h.add(SESSION_ID, sessionId));
+    webClientBuilder.defaultHeaders(h -> h.add(HTTP_HEADER_SESSION_ID, sessionId));
   }
 
   /**
@@ -237,19 +239,13 @@ public abstract class WebClientFactory {
 
   /**
    * Resolve the client version to advertise: an explicitly set {@link #clientVersion} takes
-   * precedence, otherwise the Implementation-Version stamped into this jar's manifest, otherwise
-   * {@link #CLIENT_VERSION_UNKNOWN}.
+   * precedence, otherwise the release this client was built as. That release is compiled in, unlike
+   * a jar manifest, which shaded and re-bundled runtimes drop.
    *
    * @return the resolved client version, never null
    */
   private String resolveClientVersion() {
-    if (!StringUtil.isNullOrEmpty(clientVersion)) {
-      return clientVersion;
-    }
-    String implementationVersion = WebClientFactory.class.getPackage().getImplementationVersion();
-    return StringUtil.isNullOrEmpty(implementationVersion)
-        ? CLIENT_VERSION_UNKNOWN
-        : implementationVersion;
+    return StringUtil.isNullOrEmpty(clientVersion) ? ClientVersion.VALUE : clientVersion;
   }
 
   /**

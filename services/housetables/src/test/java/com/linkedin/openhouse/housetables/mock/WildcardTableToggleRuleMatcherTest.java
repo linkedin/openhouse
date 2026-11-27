@@ -63,6 +63,36 @@ class WildcardTableToggleRuleMatcherTest {
   }
 
   @Test
+  void testDatabaseAndTablePrefixMatch() {
+    when(mockRule.getTablePattern()).thenReturn("events_*");
+    when(mockRule.getDatabasePattern()).thenReturn("tracking_*");
+
+    assertTrue(matcher.matches(mockRule, "events_daily", "tracking_prod"));
+    assertFalse(matcher.matches(mockRule, "metrics_daily", "tracking_prod"));
+    assertFalse(matcher.matches(mockRule, "events_daily", "analytics_prod"));
+  }
+
+  @Test
+  void testWildcardMatchesInsidePattern() {
+    when(mockRule.getTablePattern()).thenReturn("events_*_daily");
+    when(mockRule.getDatabasePattern()).thenReturn("*_prod");
+
+    assertTrue(matcher.matches(mockRule, "events_click_daily", "tracking_prod"));
+    assertFalse(matcher.matches(mockRule, "events_click_hourly", "tracking_prod"));
+    assertFalse(matcher.matches(mockRule, "events_click_daily", "tracking_test"));
+  }
+
+  @Test
+  void testMatchIsCaseSensitive() {
+    when(mockRule.getTablePattern()).thenReturn("events_*");
+    when(mockRule.getDatabasePattern()).thenReturn("tracking");
+
+    assertTrue(matcher.matches(mockRule, "events_daily", "tracking"));
+    assertFalse(matcher.matches(mockRule, "Events_daily", "tracking"));
+    assertFalse(matcher.matches(mockRule, "events_daily", "Tracking"));
+  }
+
+  @Test
   void testNoMatch() {
     when(mockRule.getTablePattern()).thenReturn("table1");
     when(mockRule.getDatabasePattern()).thenReturn("db1");

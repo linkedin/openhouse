@@ -1,7 +1,14 @@
 package com.linkedin.openhouse.optimizer.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.linkedin.openhouse.optimizer.analyzer.AnalyzerRunner;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
@@ -13,6 +20,7 @@ import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,12 +28,13 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@TestPropertySource(locations = "classpath:optimizer-mysql-testcontainers.properties")
 @Transactional
 class OptimizerDataServiceImplTest {
 
@@ -33,6 +42,9 @@ class OptimizerDataServiceImplTest {
   @Autowired TableOperationsRepository operationsRepository;
   @Autowired TableStatsRepository statsRepository;
   @Autowired TableStatsHistoryRepository statsHistoryRepository;
+
+  // Replace the real analyzer so the trigger is observable and no analysis runs during these tests.
+  @MockBean AnalyzerRunner analyzerRunner;
 
   // --- updateOperation ---
 
@@ -54,7 +66,7 @@ class OptimizerDataServiceImplTest {
             .build());
 
     Optional<TableOperationsHistoryDto> result =
-        service.updateOperation(operationId, HistoryStatusDto.SUCCESS);
+        service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
 
     assertThat(result).isPresent();
     assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.SUCCESS);
@@ -67,9 +79,170 @@ class OptimizerDataServiceImplTest {
   @Test
   void completeOperation_notFound_returnsEmpty() {
     Optional<TableOperationsHistoryDto> result =
-        service.updateOperation(UUID.randomUUID().toString(), HistoryStatusDto.FAILED);
+        service.updateOperation(UUID.randomUUID().toString(), HistoryStatusDto.FAILED, "boom");
 
     assertThat(result).isEmpty();
+  }
+
+  @Test
+  void completeOperation_failed_persistsFailureReason() {
+    String operationId = UUID.randomUUID().toString();
+    String tableUuid = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .jobId("spark-job-456")
+            .build());
+
+    Optional<TableOperationsHistoryDto> result =
+        service.updateOperation(
+            operationId, HistoryStatusDto.FAILED, "OutOfMemoryError: Java heap space");
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.FAILED);
+    assertThat(result.get().getFailureReason()).isEqualTo("OutOfMemoryError: Java heap space");
+  }
+
+  @Test
+  void completeOperation_failed_truncatesOverlongFailureReason() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .jobId("spark-job-789")
+            .build());
+    String overlong =
+        "x"
+            .repeat(
+                com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow
+                        .FAILURE_REASON_MAX_LENGTH
+                    + 500);
+
+    Optional<TableOperationsHistoryDto> result =
+        service.updateOperation(operationId, HistoryStatusDto.FAILED, overlong);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getFailureReason())
+        .hasSize(
+            com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow
+                .FAILURE_REASON_MAX_LENGTH);
+  }
+
+  @Test
+  void completeOperation_success_ignoresFailureReason() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .build());
+
+    Optional<TableOperationsHistoryDto> result =
+        service.updateOperation(operationId, HistoryStatusDto.SUCCESS, "should be ignored");
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getFailureReason()).isNull();
+  }
+
+  @Test
+  void completeOperation_success_writesNextEligibleAtFromAnalyzerSuccessCadence() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .attempts(4)
+            .build());
+    Instant nextEligible = Instant.now().plus(24, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+    // succeeded=true and the op's attempt count are forwarded so the analyzer applies the success
+    // cadence; the resulting instant is written on the operation row.
+    when(analyzerRunner.nextEligibleAt(
+            eq(OperationTypeDto.ORPHAN_FILES_DELETION), any(Instant.class), eq(true), eq(4)))
+        .thenReturn(Optional.of(nextEligible));
+
+    service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
+
+    TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
+    assertThat(updated.getNextEligibleAt()).isEqualTo(nextEligible);
+  }
+
+  @Test
+  void completeOperation_failed_writesNextEligibleAtFromAnalyzerFailureBackoff() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .attempts(3)
+            .build());
+    Instant nextEligible = Instant.now().plus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+    // succeeded=false routes through the failure backoff; the reported failure now retries at the
+    // written time rather than waiting out the stale-timeout.
+    when(analyzerRunner.nextEligibleAt(
+            eq(OperationTypeDto.TABLE_STATS_COLLECTION), any(Instant.class), eq(false), eq(3)))
+        .thenReturn(Optional.of(nextEligible));
+
+    service.updateOperation(operationId, HistoryStatusDto.FAILED, "boom");
+
+    TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
+    assertThat(updated.getNextEligibleAt()).isEqualTo(nextEligible);
+  }
+
+  @Test
+  void completeOperation_analyzerReturnsEmpty_leavesNextEligibleAtUnset() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .build());
+    // No analyzer handles the type (empty) → nothing is written; the row's next_eligible_at stays
+    // null.
+    when(analyzerRunner.nextEligibleAt(any(), any(Instant.class), eq(true), eq(0)))
+        .thenReturn(Optional.empty());
+
+    service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
+
+    TableOperationsRow updated = operationsRepository.findById(operationId).orElseThrow();
+    assertThat(updated.getNextEligibleAt()).isNull();
   }
 
   // --- upsertTableStats ---
@@ -95,6 +268,34 @@ class OptimizerDataServiceImplTest {
         .containsEntry("maintenance.optimizer.ofd.enabled", "true");
     assertThat(result.getUpdatedAt()).isNotNull();
     assertThat(statsRepository.findById(tableUuid)).isPresent();
+  }
+
+  @Test
+  void upsertTableStats_triggersCommitDrivenAnalysis() {
+    String tableUuid = UUID.randomUUID().toString();
+    TableStatsDto input =
+        TableStatsDto.builder()
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .snapshot(TableStatsDto.SnapshotMetrics.builder().tableSizeBytes(1L).build())
+            .build();
+
+    service.upsertTableStats(input);
+
+    // Trigger is fire-and-forget on a bounded-elastic worker; await the async invocation. The
+    // analyzer receives an AnalyzeRequest carrying the in-memory table (no table_stats re-read).
+    verify(analyzerRunner, timeout(5000))
+        .analyze(
+            argThat(
+                req ->
+                    req.getTable()
+                        .map(
+                            t ->
+                                tableUuid.equals(t.getTableUuid())
+                                    && "db1".equals(t.getDatabaseName())
+                                    && "tbl1".equals(t.getTableId()))
+                        .orElse(false)));
   }
 
   @Test

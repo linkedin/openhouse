@@ -30,3 +30,28 @@ dependencies {
     implementation project(member.path)
   }
 }
+
+// A project dependency only names a member's main artifact, so ELR would never mirror its classifier
+// jars: the shaded `uber` runtimes and the `lib` jars of the Spring Boot services. List each one as
+// its own <dependency> with a <classifier>. They are added to the POM only, so building this module
+// never resolves them.
+publishing.publications.named('mavenJava', MavenPublication) {
+  pom.withXml { xml ->
+    def root = xml.asNode()
+    def dependencies = root.dependencies ? root.dependencies[0] : root.appendNode('dependencies')
+    publishedMembers.each { member ->
+      member.publishing.publications.withType(MavenPublication).each { publication ->
+        publication.artifacts
+            .findAll { it.classifier && !(it.classifier in ['sources', 'javadoc']) }
+            .each { artifact ->
+              def dependency = dependencies.appendNode('dependency')
+              dependency.appendNode('groupId', publication.groupId)
+              dependency.appendNode('artifactId', publication.artifactId)
+              dependency.appendNode('version', publication.version)
+              dependency.appendNode('classifier', artifact.classifier)
+              dependency.appendNode('scope', 'runtime')
+            }
+      }
+    }
+  }
+}

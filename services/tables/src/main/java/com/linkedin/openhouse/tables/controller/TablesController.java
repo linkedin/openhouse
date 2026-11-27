@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -65,6 +66,35 @@ public class TablesController {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableResponseBody> apiResponse =
         tablesApiHandler.getTable(databaseId, tableId, extractAuthenticatedUserPrincipal());
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Check if a Table exists in a Database",
+      description =
+          "Returns HTTP 200 if the Table identified by tableId exists in the database identified by "
+              + "databaseId, and HTTP 404 otherwise.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table EXISTS: OK"),
+        @ApiResponse(responseCode = "401", description = "Table EXISTS: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "404", description = "Table EXISTS: NOT_FOUND")
+      })
+  @GetMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/{tableId}/exists",
+        "/v1/databases/{databaseId}/tables/{tableId}/exists"
+      },
+      produces = {"application/json"})
+  public ResponseEntity<Void> tableExists(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.tableExists(databaseId, tableId);
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
@@ -148,7 +178,8 @@ public class TablesController {
         @ApiResponse(responseCode = "401", description = "Table POST: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Table POST: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "Table POST: DB_NOT_FOUND"),
-        @ApiResponse(responseCode = "409", description = "Table POST: TBL_EXISTS")
+        @ApiResponse(responseCode = "409", description = "Table POST: TBL_EXISTS"),
+        @ApiResponse(responseCode = "422", description = "Table POST: DATABASE_TABLE_LIMIT_REACHED")
       })
   @PostMapping(
       value = {"/v0/databases/{databaseId}/tables", "/v1/databases/{databaseId}/tables"},
@@ -184,7 +215,8 @@ public class TablesController {
         @ApiResponse(responseCode = "400", description = "Table PUT: BAD_REQUEST"),
         @ApiResponse(responseCode = "401", description = "Table PUT: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Table PUT: FORBIDDEN"),
-        @ApiResponse(responseCode = "404", description = "Table PUT: DB_NOT_FOUND")
+        @ApiResponse(responseCode = "404", description = "Table PUT: DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "422", description = "Table PUT: DATABASE_TABLE_LIMIT_REACHED")
       })
   @PutMapping(
       value = {
@@ -423,6 +455,34 @@ public class TablesController {
   }
 
   @Operation(
+      summary = "Delete a lock by reason",
+      description = "Requires existing LOCK_ADMIN authorization and a matching active lock reason.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock DELETE: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock DELETE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock DELETE: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock DELETE: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock DELETE: TABLE_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "lock DELETE: REASON_CONFLICT")
+      })
+  @DeleteMapping(
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock/{reason}"},
+      produces = {"application/json"})
+  public ResponseEntity<Void> deleteLockByReason(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Expected lock reason", required = true) @PathVariable
+          LockReason reason) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.deleteLock(
+            databaseId, tableId, reason, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
       summary = "Search Soft Deleted Tables",
       description =
           "Returns a paginated list of soft deleted tables in the database identified by databaseId.",
@@ -501,6 +561,9 @@ public class TablesController {
             description = "Soft Deleted Table RESTORE: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Soft Deleted Table RESTORE: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "Soft Deleted Table RESTORE: NOT FOUND"),
+        @ApiResponse(
+            responseCode = "422",
+            description = "Soft Deleted Table RESTORE: DATABASE_TABLE_LIMIT_REACHED"),
         @ApiResponse(
             responseCode = "500",
             description = "Soft Deleted Table RESTORE: INTERNAL SERVER ERROR")
