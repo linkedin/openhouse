@@ -53,9 +53,38 @@ class ExpiredTableDeletionAnalyzerTest {
   }
 
   @Test
-  void isActiveOpTimedOut_returnsFalse_untilTwentyFourHoursAfterSubmission() {
-    assertThat(analyzer.isActiveOpTimedOut(submittedAgo(Duration.ofHours(4)))).isFalse();
-    assertThat(analyzer.isActiveOpTimedOut(submittedAgo(Duration.ofHours(25)))).isTrue();
+  void isActiveOpTimedOut_returnsTrue_afterDefaultStaleTime() {
+    assertThat(analyzer.isActiveOpTimedOut(submittedAgo(Duration.ofHours(2)))).isFalse();
+    assertThat(analyzer.isActiveOpTimedOut(submittedAgo(Duration.ofHours(4)))).isTrue();
+  }
+
+  @Test
+  void shouldSchedule_returnsTrue_whenSubmittedDeletionIsStale() {
+    TableDto table = temporaryTable(Instant.now().minus(Duration.ofHours(5)));
+    assertThat(
+            analyzer.shouldSchedule(
+                table, Optional.of(submittedAgo(Duration.ofHours(4))), Optional.empty(), 0))
+        .isTrue();
+  }
+
+  @Test
+  void nextEligibleAt_isOneHourOut_afterRepeatedFailures() {
+    Instant failedAt = Instant.now();
+    assertThat(analyzer.nextEligibleAt(failedAt, false, 10))
+        .isEqualTo(failedAt.plus(Duration.ofHours(1)));
+  }
+
+  @Test
+  void shouldSchedule_returnsTrue_oneHourAfterRepeatedFailures() {
+    TableDto table = temporaryTable(Instant.now().minus(Duration.ofDays(1)));
+    Instant failedAt = Instant.now().minus(Duration.ofMinutes(61));
+    assertThat(
+            analyzer.shouldSchedule(
+                table,
+                Optional.empty(),
+                Optional.of(history(HistoryStatusDto.FAILED, failedAt)),
+                6))
+        .isTrue();
   }
 
   @Test

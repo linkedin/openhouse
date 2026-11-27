@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Schema;
@@ -147,7 +146,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
-    validateFeatureCompatibility(createUpdateTableRequestBody, MUTUALLY_EXCLUSIVE_FEATURES);
+    validateFeatureCompatibility(createUpdateTableRequestBody);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),
@@ -289,31 +288,36 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
           "table lock",
           (properties, policies) ->
               Optional.ofNullable(policies.getLockState()).filter(LockState::isLocked).isPresent());
+  private static final Feature RETENTION_FEATURE =
+      new Feature(
+          "retention policy",
+          (properties, policies) -> Optional.ofNullable(policies.getRetention()).isPresent());
 
   private static final List<IncompatibleFeatures> TEMPORARY_TABLE_EXCLUSIONS =
       Arrays.asList(
           new IncompatibleFeatures(TEMPORARY_FEATURE, REPLICATION_FEATURE),
           new IncompatibleFeatures(TEMPORARY_FEATURE, WAP_FEATURE),
-          new IncompatibleFeatures(TEMPORARY_FEATURE, LOCK_FEATURE));
+          new IncompatibleFeatures(TEMPORARY_FEATURE, LOCK_FEATURE),
+          new IncompatibleFeatures(TEMPORARY_FEATURE, RETENTION_FEATURE));
 
-  private static final List<IncompatibleFeatures> MUTUALLY_EXCLUSIVE_FEATURES =
-      Stream.concat(
-              Stream.of(
-                  new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
-                  new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE)),
-              TEMPORARY_TABLE_EXCLUSIONS.stream())
-          .collect(Collectors.toList());
+  private static final List<IncompatibleFeatures> RTAS_EXCLUSIONS =
+      Arrays.asList(
+          new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
+          new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE));
 
   /**
-   * Rejects a table state that would keep a temporary table together with replication, WAP, or a
-   * lock. The request check in {@link #validateCreateTable} and {@link #validateUpdateTable} sees
-   * only the request, but the server restores policies that a request omits: an active SYSTEM_ONLY
-   * lock survives an ordinary update, and a replace inherits the existing table's policies. Callers
-   * pass the properties and policies that the commit will persist.
+   * Rejects a table state that would keep a temporary table together with replication, WAP, a lock,
+   * or a retention policy. The request check in {@link #validateCreateTable} and {@link
+   * #validateUpdateTable} sees only the request, but the server restores policies that a request
+   * omits: an active SYSTEM_ONLY lock survives an ordinary update, and a replace inherits the
+   * existing table's policies. Callers pass the properties and policies that the commit will
+   * persist.
+   *
+   * <p>{@link CatalogConstants#FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP} does not lift
+   * these checks, because expiration deletion relies on them.
    *
    * @param policies the policies to persist, or null when the table has none
-   * @throws RequestValidationFailureException when the state enables two incompatible features and
-   *     {@link CatalogConstants#FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP} is not true
+   * @throws RequestValidationFailureException when the state enables two incompatible features
    */
   public static void validateTemporaryTableCompatibility(
       String databaseId, String tableId, Map<String, String> properties, Policies policies) {
@@ -321,14 +325,22 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
         databaseId, tableId, properties, policies, TEMPORARY_TABLE_EXCLUSIONS);
   }
 
-  private static void validateFeatureCompatibility(
-      CreateUpdateTableRequestBody requestBody, List<IncompatibleFeatures> incompatibleFeatures) {
-    validateFeatureCompatibility(
+  private static void validateFeatureCompatibility(CreateUpdateTableRequestBody requestBody) {
+    if (!isTablePropertyEnabled(
+        requestBody.getTableProperties(),
+        CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
+      validateFeatureCompatibility(
+          requestBody.getDatabaseId(),
+          requestBody.getTableId(),
+          requestBody.getTableProperties(),
+          requestBody.getPolicies(),
+          RTAS_EXCLUSIONS);
+    }
+    validateTemporaryTableCompatibility(
         requestBody.getDatabaseId(),
         requestBody.getTableId(),
         requestBody.getTableProperties(),
-        requestBody.getPolicies(),
-        incompatibleFeatures);
+        requestBody.getPolicies());
   }
 
   private static void validateFeatureCompatibility(
@@ -337,10 +349,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       Map<String, String> properties,
       Policies nullablePolicies,
       List<IncompatibleFeatures> incompatibleFeatures) {
-    if (isTablePropertyEnabled(
-        properties, CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
-      return;
-    }
     Policies policies =
         Optional.ofNullable(nullablePolicies).orElseGet(() -> Policies.builder().build());
 
@@ -423,7 +431,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
-    validateFeatureCompatibility(createUpdateTableRequestBody, MUTUALLY_EXCLUSIVE_FEATURES);
+    validateFeatureCompatibility(createUpdateTableRequestBody);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),

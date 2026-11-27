@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -52,6 +53,7 @@ import org.apache.iceberg.actions.ImmutableExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -97,6 +99,15 @@ public final class Operations implements AutoCloseable {
   public Table getTable(String fqtn) {
     Catalog catalog = getCatalog();
     return catalog.loadTable(TableIdentifier.parse(fqtn));
+  }
+
+  /** Loads the table, or returns empty when it does not exist. */
+  public Optional<Table> findTable(String tableName) {
+    try {
+      return Optional.of(getTable(tableName));
+    } catch (NoSuchTableException e) {
+      return Optional.empty();
+    }
   }
 
   /**
